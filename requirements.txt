@@ -1,0 +1,12 @@
+# Install CUDA-enabled PyTorch first to avoid pulling a CPU-only wheel:
+# python -m pip install torch==2.1.0+cu118 torchaudio==2.1.0+cu118 --index-url https://download.pytorch.org/whl/cu118
+
+huggingface-hub==0.22.2
+mypy==1.10.0
+numpy==1.26.4
+pydantic==2.7.1
+pyannote.audio==3.1.1
+pytest==8.2.2
+python-dotenv==1.0.1
+ruff==0.4.8
+whisperx==3.1.1
