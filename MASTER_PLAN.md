@@ -18,16 +18,17 @@
 | 1     | TASK-002: Audio Extraction (ffmpeg)      | ✅     | ✅    | ✅    |
 | 2     | TASK-003: WhisperX Transcription         | ✅     | ✅    | ✅    |
 | 2     | TASK-004: Speaker Diarization (pyannote) | ✅     | ✅    | ✅    |
-| 3     | TASK-005: Transcript Merge & Export      | ⏳     | ❌    | ❓    |
+| 3     | TASK-005: Transcript Merge & Export      | ✅     | ✅    | ✅    |
 | 3     | TASK-006: Per-Student Context Builder    | ⏳     | ❌    | ❓    |
 
-**Current Verification (2026-04-29):**
+**Current Verification (2026-04-30):**
 
-- ✅ Build: TASK-001 through TASK-004 scripts lint and type-check cleanly on Python 3.10 in this worktree
-- ✅ Tests: 43 pytest checks passing across TASK-001 through TASK-004 helpers
+- ✅ Build: TASK-001 through TASK-005 scripts lint and type-check cleanly on Python 3.10 in this worktree
+- ✅ Tests: 52 pytest checks passing across TASK-001 through TASK-005 helpers
 - ✅ Integration: TASK-002 re-extracted the provided class recording to a validated 16kHz mono WAV in the TASK-004 worktree
 - ✅ Runtime: TASK-003 completed on the local RTX 3050 GPU after pinning `ctranslate2==3.24.0` and `faster-whisper==0.10.1`; the script writes `output/transcript_raw.json` from the provided class recording while bypassing the upstream WhisperX VAD redirect
 - ✅ Runtime: TASK-004 now loads the gated pyannote pipeline, works around newer Torch checkpoint defaults, and writes `output/diarization.json` from the provided class recording; this host validated the run with `--allow-cpu` because the current Python 3.10 Torch install is CPU-only
+- ✅ Runtime: TASK-005 regenerated a bounded 60-second clip from the provided class recording in this worktree, produced `output/transcript_raw.json` and `output/diarization.json`, and merged them into `output/transcript_diarized.json` with 8 speaker-labeled segments and 0 `UNKNOWN`
 
 **Deliverables:**
 
@@ -243,7 +244,7 @@ Each task is a standalone Python script so they can be tested and debugged indep
 | 1     | 002  | Audio Extraction       | ✅ Completed   | Validated with the real Zoom MP4 via ffmpeg and ffprobe                                                                                                            |
 | 2     | 003  | WhisperX Transcription | ✅ Completed   | Validated on the real class recording and produced `output/transcript_raw.json` on the RTX 3050                                                                    |
 | 2     | 004  | Speaker Diarization    | ✅ Completed   | Validated on the real class recording and produced `output/diarization.json`; this host used CPU fallback because the active Python 3.10 Torch install is CPU-only |
-| 3     | 005  | Transcript Merge       | ⏳ Not Started | Unblocked by TASK-004; ready to merge `output/transcript_raw.json` and `output/diarization.json`                                                                   |
+| 3     | 005  | Transcript Merge       | ✅ Completed   | Added `scripts/merge.py`, validated on a regenerated 60-second real clip in this worktree, and produced `output/transcript_diarized.json` with 0 `UNKNOWN`         |
 | 3     | 006  | Per-Student Context    | ⏳ Not Started | Blocked by TASK-005                                                                                                                                                |
 
 **Status Legend:**
@@ -439,15 +440,33 @@ Runtime status: ✅ PASS
 
 ### TODO-005 Handoff
 
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 
 **Prerequisites from TODO-003 + TODO-004:**
 
-- [ ] `output/transcript_raw.json` exists
-- [ ] `output/diarization.json` exists
+- [x] `output/transcript_raw.json` exists
+- [x] `output/diarization.json` exists
 
 ```
-[Fill in after completion]
+Completed by: GPT-5.4
+Build status: ✅ PASS
+Runtime status: ✅ PASS
+
+### What was done:
+- Added `scripts/merge.py` with argparse + Pydantic input handling, strict transcript and diarization JSON loading, majority-overlap speaker assignment, warning-based `UNKNOWN` handling, and JSON serialization for diarized transcript output
+- Added focused pytest coverage for TASK-005 argument parsing, overlap math, majority-speaker selection, warning behavior, schema validation, and manual-review line formatting
+- Fixed the merge entrypoint so `python scripts/merge.py` can import sibling TASK-003 and TASK-004 models when executed directly from the worktree
+- Regenerated a bounded 60-second clip from the provided Zoom recording in this worktree, re-extracted `output/audio.wav`, re-ran TASK-003 transcription and TASK-004 diarization on that clip, and merged the real outputs into `output/transcript_diarized.json`
+
+### Tests passing: ✅ 52 tests
+
+### Warnings to next implementor:
+- This host still uses CPU fallback for pyannote in Python 3.10, so TASK-005 runtime validation used `--allow-cpu` and a 60-second real clip instead of a fresh full-recording rerun
+- WhisperX import on this host required `USE_TF=0` and `TRANSFORMERS_NO_TF=1` because the installed TensorFlow and protobuf packages conflict during `transformers` import resolution
+- `scripts/merge.py` preserves transcript `language`, `model`, and `words`, so TASK-006 can consume speaker-labeled segments without re-reading the raw transcript schema
+
+### Breaking changes:
+- None
 ```
 
 ---
