@@ -163,6 +163,30 @@ def release_gpu_resources(resource: object | None = None) -> None:
         torch.cuda.empty_cache()
 
 
+def configure_torch_checkpoint_loading() -> None:
+    try:
+        import torch
+    except ImportError:
+        return
+
+    add_safe_globals = getattr(torch.serialization, "add_safe_globals", None)
+    torch_version_module = getattr(torch, "torch_version", None)
+    torch_version_class = getattr(torch_version_module, "TorchVersion", None)
+    if callable(add_safe_globals) and torch_version_class is not None:
+        add_safe_globals([torch_version_class])
+
+    original_load = getattr(torch, "load", None)
+    if not callable(original_load) or getattr(original_load, "_task004_compat", False):
+        return
+
+    def compatible_load(*args: object, **kwargs: object) -> object:
+        kwargs["weights_only"] = False
+        return original_load(*args, **kwargs)
+
+    setattr(compatible_load, "_task004_compat", True)
+    setattr(torch, "load", compatible_load)
+
+
 def check_pyannote_access(model_name: str, token: str | None) -> ValidationCheck:
     if token is None:
         return fail_check(
@@ -183,6 +207,7 @@ def check_pyannote_access(model_name: str, token: str | None) -> ValidationCheck
 
     pipeline: object | None = None
     try:
+        configure_torch_checkpoint_loading()
         pipeline = Pipeline.from_pretrained(model_name, use_auth_token=token)
         return pass_check("pyannote", f"Loaded gated model access for {model_name}.")
     except GatedRepoError:

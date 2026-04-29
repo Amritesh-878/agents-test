@@ -17,16 +17,17 @@
 | 1     | TASK-001: Environment Setup              | ✅     | ✅    | ✅    |
 | 1     | TASK-002: Audio Extraction (ffmpeg)      | ✅     | ✅    | ✅    |
 | 2     | TASK-003: WhisperX Transcription         | ✅     | ✅    | ✅    |
-| 2     | TASK-004: Speaker Diarization (pyannote) | ⏳     | ❌    | ❓    |
+| 2     | TASK-004: Speaker Diarization (pyannote) | ✅     | ✅    | ✅    |
 | 3     | TASK-005: Transcript Merge & Export      | ⏳     | ❌    | ❓    |
 | 3     | TASK-006: Per-Student Context Builder    | ⏳     | ❌    | ❓    |
 
 **Current Verification (2026-04-29):**
 
-- ✅ Build: TASK-001, TASK-002, and TASK-003 scripts lint and type-check cleanly on Python 3.11
-- ✅ Tests: 30 pytest checks passing across TASK-001 through TASK-003 helpers
-- ✅ Integration: TASK-002 re-extracted the provided class recording to a validated 16kHz mono WAV in the TASK-003 worktree
-- ✅ Runtime: TASK-003 completed on the local RTX 3050 GPU after pinning `ctranslate2==3.24.0` and `faster-whisper==0.10.1`; the script now writes `output/transcript_raw.json` from the provided class recording while bypassing the upstream WhisperX VAD redirect
+- ✅ Build: TASK-001 through TASK-004 scripts lint and type-check cleanly on Python 3.10 in this worktree
+- ✅ Tests: 43 pytest checks passing across TASK-001 through TASK-004 helpers
+- ✅ Integration: TASK-002 re-extracted the provided class recording to a validated 16kHz mono WAV in the TASK-004 worktree
+- ✅ Runtime: TASK-003 completed on the local RTX 3050 GPU after pinning `ctranslate2==3.24.0` and `faster-whisper==0.10.1`; the script writes `output/transcript_raw.json` from the provided class recording while bypassing the upstream WhisperX VAD redirect
+- ✅ Runtime: TASK-004 now loads the gated pyannote pipeline, works around newer Torch checkpoint defaults, and writes `output/diarization.json` from the provided class recording; this host validated the run with `--allow-cpu` because the current Python 3.10 Torch install is CPU-only
 
 **Deliverables:**
 
@@ -236,14 +237,14 @@ Each task is a standalone Python script so they can be tested and debugged indep
 
 ## Task Status Tracker
 
-| Phase | TODO | Title                  | Status         | Notes                                                                                           |
-| ----- | ---- | ---------------------- | -------------- | ----------------------------------------------------------------------------------------------- |
-| 1     | 001  | Environment Setup      | ✅ Completed   | Live validation passed in the worktree                                                          |
-| 1     | 002  | Audio Extraction       | ✅ Completed   | Validated with the real Zoom MP4 via ffmpeg and ffprobe                                         |
-| 2     | 003  | WhisperX Transcription | ✅ Completed   | Validated on the real class recording and produced `output/transcript_raw.json` on the RTX 3050 |
-| 2     | 004  | Speaker Diarization    | ⏳ Not Started | Unblocked by TASK-003; keep execution sequential on the 4GB GPU                                 |
-| 3     | 005  | Transcript Merge       | ⏳ Not Started | Blocked by TASK-004                                                                             |
-| 3     | 006  | Per-Student Context    | ⏳ Not Started | Blocked by TASK-005                                                                             |
+| Phase | TODO | Title                  | Status         | Notes                                                                                                                                                              |
+| ----- | ---- | ---------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1     | 001  | Environment Setup      | ✅ Completed   | Live validation passed in the worktree                                                                                                                             |
+| 1     | 002  | Audio Extraction       | ✅ Completed   | Validated with the real Zoom MP4 via ffmpeg and ffprobe                                                                                                            |
+| 2     | 003  | WhisperX Transcription | ✅ Completed   | Validated on the real class recording and produced `output/transcript_raw.json` on the RTX 3050                                                                    |
+| 2     | 004  | Speaker Diarization    | ✅ Completed   | Validated on the real class recording and produced `output/diarization.json`; this host used CPU fallback because the active Python 3.10 Torch install is CPU-only |
+| 3     | 005  | Transcript Merge       | ⏳ Not Started | Unblocked by TASK-004; ready to merge `output/transcript_raw.json` and `output/diarization.json`                                                                   |
+| 3     | 006  | Per-Student Context    | ⏳ Not Started | Blocked by TASK-005                                                                                                                                                |
 
 **Status Legend:**
 
@@ -404,15 +405,34 @@ Runtime status: ✅ PASS
 
 ### TODO-004 Handoff
 
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 
 **Prerequisites from TODO-002:**
 
 - [x] `output/audio.wav` exists at 16kHz mono
-- [ ] HF token in `.env`
+- [x] HF token in `.env`
 
 ```
-[Fill in after completion]
+Completed by: GPT-5.4
+Build status: ✅ PASS
+Runtime status: ✅ PASS
+
+### What was done:
+- Added `scripts/diarize.py` with argparse + Pydantic input handling, fail-fast WAV and JSON validation, Hugging Face token loading, GPU cache cleanup, and JSON serialization for speaker segments
+- Added focused pytest coverage for TASK-004 argument parsing, runtime selection, pyannote annotation normalization, and diarization document validation
+- Added Torch 2.6+ checkpoint compatibility shims to both `scripts/diarize.py` and `scripts/validate_env.py` so pyannote 3.1.1 can load trusted checkpoints on newer Torch releases
+- Reused TASK-002 to regenerate `output/audio.wav` from the provided class recording ZIP and completed a live diarization run on that asset, producing `output/diarization.json` with 2 speakers and 353 segments
+- Fixed the local pyannote runtime stack by aligning `torchaudio` with the installed Torch build and restoring `numpy==1.26.4` before re-running the gated model validation
+
+### Tests passing: ✅ 43 tests
+
+### Warnings to next implementor:
+- TASK-005 can now consume `output/transcript_raw.json` and `output/diarization.json` directly from this worktree
+- The current Python 3.10 runtime is `torch 2.8.0+cpu`, so TASK-004 validated with `--allow-cpu`; reinstall the CUDA-enabled Torch and torchaudio wheels if later tasks need GPU execution in this worktree
+- The archive ZIP also contains individual participant M4A clips under `Audio Record/`; they were not needed for diarization output, but they may help with speaker-label debugging in TASK-005 or TASK-006
+
+### Breaking changes:
+- None
 ```
 
 ---
