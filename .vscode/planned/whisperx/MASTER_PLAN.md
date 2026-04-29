@@ -18,17 +18,17 @@
 | ----- | ---------------------------------------- | ------ | ----- | ----- |
 | 1     | TASK-001: Environment Setup              | ✅     | ✅    | ✅    |
 | 1     | TASK-002: Audio Extraction (ffmpeg)      | ✅     | ✅    | ✅    |
-| 2     | TASK-003: WhisperX Transcription         | ⏳     | ❌    | ❓    |
+| 2     | TASK-003: WhisperX Transcription         | ✅     | ✅    | ✅    |
 | 2     | TASK-004: Speaker Diarization (pyannote) | ⏳     | ❌    | ❓    |
 | 3     | TASK-005: Transcript Merge & Export      | ⏳     | ❌    | ❓    |
 | 3     | TASK-006: Per-Student Context Builder    | ⏳     | ❌    | ❓    |
 
-**Current Verification (2026-04-22):**
+**Current Verification (2026-04-29):**
 
-- ✅ Build: TASK-001 and TASK-002 scripts lint and type-check cleanly on Python 3.11
-- ✅ Tests: 13 pytest checks passing across TASK-001 and TASK-002 helpers; 2/6 tasks fully completed
-- ✅ Integration: TASK-002 extracted a real Zoom MP4 to validated 16kHz mono WAV output
-- ✅ Environment: CUDA, Hugging Face token access, pyannote gated model access, and WhisperX ASR model loading validated in the worktree
+- ✅ Build: TASK-001, TASK-002, and TASK-003 scripts lint and type-check cleanly on Python 3.11
+- ✅ Tests: 30 pytest checks passing across TASK-001 through TASK-003 helpers
+- ✅ Integration: TASK-002 re-extracted the provided class recording to a validated 16kHz mono WAV in the TASK-003 worktree
+- ✅ Runtime: TASK-003 completed on the local RTX 3050 GPU after pinning `ctranslate2==3.24.0` and `faster-whisper==0.10.1`; the script now writes `output/transcript_raw.json` from the provided class recording while bypassing the upstream WhisperX VAD redirect
 
 **Deliverables:**
 
@@ -238,14 +238,14 @@ Each task is a standalone Python script so they can be tested and debugged indep
 
 ## Task Status Tracker
 
-| Phase | TODO | Title                  | Status         | Notes                                                   |
-| ----- | ---- | ---------------------- | -------------- | ------------------------------------------------------- |
-| 1     | 001  | Environment Setup      | ✅ Completed   | Live validation passed in the worktree                  |
-| 1     | 002  | Audio Extraction       | ✅ Completed   | Validated with the real Zoom MP4 via ffmpeg and ffprobe |
-| 2     | 003  | WhisperX Transcription | ⏳ Not Started | Blocked by TASK-002                                     |
-| 2     | 004  | Speaker Diarization    | ⏳ Not Started | Blocked by TASK-002                                     |
-| 3     | 005  | Transcript Merge       | ⏳ Not Started | Blocked by TASK-003, TASK-004                           |
-| 3     | 006  | Per-Student Context    | ⏳ Not Started | Blocked by TASK-005                                     |
+| Phase | TODO | Title                  | Status         | Notes                                                                                           |
+| ----- | ---- | ---------------------- | -------------- | ----------------------------------------------------------------------------------------------- |
+| 1     | 001  | Environment Setup      | ✅ Completed   | Live validation passed in the worktree                                                          |
+| 1     | 002  | Audio Extraction       | ✅ Completed   | Validated with the real Zoom MP4 via ffmpeg and ffprobe                                         |
+| 2     | 003  | WhisperX Transcription | ✅ Completed   | Validated on the real class recording and produced `output/transcript_raw.json` on the RTX 3050 |
+| 2     | 004  | Speaker Diarization    | ⏳ Not Started | Unblocked by TASK-003; keep execution sequential on the 4GB GPU                                 |
+| 3     | 005  | Transcript Merge       | ⏳ Not Started | Blocked by TASK-004                                                                             |
+| 3     | 006  | Per-Student Context    | ⏳ Not Started | Blocked by TASK-005                                                                             |
 
 **Status Legend:**
 
@@ -373,14 +373,33 @@ Build status: ✅ PASS
 
 ### TODO-003 Handoff
 
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 
 **Prerequisites from TODO-002:**
 
 - [x] `output/audio.wav` exists at 16kHz mono
 
 ```
-[Fill in after completion]
+Completed by: GPT-5.4
+Build status: ✅ PASS
+Runtime status: ✅ PASS
+
+### What was done:
+- Added `scripts/transcribe.py` with argparse + Pydantic input handling, fail-fast WAV and JSON validation, GPU cache cleanup, and JSON serialization for alignment-ready transcript output
+- Added a compatibility shim for multiple faster-whisper API signatures, plus a fallback from the broken WhisperX VAD bootstrap path to the direct ASR backend when the upstream VAD URL returns HTTP 301
+- Added focused pytest coverage for TASK-003 argument parsing, runtime selection, ASR option compatibility, backend transcription normalization, and transcript document validation
+- Reused TASK-002 to regenerate `output/audio.wav` from the provided class recording ZIP and completed GPU transcription plus alignment on that asset, producing `output/transcript_raw.json`
+- Pinned `ctranslate2==3.24.0` and `faster-whisper==0.10.1` in `requirements.txt` because that pair was the validated GPU backend stack for the local CUDA 11.8 RTX 3050 environment
+
+### Tests passing: ✅ 30 tests
+
+### Warnings to next implementor:
+- Keep `ctranslate2==3.24.0` and `faster-whisper==0.10.1` pinned on this machine; newer 4.x and 1.x releases hit the `cublas64_12.dll` failure here
+- The script bypasses the upstream WhisperX VAD bootstrap redirect automatically, so reuse the direct ASR fallback pattern if TASK-004 or TASK-005 encounter the same upstream URL issue
+- Alignment can return untimed or missing per-word metadata for short numeric segments such as `27.`, so downstream code should tolerate the segment-span fallback word entries in `output/transcript_raw.json`
+
+### Breaking changes:
+- None
 ```
 
 ---
