@@ -15,7 +15,7 @@
 | Phase | Task                                     | Status | Build | Tests |
 | ----- | ---------------------------------------- | ------ | ----- | ----- |
 | 1     | TASK-001: Environment Setup              | ✅     | ✅    | ✅    |
-| 1     | TASK-002: Audio Extraction (ffmpeg)      | ⏳     | ❌    | ❓    |
+| 1     | TASK-002: Audio Extraction (ffmpeg)      | ✅     | ✅    | ✅    |
 | 2     | TASK-003: WhisperX Transcription         | ⏳     | ❌    | ❓    |
 | 2     | TASK-004: Speaker Diarization (pyannote) | ⏳     | ❌    | ❓    |
 | 3     | TASK-005: Transcript Merge & Export      | ⏳     | ❌    | ❓    |
@@ -23,9 +23,9 @@
 
 **Current Verification (2026-04-22):**
 
-- ✅ Build: TASK-001 bootstrap files lint and type-check cleanly on Python 3.11
-- ✅ Tests: 4 pytest checks passing for TASK-001 helpers; 1/6 tasks fully completed
-- 🔄 Integration: Not started
+- ✅ Build: TASK-001 and TASK-002 scripts lint and type-check cleanly on Python 3.11
+- ✅ Tests: 13 pytest checks passing across TASK-001 and TASK-002 helpers; 2/6 tasks fully completed
+- ✅ Integration: TASK-002 extracted a real Zoom MP4 to validated 16kHz mono WAV output
 - ✅ Environment: CUDA, Hugging Face token access, pyannote gated model access, and WhisperX ASR model loading validated in the worktree
 
 **Deliverables:**
@@ -101,9 +101,9 @@ Each task is a standalone Python script so they can be tested and debugged indep
 
 **Success Criteria:**
 
-- [ ] Extracts WAV from Zoom MP4 without errors
-- [ ] Output is 16kHz mono (verified with ffprobe)
-- [ ] Handles long recordings (1hr+) without memory issues
+- [x] Extracts WAV from Zoom MP4 without errors
+- [x] Output is 16kHz mono (verified with ffprobe)
+- [x] Handles long recordings (1hr+) without memory issues
 
 ---
 
@@ -236,14 +236,14 @@ Each task is a standalone Python script so they can be tested and debugged indep
 
 ## Task Status Tracker
 
-| Phase | TODO | Title                  | Status         | Notes                                  |
-| ----- | ---- | ---------------------- | -------------- | -------------------------------------- |
-| 1     | 001  | Environment Setup      | ✅ Completed   | Live validation passed in the worktree |
-| 1     | 002  | Audio Extraction       | ⏳ Not Started | Blocked by TASK-001                    |
-| 2     | 003  | WhisperX Transcription | ⏳ Not Started | Blocked by TASK-002                    |
-| 2     | 004  | Speaker Diarization    | ⏳ Not Started | Blocked by TASK-002                    |
-| 3     | 005  | Transcript Merge       | ⏳ Not Started | Blocked by TASK-003, TASK-004          |
-| 3     | 006  | Per-Student Context    | ⏳ Not Started | Blocked by TASK-005                    |
+| Phase | TODO | Title                  | Status         | Notes                                                   |
+| ----- | ---- | ---------------------- | -------------- | ------------------------------------------------------- |
+| 1     | 001  | Environment Setup      | ✅ Completed   | Live validation passed in the worktree                  |
+| 1     | 002  | Audio Extraction       | ✅ Completed   | Validated with the real Zoom MP4 via ffmpeg and ffprobe |
+| 2     | 003  | WhisperX Transcription | ⏳ Not Started | Blocked by TASK-002                                     |
+| 2     | 004  | Speaker Diarization    | ⏳ Not Started | Blocked by TASK-002                                     |
+| 3     | 005  | Transcript Merge       | ⏳ Not Started | Blocked by TASK-003, TASK-004                           |
+| 3     | 006  | Per-Student Context    | ⏳ Not Started | Blocked by TASK-005                                     |
 
 **Status Legend:**
 
@@ -339,15 +339,32 @@ Build status: ✅ PASS
 
 ### TODO-002 Handoff
 
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 
 **Prerequisites from TODO-001:**
 
-- [ ] Environment validated (CUDA + HF token working)
-- [ ] ffmpeg in system PATH (already done)
+- [x] Environment validated (CUDA + HF token working)
+- [x] ffmpeg in system PATH (already done)
 
 ```
-[Fill in after completion]
+Completed by: GPT-5.4
+Build status: ✅ PASS
+
+### What was done:
+- Added `scripts/extract_audio.py` with argparse + Pydantic input handling, fail-fast validation, ffmpeg extraction, and ffprobe-based output verification
+- Added pytest coverage for TASK-002 parsing, validation, ffmpeg command construction, ffprobe parsing, and format enforcement helpers
+- Updated `README.md` with extraction usage and manual ffprobe inspection guidance
+- Live-validated the script against the provided Zoom MP4 extracted from the supplied ZIP and produced `output/audio.wav` at 16kHz mono
+
+### Tests passing: ✅ 13 tests
+
+### Warnings to next implementor:
+- `output/audio.wav` is gitignored, so regenerate it in a fresh worktree with `python scripts/extract_audio.py --input <recording.mp4>`
+- TASK-003 is now unblocked by the extractor and can consume `output/audio.wav` directly
+- TASK-004 still also depends on a worktree `.env` with a valid `HF_TOKEN` and accepted pyannote agreements
+
+### Breaking changes:
+- None
 ```
 
 ---
@@ -358,7 +375,7 @@ Build status: ✅ PASS
 
 **Prerequisites from TODO-002:**
 
-- [ ] `output/audio.wav` exists at 16kHz mono
+- [x] `output/audio.wav` exists at 16kHz mono
 
 ```
 [Fill in after completion]
@@ -372,7 +389,7 @@ Build status: ✅ PASS
 
 **Prerequisites from TODO-002:**
 
-- [ ] `output/audio.wav` exists at 16kHz mono
+- [x] `output/audio.wav` exists at 16kHz mono
 - [ ] HF token in `.env`
 
 ```
