@@ -14,7 +14,7 @@
 | ----- | ----------------------------------- | -------------- | ----- | ----- |
 | 2     | TASK-007: Chunk + Embed into Chroma | ✅ Completed   | ✅    | ✅    |
 | 2     | TASK-008: Retrieval Layer           | ✅ Completed   | ✅    | ✅    |
-| 2     | TASK-009: CLI Chatbot (Groq + RAG)  | ⏳ Not Started | ❓    | ❓    |
+| 2     | TASK-009: CLI Chatbot (Groq + RAG)  | ✅ Completed   | ✅    | ✅    |
 | 2     | TASK-010: RAG Evaluation            | ⏳ Not Started | ❓    | ❓    |
 
 ---
@@ -26,9 +26,12 @@
 - ✅ Review artifacts are written in both machine-readable and human-readable form: `output/rag_chunks.jsonl`, `output/rag_chunk_review.csv`, and `output/rag_chunk_review.md`
 - ✅ Local ChromaDB persistence is idempotent under `data/chroma/` via deterministic ids plus upsert/delete sync semantics
 - ✅ `scripts/retrieval.py` returns strict student-scoped ranked chunks, a prompt-ready context string, and deterministic debug JSON under `output/retrieval_debug/`
-- ✅ Validation passed in this worktree with `ruff check --fix .`, `mypy .`, and `pytest` (`83 passed`, `0 warnings`)
+- ✅ `scripts/chat.py` now provides a Groq-backed student chat loop with `context`, `sources`, `help`, and `quit` commands plus JSON session traces under `output/chat_sessions/`
+- ✅ Session traces persist the prompt question, full `RetrievalResult`, prompt messages, model id, answer text, and trust flags so TASK-010 can inspect the same evidence used at generation time
+- ✅ Validation passed in this worktree with `ruff check --fix .`, `mypy .`, and `pytest` (`90 passed`, `0 warnings`)
 - ✅ Runtime validation against the verified Phase 1 outputs succeeded twice with the collection count remaining stable at `2116`
 - ✅ Runtime retrieval validation succeeded against the TASK-007 Chroma store with student id `a-disha-2504`, returning 5 ranked chunks and writing `output/retrieval_debug/sample_query.json`
+- ✅ Runtime chat validation succeeded for student `a-disha-2504`, writing `output/chat_sessions/20260520T151934Z-a-disha-2504.json` with a grounded answer that acknowledged low-confidence estimated context
 
 ---
 
@@ -38,7 +41,7 @@
 | ----- | ---- | -------------------------------- | -------------- | --------------------------------------------------------------------------------------- |
 | 2     | 007  | Chunk + Embed into ChromaDB      | ✅ Completed   | Canonical chunk schema, Chroma ingestion, and inspectable review artifacts are in place |
 | 2     | 008  | Student-Scoped Retrieval Layer   | ✅ Completed   | Strict `student_id` filtering, provenance-rich results, and debug exports are in place  |
-| 2     | 009  | CLI Chatbot (Groq + RAG)         | ⏳ Not Started | Depend on the stable retrieval contract from TASK-008                                   |
+| 2     | 009  | CLI Chatbot (Groq + RAG)         | ✅ Completed   | Groq-backed chat loop, debug commands, and inspectable session traces are in place      |
 | 2     | 010  | RAG Evaluation with Golden Truth | ⏳ Not Started | Use the saved retrieval and chat traces for source-linked failed-case review            |
 
 ---
@@ -111,3 +114,31 @@ Build status: ✅ PASS
 Retrieval debug output is a required feature, not a developer convenience.
 Do not hide chunk ids, chunk_type, source_segment_refs_json, or mapping-confidence flags behind the TASK-008 library API.
 ```
+
+---
+
+### TODO-009 Handoff
+
+**Status:** ✅ Completed
+
+Completed by: GPT-5.4
+Build status: ✅ PASS
+
+### What was done:
+
+- Added `scripts/chat.py` with an argparse-driven Groq chat loop, bounded conversation history, early `GROQ_API_KEY` validation, and debug commands for `context`, `sources`, `help`, and `quit`
+- Added `tests/test_chat.py` covering prompt construction, session trace writing, debug command output, history bounding, fallback behavior for empty retrieval, and missing-key failure
+- Updated `requirements.txt` with pinned Groq and `httpx` versions after real runtime validation exposed the SDK compatibility requirement in the project venv
+- Bootstrapped the missing `.vscode/planned/chatbot/TASK-009.md` file into this worktree and validated a real single-turn run that wrote `output/chat_sessions/20260520T151934Z-a-disha-2504.json`
+
+### Tests passing: ✅ 90 tests
+
+### Warnings to next implementor:
+
+- Session traces intentionally store full nested `RetrievalResult` objects plus prompt messages so TASK-010 can score answers against the exact evidence sent to Groq
+- Real retrieval for broad questions like "What did I miss in class?" can still surface only `class_context` chunks, so TASK-010 should judge evidence sufficiency and trust flags rather than assume every answer will be based on `missed` chunks
+- The retained runtime Chroma store was copied into this worktree under `data/chroma/` for validation only; do not commit copied vector data or generated chat sessions
+
+### Breaking changes:
+
+- None. TASK-009 adds the chat layer and inspectable traces without changing the retrieval schema contract.
