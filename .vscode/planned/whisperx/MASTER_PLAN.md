@@ -10,7 +10,7 @@
 
 ## 🎉 PROJECT COMPLETION SUMMARY
 
-**Status:** 🔄 **IN PROGRESS** (2026-04-22)
+**Status:** ✅ **COMPLETED** (2026-05-20)
 
 **Overview of all tasks:**
 
@@ -20,21 +20,24 @@
 | 1     | TASK-002: Audio Extraction (ffmpeg)      | ✅     | ✅    | ✅    |
 | 2     | TASK-003: WhisperX Transcription         | ✅     | ✅    | ✅    |
 | 2     | TASK-004: Speaker Diarization (pyannote) | ✅     | ✅    | ✅    |
-| 3     | TASK-005: Transcript Merge & Export      | ⏳     | ❌    | ❓    |
-| 3     | TASK-006: Per-Student Context Builder    | ⏳     | ❌    | ❓    |
+| 3     | TASK-005: Transcript Merge & Export      | ✅     | ✅    | ✅    |
+| 3     | TASK-006: Per-Student Context Builder    | ✅     | ✅    | ✅    |
 
-**Current Verification (2026-04-29):**
+**Current Verification (2026-05-20):**
 
-- ✅ Build: TASK-001 through TASK-004 scripts lint and type-check cleanly on Python 3.10 in this worktree
-- ✅ Tests: 43 pytest checks passing across TASK-001 through TASK-004 helpers
+- ✅ Build: TASK-001 through TASK-006 scripts lint and type-check cleanly on Python 3.11 in this worktree
+- ✅ Tests: 62 pytest checks passing across TASK-001 through TASK-006 helpers
 - ✅ Integration: TASK-002 re-extracted the provided class recording to a validated 16kHz mono WAV in the TASK-004 worktree
 - ✅ Runtime: TASK-003 completed on the local RTX 3050 GPU after pinning `ctranslate2==3.24.0` and `faster-whisper==0.10.1`; the script writes `output/transcript_raw.json` from the provided class recording while bypassing the upstream WhisperX VAD redirect
 - ✅ Runtime: TASK-004 now loads the gated pyannote pipeline, works around newer Torch checkpoint defaults, and writes `output/diarization.json` from the provided class recording; this host validated the run with `--allow-cpu` because the current Python 3.10 Torch install is CPU-only
+- ✅ Runtime: TASK-005 regenerated a bounded 60-second clip from the provided class recording in this worktree and merged the real outputs into `output/transcript_diarized.json`
+- ✅ Runtime: TASK-006 consumed the real attendance CSV plus that bounded 60-second clip and produced `output/student_contexts.json`, `output/student_context_review.md`, and `output/student_context_segments.csv` under the approved duration-only fallback
 
 **Deliverables:**
 
 - Clean diarized transcript JSON from a 1-hour Zoom class recording
-- Per-student context object (attendance window, spoken segments, missed segments)
+- Per-student context object with exact or estimated attendance window, spoken segments, and clearly labeled missed segments
+- Human-review artifacts for speaker mapping, transcript segments, and per-student context evaluation
 - CLI script runnable locally on Windows with CUDA support
 
 ---
@@ -185,21 +188,22 @@ Each task is a standalone Python script so they can be tested and debugged indep
 **Why last:**
 
 - Depends on TASK-005 (diarized transcript)
-- Requires Zoom attendance CSV as second input (join/leave timestamps)
-- Produces the final per-student JSON for RAG ingestion
+- Uses the available Zoom attendance CSV plus the diarized transcript; exact join/leave timestamps are optional and the approved duration-only fallback is supported when they are missing
+- Produces the final per-student JSON plus human-review artifacts for RAG-readiness and manual evaluation
 
 **Scope:**
 
-- `scripts/build_context.py` — maps speaker labels → student names via attendance CSV
+- `scripts/build_context.py` — builds per-student context from diarized transcript + attendance CSV, with exact and fallback attendance modes
 - `data/sample_attendance.csv` — sample Zoom attendance report format
-- Output: `output/student_contexts.json`
-- ~2 files
+- Outputs: `output/student_contexts.json`, `output/student_context_review.md`, `output/student_context_segments.csv`
+- ~4 files
 
 **Success Criteria:**
 
-- [ ] Each student has: name, attendance window, spoken segments, missed segments
-- [ ] Missed segments correctly computed from transcript timestamps vs attendance
-- [ ] Output schema documented and ready for RAG ingestion in Phase 2
+- [x] Each participant has: name, attendance window, spoken segments, missed segments, and mapping-review metadata
+- [x] Attendance windows are exact when join/leave timestamps exist and clearly estimated when the CSV only provides duration totals
+- [x] Missed segments are clearly labeled approximate whenever they depend on estimated attendance windows
+- [x] Output schema and review artifacts are documented and ready for RAG ingestion plus manual speaker evaluation
 
 ---
 
@@ -239,14 +243,14 @@ Each task is a standalone Python script so they can be tested and debugged indep
 
 ## Task Status Tracker
 
-| Phase | TODO | Title                  | Status         | Notes                                                                                                                                                              |
-| ----- | ---- | ---------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1     | 001  | Environment Setup      | ✅ Completed   | Live validation passed in the worktree                                                                                                                             |
-| 1     | 002  | Audio Extraction       | ✅ Completed   | Validated with the real Zoom MP4 via ffmpeg and ffprobe                                                                                                            |
-| 2     | 003  | WhisperX Transcription | ✅ Completed   | Validated on the real class recording and produced `output/transcript_raw.json` on the RTX 3050                                                                    |
-| 2     | 004  | Speaker Diarization    | ✅ Completed   | Validated on the real class recording and produced `output/diarization.json`; this host used CPU fallback because the active Python 3.10 Torch install is CPU-only |
-| 3     | 005  | Transcript Merge       | ⏳ Not Started | Unblocked by TASK-004; ready to merge `output/transcript_raw.json` and `output/diarization.json`                                                                   |
-| 3     | 006  | Per-Student Context    | ⏳ Not Started | Blocked by TASK-005                                                                                                                                                |
+| Phase | TODO | Title                  | Status       | Notes                                                                                                                                                              |
+| ----- | ---- | ---------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1     | 001  | Environment Setup      | ✅ Completed | Live validation passed in the worktree                                                                                                                             |
+| 1     | 002  | Audio Extraction       | ✅ Completed | Validated with the real Zoom MP4 via ffmpeg and ffprobe                                                                                                            |
+| 2     | 003  | WhisperX Transcription | ✅ Completed | Validated on the real class recording and produced `output/transcript_raw.json` on the RTX 3050                                                                    |
+| 2     | 004  | Speaker Diarization    | ✅ Completed | Validated on the real class recording and produced `output/diarization.json`; this host used CPU fallback because the active Python 3.10 Torch install is CPU-only |
+| 3     | 005  | Transcript Merge       | ✅ Completed | Added `scripts/merge.py`, validated on a regenerated 60-second real clip in this worktree, and produced `output/transcript_diarized.json` with 0 `UNKNOWN`         |
+| 3     | 006  | Per-Student Context    | ✅ Completed | Implemented under the approved duration-only fallback, with review artifacts and bounded real-data validation against the provided attendance CSV                  |
 
 **Status Legend:**
 
@@ -297,7 +301,8 @@ Each task is a standalone Python script so they can be tested and debugged indep
 **What gets built:**
 
 - `scripts/merge.py` — timestamp merge
-- `scripts/build_context.py` — student context builder
+- `scripts/build_context.py` — student context builder with exact and duration-only attendance modes
+- Review artifacts: `output/student_context_review.md` and `output/student_context_segments.csv`
 
 **Impact:** Final deliverable of Phase 1. Output feeds directly into the RAG pipeline in Phase 2 of the broader project.
 
@@ -456,15 +461,33 @@ Runtime status: ✅ PASS
 
 ### TODO-006 Handoff
 
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 
 **Prerequisites from TODO-005:**
 
-- [ ] `output/transcript_diarized.json` exists
-- [ ] Zoom attendance CSV available
+- [x] `output/transcript_diarized.json` exists
+- [x] Zoom attendance CSV available
 
 ```
-[Fill in after completion]
+Completed by: GPT-5.4
+Build status: ✅ PASS
+Runtime status: ✅ PASS
+
+### What was done:
+- Added `scripts/build_context.py` with argparse + Pydantic input handling, exact and duration-only attendance parsing, estimated attendance-window reconstruction, speaker-review metadata, and JSON/Markdown/CSV outputs for manual evaluation
+- Added focused pytest coverage for TASK-006 argument parsing, fallback attendance parsing, exact attendance parsing, speaker mapping, estimated attendance windows, missed-segment computation, and review-markdown rendering
+- Added `data/sample_attendance.csv` plus `python-dateutil==2.9.0.post0` so the task supports both the original join/leave CSV shape and the approved fallback shape that only contains name, email, duration, and guest fields
+- Real-validated the script against the provided attendance CSV and a bounded 60-second clip cut from `video1031110282.mp4` inside the supplied Zoom ZIP, producing `output/student_contexts.json`, `output/student_context_review.md`, and `output/student_context_segments.csv`
+
+### Tests passing: ✅ 62 tests
+
+### Warnings to next implementor:
+- The real attendance CSV in this repo does not contain Join Time or Leave Time, so TASK-006 completes under the approved heuristic fallback and marks attendance windows plus missed segments as estimated
+- The bounded runtime validation clip diarized as a single speaker, so only one participant was auto-mapped in that validation run; use a longer real clip if you need broader speaker-mapping coverage for QA
+- `output/student_context_review.md` and `output/student_context_segments.csv` are the primary human-inspection artifacts for speaker mapping, transcript review, and personalized-learning suitability checks
+
+### Breaking changes:
+- None
 ```
 
 ---

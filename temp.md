@@ -1,23 +1,16 @@
-# TASK-001 Clarifications
+# TASK-006 Runtime Notes
 
-Date: 2026-04-22
-Branch: task-001-env-setup
-Status: implementation-complete-awaiting-secret
+Date: 2026-05-20
+Branch: task-006-context-builder
+Status: implementation-complete
 
 Observed state:
 
-- TASK-001 bootstrap artifacts now exist in this worktree.
-- `ruff`, `mypy`, and `pytest` pass in a Python 3.11 virtual environment.
-- CUDA is visible to PyTorch on the RTX 3050 Laptop GPU.
-- Runtime HuggingFace validation is still blocked because `.env` is not present in this worktree.
+- `scripts/build_context.py` is implemented with exact and duration-only attendance modes.
+- `ruff`, `mypy`, and `pytest` pass in the shared Python 3.11 virtual environment.
+- Real-data validation completed on a bounded 60-second clip from `video1031110282.mp4` inside the provided Zoom ZIP.
+- `output/student_contexts.json`, `output/student_context_review.md`, and `output/student_context_segments.csv` were produced in this worktree.
+- The real attendance CSV does not include Join Time or Leave Time, so attendance windows and missed segments are clearly marked as estimated.
 
-Next step:
-
-1. Create `.env` in this worktree with `HF_TOKEN=<token>` or `HUGGINGFACE_HUB_TOKEN=<token>`.
-2. Activate `.venv` and rerun `python scripts/validate_env.py`.
-
-If you want me to continue after the token is in place, write exactly:
-AGENT, CONTINUE.
-
--Check main branch and see there is a env variable with the credebtials C:\Users\ansh\Desktop\ISL\Agents_test\.env
+If you want me to continue with a longer real-data validation clip, write exactly:
 AGENT, CONTINUE.
