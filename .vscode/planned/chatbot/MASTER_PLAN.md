@@ -13,7 +13,7 @@
 | Phase | Task                                | Status         | Build | Tests |
 | ----- | ----------------------------------- | -------------- | ----- | ----- |
 | 2     | TASK-007: Chunk + Embed into Chroma | ✅ Completed   | ✅    | ✅    |
-| 2     | TASK-008: Retrieval Layer           | ⏳ Not Started | ❓    | ❓    |
+| 2     | TASK-008: Retrieval Layer           | ✅ Completed   | ✅    | ✅    |
 | 2     | TASK-009: CLI Chatbot (Groq + RAG)  | ⏳ Not Started | ❓    | ❓    |
 | 2     | TASK-010: RAG Evaluation            | ⏳ Not Started | ❓    | ❓    |
 
@@ -25,8 +25,10 @@
 - ✅ `scripts/utils/chunker.py` preserves chunk-type and source-speaker boundaries while merging nearby transcript units into bounded chunks
 - ✅ Review artifacts are written in both machine-readable and human-readable form: `output/rag_chunks.jsonl`, `output/rag_chunk_review.csv`, and `output/rag_chunk_review.md`
 - ✅ Local ChromaDB persistence is idempotent under `data/chroma/` via deterministic ids plus upsert/delete sync semantics
-- ✅ Validation passed in this worktree with `ruff check --fix .`, `mypy .`, and `pytest` (`75 passed`, `0 warnings`)
+- ✅ `scripts/retrieval.py` returns strict student-scoped ranked chunks, a prompt-ready context string, and deterministic debug JSON under `output/retrieval_debug/`
+- ✅ Validation passed in this worktree with `ruff check --fix .`, `mypy .`, and `pytest` (`83 passed`, `0 warnings`)
 - ✅ Runtime validation against the verified Phase 1 outputs succeeded twice with the collection count remaining stable at `2116`
+- ✅ Runtime retrieval validation succeeded against the TASK-007 Chroma store with student id `a-disha-2504`, returning 5 ranked chunks and writing `output/retrieval_debug/sample_query.json`
 
 ---
 
@@ -35,7 +37,7 @@
 | Phase | TODO | Title                            | Status         | Notes                                                                                   |
 | ----- | ---- | -------------------------------- | -------------- | --------------------------------------------------------------------------------------- |
 | 2     | 007  | Chunk + Embed into ChromaDB      | ✅ Completed   | Canonical chunk schema, Chroma ingestion, and inspectable review artifacts are in place |
-| 2     | 008  | Student-Scoped Retrieval Layer   | ⏳ Not Started | Consume the TASK-007 collection and preserve chunk ids plus source segment references   |
+| 2     | 008  | Student-Scoped Retrieval Layer   | ✅ Completed   | Strict `student_id` filtering, provenance-rich results, and debug exports are in place  |
 | 2     | 009  | CLI Chatbot (Groq + RAG)         | ⏳ Not Started | Depend on the stable retrieval contract from TASK-008                                   |
 | 2     | 010  | RAG Evaluation with Golden Truth | ⏳ Not Started | Use the saved retrieval and chat traces for source-linked failed-case review            |
 
@@ -74,7 +76,30 @@ Build status: ✅ PASS
 
 ### TODO-008 Handoff
 
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
+
+Completed by: GPT-5.4
+Build status: ✅ PASS
+
+### What was done:
+
+- Added `scripts/retrieval.py` with a strict `student_id` Chroma filter path, Pydantic `RetrievedChunk` and `RetrievalResult` models, prompt-ready context formatting, and optional JSON debug export
+- Added `tests/test_retrieval.py` covering student scoping, provenance preservation, chunk-type filters, empty results, and debug serialization against a live temporary Chroma collection
+- Updated `README.md` with retrieval CLI usage, debug artifact output, and student-scope guarantees
+- Runtime-validated retrieval against the TASK-007 Chroma store by querying student `a-disha-2504` and writing `output/retrieval_debug/sample_query.json`
+
+### Tests passing: ✅ 83 tests
+
+### Warnings to next implementor:
+
+- Retrieval uses `student_id` as the only student-scope key; TASK-009 should pass the stable slugified student id rather than student display names
+- `source_segment_ids_json`, `source_segment_indices_json`, and `source_segment_refs_json` are decoded back into structured provenance during retrieval and should be reused directly in chat/session traces
+- Empty retrieval is a first-class result with warning strings, so TASK-009 should treat `result_count == 0` as a safe fallback path instead of as an exception
+- The real validation query for `a-disha-2504` returned `class_context` chunks first for the generic question "What did I miss?"; TASK-009 prompt design should account for mixed chunk types instead of assuming only `missed` chunks
+
+### Breaking changes:
+
+- None. TASK-008 adds the retrieval layer without changing the TASK-007 metadata contract.
 
 **Prerequisites from TASK-007:**
 
