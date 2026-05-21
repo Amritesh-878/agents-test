@@ -1,0 +1,131 @@
+{
+  "description": "Golden QA set for TASK-010 RAG evaluation, grounded in the real class transcript, student context review output, chunk review artifacts, and the saved TASK-009 chat trace.",
+  "generated_from": [
+    "../verify-main-clean/output/student_context_review.md",
+    "../verify-main-clean/output/student_contexts.json",
+    "../task-007-chunk-embed/output/rag_chunk_review.md",
+    "../task-007-chunk-embed/output/rag_chunks.jsonl",
+    "../task-009-chat/output/chat_sessions/20260520T151934Z-a-disha-2504.json"
+  ],
+  "cases": [
+    {
+      "case_id": "a-disha-insufficient-missed",
+      "student_id": "a-disha-2504",
+      "student_name": "A Disha",
+      "question": "What did I miss in class?",
+      "expected_answer_mode": "insufficient_evidence",
+      "expected_trust_flags": [
+        "attendance_estimated",
+        "approximate_context",
+        "source_mapping_confidence=low"
+      ],
+      "require_trust_acknowledgement": true,
+      "evidence_quotes": [
+        "The saved TASK-009 session for this question answered that there was not enough evidence and flagged estimated, approximate, low-confidence provenance.",
+        "The student context review shows A_Disha_2504 as estimated full-class attendance with no auto-mapped speaker and manual review required."
+      ],
+      "source_artifacts": [
+        "../task-009-chat/output/chat_sessions/20260520T151934Z-a-disha-2504.json",
+        "../verify-main-clean/output/student_context_review.md"
+      ],
+      "notes": "This case validates safe refusal when the available evidence is approximate class context rather than a trustworthy personalized missed-content slice."
+    },
+    {
+      "case_id": "a-disha-deadlines-and-quizzes",
+      "student_id": "a-disha-2504",
+      "student_name": "A Disha",
+      "question": "What deadlines and quizzes were announced in class?",
+      "expected_answer_mode": "grounded_answer",
+      "chunk_types": ["class_context"],
+      "expected_source_segment_ids": [
+        "seg-0189",
+        "seg-0190",
+        "seg-0191",
+        "seg-0192"
+      ],
+      "expected_chunk_types": ["class_context"],
+      "expected_trust_flags": ["attendance_estimated", "approximate_context"],
+      "required_concept_groups": [
+        ["slack"],
+        ["night today", "tonight", "by night today"],
+        ["seven to twelve quizzes", "7 to 12 quizzes"],
+        ["no extensions"],
+        ["unit four", "unit 4"],
+        ["five concepts"]
+      ],
+      "require_trust_acknowledgement": true,
+      "evidence_quotes": [
+        "So I will give you question on slack you have to give me the answer by night today.",
+        "I want one more you all complete seven to twelve quizzes this week no extensions.",
+        "You have this your unit four that's for sure just five concepts."
+      ],
+      "source_artifacts": [
+        "../task-007-chunk-embed/output/rag_chunks.jsonl",
+        "../task-007-chunk-embed/output/rag_chunk_review.md"
+      ],
+      "notes": "This case checks whether retrieval surfaces the concrete deadline chunk rather than generic class chatter."
+    },
+    {
+      "case_id": "bhagyashree-spoken-anaya",
+      "student_id": "bhagyashree-2302",
+      "student_name": "Bhagyashree_ 2302",
+      "question": "What did I say about Anaya?",
+      "expected_answer_mode": "grounded_answer",
+      "chunk_types": ["spoken"],
+      "expected_source_segment_ids": ["seg-0015"],
+      "expected_chunk_types": ["spoken"],
+      "expected_trust_flags": [
+        "attendance_estimated",
+        "source_mapping_confidence=low",
+        "student_mapping_confidence=low"
+      ],
+      "required_concept_groups": [["anaya"], ["it's right", "it is right"]],
+      "require_trust_acknowledgement": true,
+      "evidence_quotes": ["Yes Anaya, it's right."],
+      "source_artifacts": [
+        "../verify-main-clean/output/student_context_review.md",
+        "../task-007-chunk-embed/output/rag_chunks.jsonl"
+      ],
+      "notes": "This case forces the evaluator onto the student's spoken chunks instead of generic class_context chunks."
+    },
+    {
+      "case_id": "user-missed-opening-work",
+      "student_id": "user",
+      "student_name": "User",
+      "question": "What did I miss at the start of class?",
+      "expected_answer_mode": "grounded_answer",
+      "chunk_types": ["missed"],
+      "expected_source_segment_ids": [
+        "seg-0000",
+        "seg-0001",
+        "seg-0002",
+        "seg-0003",
+        "seg-0004",
+        "seg-0005"
+      ],
+      "expected_chunk_types": ["missed"],
+      "expected_trust_flags": [
+        "attendance_estimated",
+        "approximate_context",
+        "source_mapping_confidence=low"
+      ],
+      "required_concept_groups": [
+        ["foundation of time and work", "time and work"],
+        ["second question", "worksheet"],
+        ["thread"],
+        ["five minutes"]
+      ],
+      "require_trust_acknowledgement": true,
+      "evidence_quotes": [
+        "Today we will be going forward with the scaffolding, we will build our foundation of time and work.",
+        "I will give you second question on the worksheet to be done independently.",
+        "You will give me the answers as a thread... it will not take you more than five minutes."
+      ],
+      "source_artifacts": [
+        "../task-007-chunk-embed/output/rag_chunks.jsonl",
+        "../task-007-chunk-embed/output/rag_chunk_review.md"
+      ],
+      "notes": "This case exercises the true missed-content path rather than the fallback class_context path."
+    }
+  ]
+}

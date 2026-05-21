@@ -10,12 +10,12 @@
 
 ## Status Summary
 
-| Phase | Task                                | Status         | Build | Tests |
-| ----- | ----------------------------------- | -------------- | ----- | ----- |
-| 2     | TASK-007: Chunk + Embed into Chroma | ✅ Completed   | ✅    | ✅    |
-| 2     | TASK-008: Retrieval Layer           | ✅ Completed   | ✅    | ✅    |
-| 2     | TASK-009: CLI Chatbot (Groq + RAG)  | ✅ Completed   | ✅    | ✅    |
-| 2     | TASK-010: RAG Evaluation            | ⏳ Not Started | ❓    | ❓    |
+| Phase | Task                                | Status       | Build | Tests |
+| ----- | ----------------------------------- | ------------ | ----- | ----- |
+| 2     | TASK-007: Chunk + Embed into Chroma | ✅ Completed | ✅    | ✅    |
+| 2     | TASK-008: Retrieval Layer           | ✅ Completed | ✅    | ✅    |
+| 2     | TASK-009: CLI Chatbot (Groq + RAG)  | ✅ Completed | ✅    | ✅    |
+| 2     | TASK-010: RAG Evaluation            | ✅ Completed | ✅    | ✅    |
 
 ---
 
@@ -28,21 +28,22 @@
 - ✅ `scripts/retrieval.py` returns strict student-scoped ranked chunks, a prompt-ready context string, and deterministic debug JSON under `output/retrieval_debug/`
 - ✅ `scripts/chat.py` now provides a Groq-backed student chat loop with `context`, `sources`, `help`, and `quit` commands plus JSON session traces under `output/chat_sessions/`
 - ✅ Session traces persist the prompt question, full `RetrievalResult`, prompt messages, model id, answer text, and trust flags so TASK-010 can inspect the same evidence used at generation time
-- ✅ Validation passed in this worktree with `ruff check --fix .`, `mypy .`, and `pytest` (`90 passed`, `0 warnings`)
+- ✅ Validation passed in this worktree with `ruff check --fix .`, `mypy .`, and `pytest` (`94 passed`, `0 warnings`)
 - ✅ Runtime validation against the verified Phase 1 outputs succeeded twice with the collection count remaining stable at `2116`
 - ✅ Runtime retrieval validation succeeded against the TASK-007 Chroma store with student id `a-disha-2504`, returning 5 ranked chunks and writing `output/retrieval_debug/sample_query.json`
 - ✅ Runtime chat validation succeeded for student `a-disha-2504`, writing `output/chat_sessions/20260520T151934Z-a-disha-2504.json` with a grounded answer that acknowledged low-confidence estimated context
+- ✅ `scripts/evaluate.py` now consumes `data/eval_qa.json`, writes aggregate and per-case artifacts under `output/evaluation/`, and classified the bounded real evaluation run into retrieval, provenance, and chat-generation failure stages (`1 passed`, `3 failed`)
 
 ---
 
 ## Task Status Tracker
 
-| Phase | TODO | Title                            | Status         | Notes                                                                                   |
-| ----- | ---- | -------------------------------- | -------------- | --------------------------------------------------------------------------------------- |
-| 2     | 007  | Chunk + Embed into ChromaDB      | ✅ Completed   | Canonical chunk schema, Chroma ingestion, and inspectable review artifacts are in place |
-| 2     | 008  | Student-Scoped Retrieval Layer   | ✅ Completed   | Strict `student_id` filtering, provenance-rich results, and debug exports are in place  |
-| 2     | 009  | CLI Chatbot (Groq + RAG)         | ✅ Completed   | Groq-backed chat loop, debug commands, and inspectable session traces are in place      |
-| 2     | 010  | RAG Evaluation with Golden Truth | ⏳ Not Started | Use the saved retrieval and chat traces for source-linked failed-case review            |
+| Phase | TODO | Title                            | Status       | Notes                                                                                     |
+| ----- | ---- | -------------------------------- | ------------ | ----------------------------------------------------------------------------------------- |
+| 2     | 007  | Chunk + Embed into ChromaDB      | ✅ Completed | Canonical chunk schema, Chroma ingestion, and inspectable review artifacts are in place   |
+| 2     | 008  | Student-Scoped Retrieval Layer   | ✅ Completed | Strict `student_id` filtering, provenance-rich results, and debug exports are in place    |
+| 2     | 009  | CLI Chatbot (Groq + RAG)         | ✅ Completed | Groq-backed chat loop, debug commands, and inspectable session traces are in place        |
+| 2     | 010  | RAG Evaluation with Golden Truth | ✅ Completed | Golden QA, aggregate reports, and source-linked failed-case review artifacts are in place |
 
 ---
 
@@ -142,3 +143,31 @@ Build status: ✅ PASS
 ### Breaking changes:
 
 - None. TASK-009 adds the chat layer and inspectable traces without changing the retrieval schema contract.
+
+---
+
+### TODO-010 Handoff
+
+**Status:** ✅ Completed
+
+Completed by: GPT-5.4
+Build status: ✅ PASS
+
+### What was done:
+
+- Added `data/eval_qa.json` with four grounded evaluation cases derived from the real student context review, chunk export, and saved TASK-009 chat trace
+- Added `scripts/evaluate.py` with a CLI that scores indexed-evidence presence, top-k retrieval quality, answer behavior, trust acknowledgement, and per-case failure ownership
+- Added `tests/test_evaluate.py` covering retrieval-stage classification, insufficiency scoring, and report artifact writing
+- Bootstrapped the missing `.vscode/planned/chatbot/TASK-010.md` file and added an archive handoff under `.vscode/completed/2026-05-20/TASK-010.md`
+
+### Tests passing: ✅ 94 tests
+
+### Warnings to next implementor:
+
+- The golden set intentionally contains low-confidence provenance cases, so runtime evaluation may surface reportable failures even when the evaluator itself is working correctly
+- `failure_stage` is heuristic; use the raw `indexed_expected_evidence_present`, `retrieved_expected_evidence_present`, `retrieved_trust_flags`, and answer-scoring fields in each case artifact for final diagnosis
+- Runtime validation should point `--chroma-dir` at the verified external TASK-007, TASK-008, or TASK-009 worktree store instead of copying vector data into this branch
+
+### Breaking changes:
+
+- None. TASK-010 adds a new evaluation slice without changing the upstream retrieval or chat contracts.
