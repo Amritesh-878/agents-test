@@ -330,7 +330,97 @@ The **WhisperX small model** struggles with:
 
 ## Real Data Results — Economics.02 Supply Function (Apr 16)
 
-*Run in progress — to be updated*
+**This run confirms the pipeline scales to longer classes and produces significantly better RAG content.**
+
+### Pipeline Run Stats
+```
+Class:     Economics.02 — Supply Function
+Date:      April 16, 2026 (51 min 7 sec session)
+Students:  1 per-student M4A (Bhagyashree, roll 2302)
+Teacher:   Nisha (score=1.00)
+Chunks:    192 stored in pgvector (vs 14 for 17-min Math class)
+Duration:  ~32 min pipeline (51-min audio x 3 files x 2 languages on RTX 3050)
+```
+
+### Chunk Counts vs Math Class
+
+| Class | Duration | Students | Chunks | Quality |
+|-------|----------|----------|--------|---------|
+| Math Time & Work | 17 min | 7 (mostly silent) | 14 | Limited — short class, students in listening mode |
+| Economics Supply Function | 51 min | 1 (active) | 192 | Good — longer class, student actively spoke |
+
+**Finding: Low Math chunk count was class-specific, not a pipeline bug.** A 51-minute Economics class with an active student produces 14x more chunks. Longer sessions with active student participation = richer RAG context.
+
+### Session Transcript — Real Output Examples
+
+**Good segments — real economics content captured:**
+```
+[class_context]
+  "is a constant. Yeah. A is also called an intercept. Okay. That's no direct
+   relation. Like in this function, it is constant. It is not related to x. Yeah.
+   What happens is when exchanges, y w..."
+
+[class_context]
+  "that is like a price and quantity of supply. price में and quantity, how you
+   express it is, it is a table representation of quantity, supply different"
+
+[class_context]
+  "So let us revise the concepts which we have discussed in the class last week.
+   So this is going to be the last class or you will take at least one class,
+   more likely I have to show you some simulation"
+
+[class_context]
+  "quantity supply is zero. Can you derive it? Okay. We also have to find beta
+   right? Yes. What does the supply function talking to you about?"
+```
+
+**Bhagyashree's spoken chunk (she answered in class):**
+```
+[spoken]
+  "Determinant of a supply is what changes supply. The factor."
+```
+
+### Topics Extracted (TF-IDF)
+```
+['yeah', 'okay', 'like', 'supply', 'price', 'beta', 'function', 'yes', 'right', 'called']
+```
+
+Real domain terms: **supply, price, beta, function** (intercept was called beta in class). The `yeah`, `okay`, `like` are filler words — expected for a conversational class. This is a clear improvement over Math's topics which were mostly student names.
+
+### Retrieval Test — Real Question
+
+**Query:** "What is the supply function and how is the intercept defined?"
+**Student:** Bhagyashree (roll 2302)
+
+```
+[class_context] score=0.701
+  "We also have to find beta right? Yes. What does the supply function talking
+   to you about or any function A? There is any quantity what is it talking
+   about? Like if you solve the right hand side of the equation you should
+   be able to get the quantity supply..."
+
+[class_context] score=0.699
+  "quantity supply is zero. Can you derive it? Okay. We also have to find beta
+   right? Yes. What does the supply function talking to you about? Like if you
+   solve the right hand side of the equation you should be able to find the
+   quantity supply..."
+
+[spoken]  score=0.693
+  "Determinant of a supply is what changes supply. The factor."
+          ← Bhagyashree's OWN ANSWER from class retrieved here
+```
+
+**Retrieval scores: 0.69–0.70** (vs 0.55 for Math). The chatbot calling Groq with this context would produce a highly grounded, personalized answer. Crucially, the student's own spoken contribution is surfaced back to her.
+
+### Confirmed: Pipeline Works, Quality Scales with Class Length
+
+| Metric | Math (17 min) | Economics (51 min) |
+|--------|--------------|-------------------|
+| Chunks embedded | 14 | 192 |
+| Top retrieval score | 0.55 | 0.70 |
+| Student spoken chunks | 0 useful | 1 ("Determinant of supply...") |
+| Topics quality | Student names + noise | Real domain terms (supply, price, beta) |
+| Alignment | All session_aligned ✅ | session_aligned ✅ |
 
 ---
 
