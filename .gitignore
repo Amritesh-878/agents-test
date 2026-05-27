@@ -6,3 +6,10 @@ __pycache__/
 .ruff_cache/
 data/chroma/
 output/
+
+# Zoom recording exports and attendance data (large/sensitive, not tracked)
+*.zip
+participants_*.csv
+
+# Orchestrator temp file
+orchestrator-temp.md
