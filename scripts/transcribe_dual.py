@@ -291,6 +291,23 @@ def _extract_words_from_result(result: dict[str, Any]) -> list[TranscriptWord]:
     return words
 
 
+def is_hallucinated_segment(words_text: list[str], threshold: float = 0.7) -> bool:
+    """Return True when one word dominates >threshold of a segment — Whisper silence artifact."""
+    if len(words_text) < 8:
+        return False
+    from collections import Counter
+
+    top_count = Counter(w.strip().lower() for w in words_text if w.strip()).most_common(1)
+    if not top_count:
+        return False
+    return top_count[0][1] / len(words_text) > threshold
+
+
+def _is_hallucinated(faster_whisper_words: list[Any]) -> bool:
+    texts = [getattr(w, "word", "") for w in faster_whisper_words]
+    return is_hallucinated_segment(texts)
+
+
 def run_whisperx_language(
     audio: Any,
     language: str,
@@ -308,11 +325,12 @@ def run_whisperx_language(
     raw_segments = list(segments_gen)
     _release_gpu(asr_model)
 
-    # Use raw ASR word timestamps directly — avoids loading heavy alignment models
-    # (which have Wav2Vec2Processor API incompatibilities in newer transformers) and
-    # saves VRAM for the dual-language back-to-back runs on RTX 3050 4GB.
+    # Use raw ASR word timestamps, filtering hallucinated segments first.
     words: list[TranscriptWord] = []
     for seg in raw_segments:
+        if _is_hallucinated(seg.words or []):
+            logger.debug("Skipping hallucinated segment at %.1fs", seg.start)
+            continue
         for w in seg.words or []:
             words.append(
                 TranscriptWord(

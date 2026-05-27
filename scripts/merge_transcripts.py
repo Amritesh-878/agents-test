@@ -59,11 +59,25 @@ def detect_alignment(
     session_segments: list[TranscriptSegment],
     aligned_tolerance: float = _ALIGNED_TOLERANCE,
     similarity_threshold: float = _SIMILARITY_THRESHOLD,
+    duration_match_tolerance: float = 0.05,
 ) -> AlignmentResult:
-    """Compare first student speech against the session transcript to detect offset.
+    """Detect whether per-student M4A timestamps match the session timeline.
 
-    Returns session_aligned (offset≈0) or join_offset (offset=delta) or uncertain.
+    Primary signal: if both recordings span a similar total duration (within 5%),
+    they must start at the same point — Zoom cloud recordings always do this.
+    Text-matching is used only when durations diverge significantly.
     """
+    if not student_segments or not session_segments:
+        return AlignmentResult(mode="session_aligned", offset=0.0, uncertain=True)
+
+    student_end = student_segments[-1].end
+    session_end = session_segments[-1].end
+
+    # Duration check: if both cover the same span, they're session-aligned.
+    if session_end > 0 and abs(student_end - session_end) / session_end <= duration_match_tolerance:
+        return AlignmentResult(mode="session_aligned", offset=0.0)
+
+    # Duration mismatch — use text matching to find the actual offset.
     first_student = next(
         (s for s in student_segments if s.text.strip()),
         None,

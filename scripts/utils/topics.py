@@ -26,10 +26,12 @@ def extract_topics(text: str, top_n: int = 10) -> list[str]:
 
     combined_stopwords = list(HINDI_STOPWORDS | set(ENGLISH_STOP_WORDS))
     vectorizer = TfidfVectorizer(
-        max_features=200,
+        max_features=300,
         ngram_range=(1, 2),
         stop_words=combined_stopwords,
         min_df=1,
+        # Require at least 3 characters — filters noise like "ah", "um", "हा"
+        token_pattern=r"(?u)\b[a-zA-Zऀ-ॿ]{3,}\b",
     )
     try:
         matrix = vectorizer.fit_transform([text])

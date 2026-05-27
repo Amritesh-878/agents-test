@@ -17,6 +17,7 @@ from scripts.merge_transcripts import (
     merge_all,
     validate_inputs,
 )
+from scripts.transcribe_dual import is_hallucinated_segment
 from scripts.models.identity import IdentityMap
 from scripts.models.transcript import (
     AlignmentResult,
@@ -111,11 +112,13 @@ def test_alignment_empty_student_uncertain() -> None:
     assert result.mode == "session_aligned"
 
 
-def test_alignment_blank_text_uncertain() -> None:
+def test_alignment_blank_text_session_aligned_by_duration() -> None:
+    # Same duration -> session_aligned via duration check (doesn't need text)
     student_segs = [seg(0.0, 5.0, "   ")]
     session_segs = [seg(0.0, 5.0, "something")]
     result = detect_alignment(student_segs, session_segs)
-    assert result.uncertain is True
+    assert result.mode == "session_aligned"
+    assert result.offset == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -375,3 +378,40 @@ def test_validate_inputs_missing_identity_map(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="Identity map not found"):
         validate_inputs(args)
+
+
+# ---------------------------------------------------------------------------
+# Hallucination filter (is_hallucinated_segment)
+# ---------------------------------------------------------------------------
+
+
+def test_hallucination_detected_repeated_word() -> None:
+    # "अपने" repeated 10 times — classic Whisper silence artifact
+    words = ["अपने"] * 10
+    assert is_hallucinated_segment(words) is True
+
+
+def test_hallucination_not_triggered_short_segment() -> None:
+    # Fewer than 8 words — too short to call hallucination
+    assert is_hallucinated_segment(["yes"] * 5) is False
+
+
+def test_hallucination_not_triggered_real_speech() -> None:
+    words = "how many days did Mohit take to finish the work".split()
+    assert is_hallucinated_segment(words) is False
+
+
+def test_hallucination_real_repetition_edge() -> None:
+    # 8 of 10 identical = 80% > threshold(0.7) → hallucination
+    words = ["yes"] * 8 + ["okay", "right"]
+    assert is_hallucinated_segment(words) is True
+
+
+def test_alignment_real_world_same_duration() -> None:
+    # Simulate Zoom cloud recording: both student and session end at ~1027s
+    student_segs = [seg(0.0, 1027.6, "kya karein aur kaise")]
+    session_segs = [seg(0.0, 1027.6, "completely different text here")]
+    result = detect_alignment(student_segs, session_segs)
+    assert result.mode == "session_aligned"
+    assert result.offset == 0.0
+    assert result.uncertain is False

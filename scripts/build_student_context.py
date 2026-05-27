@@ -181,18 +181,39 @@ def build_context_document(
 
     present_students: dict[str, StudentContext] = {}
     absent_students: dict[str, AbsentStudentSummary] = {}
+    covered_roll_nos: set[str] = set()
 
     for student in roster:
         key = student.roll_no or student.name
         entry = identity_by_roll.get(student.roll_no or "")
         if entry is not None:
+            covered_roll_nos.add(student.roll_no or "")
             present_students[key] = build_present_context(
                 student, entry, transcript, attendance_by_roll, topics
             )
         else:
             absent_students[key] = build_absent_summary(student, transcript, topics)
 
-    # Unmatched M4A entries (not in roster)
+    # Students matched via attendance (or other means) but absent from the roster CSV.
+    # This handles the no-roster case: every matched entry still gets a context object.
+    for entry in identity_map.entries:
+        if entry.is_unmatched or entry.is_teacher:
+            continue
+        roll = entry.matched_roll_no or ""
+        if roll in covered_roll_nos:
+            continue
+        key = roll or entry.matched_name or entry.audio_file
+        synthetic = RosterEntry(
+            name=entry.matched_name or entry.audio_file,
+            roll_no=roll,
+            email=entry.matched_email or "",
+        )
+        covered_roll_nos.add(roll)
+        present_students[key] = build_present_context(
+            synthetic, entry, transcript, attendance_by_roll, topics
+        )
+
+    # Unmatched M4A entries (not in roster and not matched by roll/attendance)
     unmatched_count = 0
     for entry in identity_map.unmatched_entries:
         key = entry.audio_file
