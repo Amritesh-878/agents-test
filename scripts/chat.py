@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import re
 import sys
@@ -12,11 +13,8 @@ from typing import Any, Callable, Literal, Protocol, Sequence
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
-if __package__ in (None, ""):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from scripts.chunk_and_embed import CHROMA_COLLECTION_NAME, DEFAULT_EMBEDDING_MODEL
-from scripts.retrieval import RetrievalError, RetrievalResult, retrieve_from_chroma
+from scripts.embed_and_store import DEFAULT_EMBEDDING_MODEL
+from scripts.retrieval import RetrievalError, RetrievalResult, retrieve_from_pgvector
 from scripts.utils.chunker import ChunkType
 
 DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant"
@@ -27,16 +25,15 @@ SOURCES_COMMANDS = {"sources"}
 
 
 class ChatArgs(BaseModel):
-    chroma_dir: Path = Path("data/chroma")
+    db_url: str
+    student_id: str
+    student_name: str
     chunk_types: list[ChunkType] = Field(default_factory=list)
-    collection_name: str = CHROMA_COLLECTION_NAME
     embedding_model: str = DEFAULT_EMBEDDING_MODEL
     groq_model: str = DEFAULT_GROQ_MODEL
     max_history_turns: int = 3
     question: str | None = None
     save_session_dir: Path = Path("output/chat_sessions")
-    student_id: str
-    student_name: str
     top_k: int = 5
 
 
@@ -58,8 +55,7 @@ class ChatTurnRecord(BaseModel):
 
 
 class ChatSessionRecord(BaseModel):
-    chroma_dir: str
-    collection_name: str
+    db_url: str
     embedding_model: str
     groq_model: str
     last_updated_at: str
@@ -89,72 +85,36 @@ class SupportsGenerate(Protocol):
 
 def parse_args(argv: Sequence[str] | None = None) -> ChatArgs:
     parser = argparse.ArgumentParser(
-        description=(
-            "Run a student-scoped CLI chatbot backed by TASK-008 retrieval and Groq generation."
-        )
+        description="Student-scoped CLI chatbot backed by pgvector retrieval and Groq generation."
     )
-    parser.add_argument("--student-id", required=True, help="Stable student scope key from TASK-007.")
-    parser.add_argument("--student-name", required=True, help="Display name used in the chat prompt.")
-    parser.add_argument(
-        "--question",
-        help="Optional single-turn question. If omitted, an interactive chat loop starts.",
-    )
-    parser.add_argument(
-        "--top-k",
-        type=int,
-        default=5,
-        help="Maximum number of ranked chunks to retrieve per turn.",
-    )
+    parser.add_argument("--student-id", required=True, dest="student_id")
+    parser.add_argument("--student-name", required=True, dest="student_name")
+    parser.add_argument("--db-url", required=True, dest="db_url")
+    parser.add_argument("--question", default=None)
+    parser.add_argument("--top-k", type=int, default=5, dest="top_k")
     parser.add_argument(
         "--chunk-type",
         action="append",
         choices=("spoken", "missed", "class_context"),
         dest="chunk_types",
-        help="Optional chunk-type filter. Repeat to allow multiple types.",
     )
+    parser.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL, dest="embedding_model")
+    parser.add_argument("--groq-model", default=DEFAULT_GROQ_MODEL, dest="groq_model")
     parser.add_argument(
-        "--chroma-dir",
-        default="data/chroma",
-        help="Directory containing the persistent TASK-007 ChromaDB store.",
+        "--save-session-dir", default="output/chat_sessions", dest="save_session_dir"
     )
-    parser.add_argument(
-        "--collection-name",
-        default=CHROMA_COLLECTION_NAME,
-        help="ChromaDB collection name to query.",
-    )
-    parser.add_argument(
-        "--embedding-model",
-        default=DEFAULT_EMBEDDING_MODEL,
-        help="Sentence Transformer model name used for retrieval query embedding.",
-    )
-    parser.add_argument(
-        "--groq-model",
-        default=DEFAULT_GROQ_MODEL,
-        help="Groq model id used for answer generation.",
-    )
-    parser.add_argument(
-        "--save-session-dir",
-        default="output/chat_sessions",
-        help="Directory where structured chat session JSON traces are written.",
-    )
-    parser.add_argument(
-        "--max-history-turns",
-        type=int,
-        default=3,
-        help="Maximum number of prior turns to retain in the prompt history.",
-    )
+    parser.add_argument("--max-history-turns", type=int, default=3, dest="max_history_turns")
     namespace = parser.parse_args(argv)
     return ChatArgs(
-        chroma_dir=Path(namespace.chroma_dir),
+        db_url=namespace.db_url,
+        student_id=namespace.student_id,
+        student_name=namespace.student_name,
         chunk_types=list(namespace.chunk_types or []),
-        collection_name=namespace.collection_name,
         embedding_model=namespace.embedding_model,
         groq_model=namespace.groq_model,
         max_history_turns=namespace.max_history_turns,
         question=namespace.question,
         save_session_dir=Path(namespace.save_session_dir),
-        student_id=namespace.student_id,
-        student_name=namespace.student_name,
         top_k=namespace.top_k,
     )
 
@@ -170,10 +130,6 @@ def validate_inputs(args: ChatArgs) -> None:
         raise ValueError("top_k must be positive.")
     if args.max_history_turns < 0:
         raise ValueError("max_history_turns must be zero or greater.")
-    if args.chroma_dir.exists() and args.chroma_dir.is_file():
-        raise ValueError(f"Chroma directory path must be a directory: {args.chroma_dir}")
-    if args.save_session_dir.exists() and args.save_session_dir.is_file():
-        raise ValueError(f"Session output path must be a directory: {args.save_session_dir}")
 
 
 def utc_now() -> datetime:
@@ -207,36 +163,30 @@ def load_groq_api_key() -> str:
 
 def collect_trust_flags(result: RetrievalResult) -> list[str]:
     flags: list[str] = list(result.warnings)
-    seen_flags = {flag.casefold() for flag in flags}
+    seen = {f.casefold() for f in flags}
     for chunk in result.retrieved_chunks:
-        for trust_flag in chunk.trust_flags:
-            normalized_flag = trust_flag.casefold()
-            if normalized_flag in seen_flags:
-                continue
-            flags.append(trust_flag)
-            seen_flags.add(normalized_flag)
+        for flag in chunk.trust_flags:
+            if flag.casefold() not in seen:
+                flags.append(flag)
+                seen.add(flag.casefold())
     return flags
 
 
 def summarize_trust_flags(result: RetrievalResult) -> str:
-    trust_flags = collect_trust_flags(result)
-    if not trust_flags:
-        return "No explicit trust warnings."
-    return "; ".join(trust_flags)
+    flags = collect_trust_flags(result)
+    return "No explicit trust warnings." if not flags else "; ".join(flags)
 
 
 def build_history_messages(
-    turns: Sequence[ChatTurnRecord],
-    max_history_turns: int,
+    turns: Sequence[ChatTurnRecord], max_history_turns: int
 ) -> list[PromptMessage]:
     if max_history_turns == 0:
         return []
-
-    history_messages: list[PromptMessage] = []
+    history: list[PromptMessage] = []
     for turn in turns[-max_history_turns:]:
-        history_messages.append(PromptMessage(role="user", content=turn.question))
-        history_messages.append(PromptMessage(role="assistant", content=turn.answer))
-    return history_messages
+        history.append(PromptMessage(role="user", content=turn.question))
+        history.append(PromptMessage(role="assistant", content=turn.answer))
+    return history
 
 
 def build_prompt_messages(
@@ -248,9 +198,9 @@ def build_prompt_messages(
     history_turns: Sequence[ChatTurnRecord],
     max_history_turns: int,
 ) -> list[PromptMessage]:
-    history_messages = build_history_messages(history_turns, max_history_turns)
+    history = build_history_messages(history_turns, max_history_turns)
     trust_summary = summarize_trust_flags(retrieval_result)
-    system_prompt = PromptMessage(
+    system = PromptMessage(
         role="system",
         content="\n".join(
             [
@@ -263,7 +213,7 @@ def build_prompt_messages(
             ]
         ),
     )
-    user_prompt = PromptMessage(
+    user = PromptMessage(
         role="user",
         content="\n\n".join(
             [
@@ -280,14 +230,14 @@ def build_prompt_messages(
             ]
         ),
     )
-    return [system_prompt, *history_messages, user_prompt]
+    return [system, *history, user]
 
 
 def build_empty_context_answer(student_name: str, retrieval_result: RetrievalResult) -> str:
     warning_text = summarize_trust_flags(retrieval_result)
     return (
-        f"I do not have enough student-scoped class context to answer that reliably for {student_name}. "
-        f"The retrieval step did not return supporting chunks for this question. "
+        f"I do not have enough student-scoped class context to answer that reliably for "
+        f"{student_name}. The retrieval step did not return supporting chunks for this question. "
         f"Current retrieval notes: {warning_text}"
     )
 
@@ -305,8 +255,6 @@ def build_sources_payload(result: RetrievalResult) -> dict[str, Any]:
                 "start": chunk.start,
                 "end": chunk.end,
                 "source_speaker": chunk.source_speaker,
-                "source_segment_ids": chunk.source_segment_ids,
-                "source_segment_refs": [reference.model_dump(mode="json") for reference in chunk.source_segment_refs],
                 "trust_flags": chunk.trust_flags,
             }
             for chunk in result.retrieved_chunks
@@ -329,21 +277,20 @@ class GroqChatBackend:
             from groq import Groq
         except ImportError as error:
             raise ChatError(
-                "Groq SDK is not installed. Install the pinned dependency from requirements.txt."
+                "Groq SDK is not installed. Install from requirements.txt."
             ) from error
         self._client = Groq(api_key=api_key)
 
     def generate(self, *, messages: Sequence[PromptMessage], model: str) -> str:
         response = self._client.chat.completions.create(
             model=model,
-            messages=[message.model_dump(mode="json") for message in messages],
+            messages=[m.model_dump(mode="json") for m in messages],
             temperature=0.2,
         )
         choices = getattr(response, "choices", None)
         if not isinstance(choices, list) or not choices:
             raise ChatError("Groq returned no completion choices.")
-        first_message = getattr(choices[0], "message", None)
-        content = getattr(first_message, "content", None)
+        content = getattr(getattr(choices[0], "message", None), "content", None)
         if not isinstance(content, str) or not content.strip():
             raise ChatError("Groq returned an empty completion.")
         return content.strip()
@@ -351,13 +298,12 @@ class GroqChatBackend:
 
 class RetrievalBackend:
     def retrieve(self, args: ChatArgs, question: str) -> RetrievalResult:
-        return retrieve_from_chroma(
+        return retrieve_from_pgvector(
             student_id=args.student_id,
             query=question,
             top_k=args.top_k,
             chunk_types=args.chunk_types,
-            chroma_dir=args.chroma_dir,
-            collection_name=args.collection_name,
+            db_url=args.db_url,
             embedding_model=args.embedding_model,
         )
 
@@ -381,17 +327,16 @@ class ChatService:
         self.output_fn = output_fn
         self.now_provider = now_provider
         started_at = iso_timestamp(now_provider())
-        resolved_session_id = session_id or build_session_id(args.student_id, now_provider())
-        self.session_path = build_session_path(args.save_session_dir, resolved_session_id)
+        resolved_id = session_id or build_session_id(args.student_id, now_provider())
+        self.session_path = build_session_path(args.save_session_dir, resolved_id)
         self.session_record = ChatSessionRecord(
-            chroma_dir=str(args.chroma_dir),
-            collection_name=args.collection_name,
+            db_url=args.db_url,
             embedding_model=args.embedding_model,
             groq_model=args.groq_model,
             last_updated_at=started_at,
             max_history_turns=args.max_history_turns,
             save_session_dir=str(args.save_session_dir),
-            session_id=resolved_session_id,
+            session_id=resolved_id,
             started_at=started_at,
             student_id=args.student_id,
             student_name=args.student_name,
@@ -402,25 +347,21 @@ class ChatService:
 
     def print_banner(self) -> None:
         self.output_fn(
-            "\n".join(
-                [
-                    (
-                        f"Chat ready for {self.args.student_name} ({self.args.student_id}). "
-                        f"Session trace: {self.session_path}"
-                    ),
-                    "Commands: context, sources, help, quit",
-                ]
-            )
+            f"Chat ready for {self.args.student_name} ({self.args.student_id}). "
+            f"Session: {self.session_path}\n"
+            "Commands: context, sources, help, quit"
         )
 
-    def build_turn_record(self, question: str, answer: str, retrieval_result: RetrievalResult) -> ChatTurnRecord:
+    def build_turn_record(
+        self, question: str, answer: str, retrieval_result: RetrievalResult
+    ) -> ChatTurnRecord:
         if retrieval_result.result_count == 0:
             prompt_messages: list[PromptMessage] = []
             answer_source: Literal["fallback", "groq"] = "fallback"
             model_name: str | None = None
         else:
             if self.llm_backend is None:
-                raise ChatError("No language model backend was configured for chat generation.")
+                raise ChatError("No language model backend was configured.")
             prompt_messages = build_prompt_messages(
                 student_id=self.args.student_id,
                 student_name=self.args.student_name,
@@ -444,45 +385,42 @@ class ChatService:
         )
 
     def ask_question(self, question: str) -> ChatTurnRecord:
-        normalized_question = question.strip()
-        if not normalized_question:
+        normalized = question.strip()
+        if not normalized:
             raise ChatError("Question must not be empty.")
-
         self.output_fn("Retrieving student-scoped context...")
-        retrieval_result = self.retrieval_backend.retrieve(self.args, normalized_question)
+        retrieval_result = self.retrieval_backend.retrieve(self.args, normalized)
         self.last_retrieval = retrieval_result
-
         if retrieval_result.result_count == 0:
             answer = build_empty_context_answer(self.args.student_name, retrieval_result)
         else:
             if self.llm_backend is None:
-                raise ChatError("No language model backend was configured for chat generation.")
+                raise ChatError("No language model backend was configured.")
             prompt_messages = build_prompt_messages(
                 student_id=self.args.student_id,
                 student_name=self.args.student_name,
-                question=normalized_question,
+                question=normalized,
                 retrieval_result=retrieval_result,
                 history_turns=self.session_record.turns,
                 max_history_turns=self.args.max_history_turns,
             )
             self.output_fn("Generating grounded answer with Groq...")
             answer = self.llm_backend.generate(messages=prompt_messages, model=self.args.groq_model)
-
-        turn_record = self.build_turn_record(normalized_question, answer, retrieval_result)
-        self.session_record.turns.append(turn_record)
+        turn = self.build_turn_record(normalized, answer, retrieval_result)
+        self.session_record.turns.append(turn)
         self.session_record.last_updated_at = iso_timestamp(self.now_provider())
         write_session_record(self.session_record, self.session_path)
-        return turn_record
+        return turn
 
     def print_context(self) -> None:
         if self.last_retrieval is None:
-            self.output_fn("No retrieval trace is available yet. Ask a question first.")
+            self.output_fn("No retrieval trace yet. Ask a question first.")
             return
         self.output_fn(self.last_retrieval.context_string)
 
     def print_sources(self) -> None:
         if self.last_retrieval is None:
-            self.output_fn("No retrieval trace is available yet. Ask a question first.")
+            self.output_fn("No retrieval trace yet. Ask a question first.")
             return
         self.output_fn(format_sources_output(self.last_retrieval))
 
@@ -490,27 +428,25 @@ class ChatService:
         self.output_fn("Commands: ask a question, or use context, sources, help, quit")
 
     def handle_user_input(self, raw_input: str) -> bool:
-        normalized_input = raw_input.strip()
-        if not normalized_input:
+        normalized = raw_input.strip()
+        if not normalized:
             self.output_fn("Enter a question, or use context, sources, help, or quit.")
             return True
-
-        normalized_command = normalized_input.casefold()
-        if normalized_command in EXIT_COMMANDS:
+        cmd = normalized.casefold()
+        if cmd in EXIT_COMMANDS:
             self.output_fn("Ending chat session.")
             return False
-        if normalized_command in HELP_COMMANDS:
+        if cmd in HELP_COMMANDS:
             self.print_help()
             return True
-        if normalized_command in CONTEXT_COMMANDS:
+        if cmd in CONTEXT_COMMANDS:
             self.print_context()
             return True
-        if normalized_command in SOURCES_COMMANDS:
+        if cmd in SOURCES_COMMANDS:
             self.print_sources()
             return True
-
-        turn_record = self.ask_question(normalized_input)
-        self.output_fn(f"Assistant: {turn_record.answer}")
+        turn = self.ask_question(normalized)
+        self.output_fn(f"Assistant: {turn.answer}")
         return True
 
     def run(self) -> None:
@@ -518,13 +454,13 @@ class ChatService:
         if self.args.question is not None:
             self.handle_user_input(self.args.question)
             return
-
         keep_running = True
         while keep_running:
             keep_running = self.handle_user_input(self.input_fn("You: "))
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     try:
         args = parse_args(argv)
         validate_inputs(args)

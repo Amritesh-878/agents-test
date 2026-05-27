@@ -546,9 +546,9 @@ Phase 1 v1 (TASK-001 through TASK-006) is complete as of 2026-05-20 with 62 pass
 | 2     | TASK-013: Identity Matching                   | Done    | 011, 012   |
 | 2     | TASK-014: Dual-Language WhisperX              | Done    | 011, 012   |
 | 3     | TASK-015: Transcript Merge                    | Done    | 013, 014   |
-| 3     | TASK-016: Student Context Builder             | Planned | 013, 015   |
-| 4     | TASK-017: pgvector Migration + Embedding      | Planned | 011, 016   |
-| 4     | TASK-018: Orchestrator + Retrieval/Chat       | Planned | 011–017    |
+| 3     | TASK-016: Student Context Builder             | Done    | 013, 015   |
+| 4     | TASK-017: pgvector Migration + Embedding      | Done    | 011, 016   |
+| 4     | TASK-018: Orchestrator + Retrieval/Chat       | Done    | 011–017    |
 
 **Key changes from v1:**
 - Pyannote diarization → per-student M4A filename identity matching

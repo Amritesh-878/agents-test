@@ -1,15 +1,11 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from collections import Counter
 from pathlib import Path
 from typing import Literal, Sequence
 
 from pydantic import BaseModel, Field
-
-if __package__ in (None, ""):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.chat import (
     DEFAULT_GROQ_MODEL,
@@ -18,19 +14,10 @@ from scripts.chat import (
     GroqChatBackend,
     load_groq_api_key,
 )
-from scripts.chunk_and_embed import (
-    CHROMA_COLLECTION_NAME,
-    DEFAULT_EMBEDDING_MODEL,
-    build_embedding_function,
-    create_persistent_client,
-)
-from scripts.retrieval import (
-    RetrievedChunk,
-    build_where_filter,
-    get_existing_collection,
-    parse_retrieved_chunk,
-)
+from scripts.embed_and_store import DEFAULT_EMBEDDING_MODEL
+from scripts.retrieval import RetrievedChunk, search_result_to_chunk
 from scripts.utils.chunker import ChunkType
+from scripts.utils.pg_store import PgVectorStore, connect_pg_store
 
 INSUFFICIENT_EVIDENCE_HINTS = (
     "do not have enough",
@@ -84,8 +71,7 @@ class EvalDataset(BaseModel):
 
 class EvaluationArgs(BaseModel):
     eval_file: Path = Path("data/eval_qa.json")
-    chroma_dir: Path = Path("data/chroma")
-    collection_name: str = CHROMA_COLLECTION_NAME
+    db_url: str = ""
     embedding_model: str = DEFAULT_EMBEDDING_MODEL
     groq_model: str = DEFAULT_GROQ_MODEL
     output_dir: Path = Path("output/evaluation")
@@ -159,84 +145,38 @@ class EvaluationSummary(BaseModel):
 
 def parse_args(argv: Sequence[str] | None = None) -> EvaluationArgs:
     parser = argparse.ArgumentParser(
-        description=(
-            "Evaluate the TASK-007/008/009 RAG stack against a golden QA set and write "
-            "inspectable per-case report artifacts."
-        )
+        description="Evaluate the RAG pipeline against a golden QA set."
     )
-    parser.add_argument(
-        "--eval-file",
-        default="data/eval_qa.json",
-        help="Golden QA dataset used for evaluation.",
-    )
-    parser.add_argument(
-        "--chroma-dir",
-        default="data/chroma",
-        help="Directory containing the persistent TASK-007 ChromaDB store.",
-    )
-    parser.add_argument(
-        "--collection-name",
-        default=CHROMA_COLLECTION_NAME,
-        help="ChromaDB collection name to evaluate.",
-    )
-    parser.add_argument(
-        "--embedding-model",
-        default=DEFAULT_EMBEDDING_MODEL,
-        help="Sentence Transformer model name used for retrieval query embedding.",
-    )
-    parser.add_argument(
-        "--groq-model",
-        default=DEFAULT_GROQ_MODEL,
-        help="Groq model id used for grounded answer generation.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        default="output/evaluation",
-        help="Directory where aggregate and per-case evaluation artifacts are written.",
-    )
-    parser.add_argument(
-        "--case-id",
-        action="append",
-        dest="case_ids",
-        help="Optional case id filter. Repeat to evaluate multiple specific cases.",
-    )
-    parser.add_argument(
-        "--top-k",
-        type=int,
-        default=5,
-        help="Maximum number of ranked chunks to retrieve per question.",
-    )
-    parser.add_argument(
-        "--max-history-turns",
-        type=int,
-        default=0,
-        help="Prompt history depth used when generating answers during evaluation.",
-    )
-    parser.add_argument(
-        "--fail-on-case-fail",
-        action="store_true",
-        help="Exit with code 1 when any evaluation case fails.",
-    )
+    parser.add_argument("--eval-file", default="data/eval_qa.json")
+    parser.add_argument("--db-url", default="", dest="db_url")
+    parser.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL, dest="embedding_model")
+    parser.add_argument("--groq-model", default=DEFAULT_GROQ_MODEL, dest="groq_model")
+    parser.add_argument("--output-dir", default="output/evaluation", dest="output_dir")
+    parser.add_argument("--case-id", action="append", dest="case_ids")
+    parser.add_argument("--top-k", type=int, default=5, dest="top_k")
+    parser.add_argument("--max-history-turns", type=int, default=0, dest="max_history_turns")
+    parser.add_argument("--fail-on-case-fail", action="store_true", dest="fail_on_case_failure")
     namespace = parser.parse_args(argv)
+    from dotenv import load_dotenv
+    import os
+    load_dotenv()
+    db_url = namespace.db_url or os.getenv("DATABASE_URL", "")
     return EvaluationArgs(
         eval_file=Path(namespace.eval_file),
-        chroma_dir=Path(namespace.chroma_dir),
-        collection_name=namespace.collection_name,
+        db_url=db_url,
         embedding_model=namespace.embedding_model,
         groq_model=namespace.groq_model,
         output_dir=Path(namespace.output_dir),
         case_ids=list(namespace.case_ids or []),
         top_k=namespace.top_k,
         max_history_turns=namespace.max_history_turns,
-        fail_on_case_failure=namespace.fail_on_case_fail,
+        fail_on_case_failure=namespace.fail_on_case_failure,
     )
 
 
 def validate_inputs(args: EvaluationArgs) -> None:
     if not args.eval_file.exists() or not args.eval_file.is_file():
         raise ValueError(f"Evaluation dataset was not found: {args.eval_file}")
-    if args.chroma_dir.exists() and args.chroma_dir.is_file():
-        raise ValueError(f"Chroma directory path must be a directory: {args.chroma_dir}")
     if args.output_dir.exists() and args.output_dir.is_file():
         raise ValueError(f"Output path must be a directory: {args.output_dir}")
     if args.top_k <= 0:
@@ -555,51 +495,25 @@ class EvaluationService:
         args: EvaluationArgs,
         *,
         llm_backend: GroqChatBackend | None = None,
+        store: PgVectorStore | None = None,
     ) -> None:
         self.args = args
         self.dataset = load_eval_dataset(args.eval_file)
         self.selected_cases = select_cases(self.dataset, args.case_ids)
         api_key = load_groq_api_key()
         self.llm_backend = llm_backend or GroqChatBackend(api_key)
-        client = create_persistent_client(args.chroma_dir)
-        embedding_function = build_embedding_function(args.embedding_model)
-        self.collection = get_existing_collection(client, args.collection_name, embedding_function)
+        self.store: PgVectorStore = store or connect_pg_store(args.db_url)
 
     def load_indexed_chunks(self, case: EvalCase) -> list[RetrievedChunk]:
-        payload = self.collection.get(
-            where=build_where_filter(case.student_id, case.chunk_types),
-            include=["documents", "metadatas"],
-        )
-        raw_ids = payload.get("ids", [])
-        raw_documents = payload.get("documents", [])
-        raw_metadatas = payload.get("metadatas", [])
-        if not isinstance(raw_ids, list):
-            return []
-
-        indexed_chunks: list[RetrievedChunk] = []
-        for index, raw_chunk_id in enumerate(raw_ids):
-            if not isinstance(raw_chunk_id, str):
-                continue
-            document_text = raw_documents[index] if index < len(raw_documents) else ""
-            metadata = raw_metadatas[index] if index < len(raw_metadatas) else None
-            if not isinstance(document_text, str) or not isinstance(metadata, dict):
-                continue
-            indexed_chunks.append(
-                parse_retrieved_chunk(
-                    rank=index + 1,
-                    chunk_id=raw_chunk_id,
-                    document_text=document_text,
-                    metadata=metadata,
-                    distance=None,
-                )
-            )
-        return indexed_chunks
+        raw_results = self.store.get_student_chunks(case.student_id)
+        if case.chunk_types:
+            raw_results = [r for r in raw_results if r.chunk_type in case.chunk_types]
+        return [search_result_to_chunk(r, i + 1) for i, r in enumerate(raw_results)]
 
     def run_case(self, case: EvalCase) -> CaseEvaluationResult:
         chat_args = ChatArgs(
-            chroma_dir=self.args.chroma_dir,
+            db_url=self.args.db_url,
             chunk_types=list(case.chunk_types),
-            collection_name=self.args.collection_name,
             embedding_model=self.args.embedding_model,
             groq_model=self.args.groq_model,
             max_history_turns=self.args.max_history_turns,

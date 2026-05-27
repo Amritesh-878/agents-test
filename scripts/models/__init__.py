@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+from scripts.models.context import (
+    AbsentStudentSummary,
+    BuildContextMetadata,
+    ContextSegment,
+    StudentContext,
+    StudentContextDocument,
+)
 from scripts.models.identity import (
     AttendanceRecord,
     AudioFileIdentity,
@@ -11,7 +18,16 @@ from scripts.models.identity import (
     StudentIdentity,
     ZoomFileManifest,
 )
-from scripts.models.pipeline import ClassSession, PipelineConfig
+from scripts.models.pipeline import (
+    ClassSession,
+    ClassSessionReport,
+    EmbeddingRecord,
+    MigrationResult,
+    PipelineConfig,
+    PipelineReport,
+    SearchResult,
+    StepResult,
+)
 from scripts.models.transcript import (
     AlignmentResult,
     DualLanguageWord,
@@ -25,21 +41,32 @@ from scripts.models.transcript import (
 )
 
 __all__ = [
+    "AbsentStudentSummary",
     "AlignmentResult",
     "AttendanceRecord",
     "AudioFileIdentity",
+    "BuildContextMetadata",
     "ClassSession",
+    "ClassSessionReport",
+    "ContextSegment",
     "DualLanguageWord",
+    "EmbeddingRecord",
     "IdentityMap",
     "IdentityMapEntry",
     "MatchResult",
     "MergeMetadata",
     "MergedSegment",
     "MergedTranscriptDocument",
+    "MigrationResult",
     "PerStudentAudioFile",
     "PerStudentTranscript",
     "PipelineConfig",
+    "PipelineReport",
     "RosterEntry",
+    "SearchResult",
+    "StepResult",
+    "StudentContext",
+    "StudentContextDocument",
     "StudentIdentity",
     "TranscriptDocument",
     "TranscriptSegment",
