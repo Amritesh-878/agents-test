@@ -244,7 +244,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     jsonl_path = args.chunk_jsonl_path or args.contexts_path.parent / "rag_chunks.jsonl"
     write_chunk_jsonl(records, jsonl_path)
 
-    print(f"Embedded and stored {len(records)} chunks → pgvector")
+    print(f"Embedded and stored {len(records)} chunks -> pgvector")
 
 
 if __name__ == "__main__":

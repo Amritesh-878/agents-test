@@ -33,7 +33,7 @@ class RunArgs(BaseModel):
 
 def parse_args(argv: Sequence[str] | None = None) -> RunArgs:
     parser = argparse.ArgumentParser(
-        description="End-to-end pipeline: zip → transcript → context → pgvector."
+        description="End-to-end pipeline: zip -> transcript -> context -> pgvector."
     )
     parser.add_argument("--input", required=True, type=Path, dest="input_path")
     parser.add_argument("--output-dir", required=True, type=Path, dest="output_dir")
@@ -246,9 +246,9 @@ def run_pipeline(args: RunArgs) -> PipelineReport:
         report = process_single_class(zip_path, args)
         sessions.append(report)
         if report.success:
-            logger.info("  ✓ %s complete", zip_path.name)
+            logger.info("  OK %s complete", zip_path.name)
         else:
-            logger.warning("  ✗ %s failed: %s", zip_path.name, report.error)
+            logger.warning("  FAIL %s failed: %s", zip_path.name, report.error)
 
     elapsed = time.monotonic() - t0
     successful = sum(1 for s in sessions if s.success)

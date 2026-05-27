@@ -429,7 +429,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         out.write_text(result.model_dump_json(indent=2), encoding="utf-8")
         processed += 1
 
-    print(f"Transcribed {processed} audio file(s) → {args.output_dir}")
+    print(f"Transcribed {processed} audio file(s) -> {args.output_dir}")
 
 
 if __name__ == "__main__":

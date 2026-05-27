@@ -295,7 +295,7 @@ def format_review_md(doc: MergedTranscriptDocument) -> str:
     lines += ["", "## Segment Preview (first 20)", ""]
     for seg in doc.segments[:20]:
         speaker_str = ", ".join(seg.speakers)
-        icon = "📋" if seg.source == "session_fallback" else "🎤"
+        icon = "[session]" if seg.source == "session_fallback" else "[student]"
         preview = seg.text[:100].replace("\n", " ")
         lines.append(
             f"{icon} `[{seg.start:.1f}–{seg.end:.1f}s]` **{speaker_str}**: {preview}"
@@ -460,8 +460,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     review_path = args.review_path or args.output_path.parent / "transcript_review.md"
     review_path.write_text(format_review_md(merged_doc), encoding="utf-8")
 
-    print(f"Merged transcript → {args.output_path}")
-    print(f"Review artifact   → {review_path}")
+    print(f"Merged transcript -> {args.output_path}")
+    print(f"Review artifact   -> {review_path}")
     print(f"  Total segments:   {merged_doc.metadata.total_segments}")
     print(f"  Per-student:      {merged_doc.metadata.per_student_segments}")
     print(f"  Session fallback: {merged_doc.metadata.session_fallback_segments}")

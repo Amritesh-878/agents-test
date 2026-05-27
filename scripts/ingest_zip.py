@@ -169,7 +169,7 @@ def extract_zip(zip_path: Path, output_dir: Path) -> Path:
     raw_dir.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path) as zf:
         zf.extractall(raw_dir)
-    logger.info("Extracted %s → %s", zip_path.name, raw_dir)
+    logger.info("Extracted %s -> %s", zip_path.name, raw_dir)
     return raw_dir
 
 

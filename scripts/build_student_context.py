@@ -313,7 +313,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     csv_path = args.review_csv_path or args.output_path.parent / "student_context_segments.csv"
     write_review_csv(doc, csv_path)
 
-    print(f"Student contexts → {args.output_path}")
+    print(f"Student contexts -> {args.output_path}")
     print(f"  Present: {doc.metadata.present_count}  Absent: {doc.metadata.absent_count}  "
           f"Unmatched: {doc.metadata.unmatched_count}")
     print(f"  Topics: {', '.join(topics[:5]) or 'none'}")
