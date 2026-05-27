@@ -91,12 +91,15 @@ def test_alignment_session_aligned() -> None:
     assert result.uncertain is False
 
 
-def test_alignment_join_offset() -> None:
+def test_alignment_duration_mismatch_still_session_aligned() -> None:
+    # Duration mismatch (student only has 5s of segments, session is 305s)
+    # Text-matching produced false 987.5s offsets on real data, so we now
+    # conservatively assume session_aligned with uncertain=True.
     student_segs = [seg(0.0, 5.0, "hello world")]
-    session_segs = [seg(300.0, 305.0, "hello world")]
+    session_segs = [seg(0.0, 305.0, "hello world")]
     result = detect_alignment(student_segs, session_segs)
-    assert result.mode == "join_offset"
-    assert abs(result.offset - 300.0) < 0.1
+    assert result.mode == "session_aligned"
+    assert result.uncertain is True
 
 
 def test_alignment_no_match_uncertain() -> None:

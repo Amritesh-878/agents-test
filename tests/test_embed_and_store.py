@@ -18,9 +18,9 @@ from scripts.models.context import (
 def make_context(
     name: str = "Anshi",
     roll_no: str = "2301",
-    spoken_text: str = "hello world",
-    missed_text: str = "missed content",
-    present_text: str = "class content",
+    spoken_text: str = "today we covered the supply function and demand curve analysis",
+    missed_text: str = "teacher explained the concept of elastic and inelastic demand",
+    present_text: str = "class covered time and work problems with scaffolding approach",
 ) -> StudentContext:
     spoken = [ContextSegment(start=0.0, end=5.0, text=spoken_text, speakers=[name])]
     missed = [ContextSegment(start=100.0, end=110.0, text=missed_text)]
@@ -93,23 +93,26 @@ def test_chunk_context_produces_records() -> None:
 
 
 def test_chunk_context_spoken_type() -> None:
-    ctx = make_context(spoken_text="I said this")
+    text = "today we covered the supply function and demand curve analysis"
+    ctx = make_context(spoken_text=text)
     records = chunk_student_context(ctx, "CS101")
     spoken = [r for r in records if r.chunk_type == "spoken"]
     assert len(spoken) == 1
-    assert spoken[0].text == "I said this"
+    assert spoken[0].text == text
 
 
 def test_chunk_context_missed_type() -> None:
-    ctx = make_context(missed_text="I missed this")
+    text = "teacher explained the concept of elastic and inelastic demand"
+    ctx = make_context(missed_text=text)
     records = chunk_student_context(ctx, "CS101")
     missed = [r for r in records if r.chunk_type == "missed"]
     assert len(missed) == 1
-    assert missed[0].text == "I missed this"
+    assert missed[0].text == text
 
 
 def test_chunk_context_class_context_type() -> None:
-    ctx = make_context(present_text="whole class content")
+    text = "class covered time and work problems with scaffolding approach used throughout"
+    ctx = make_context(present_text=text)
     records = chunk_student_context(ctx, "CS101")
     cc = [r for r in records if r.chunk_type == "class_context"]
     assert len(cc) >= 1
@@ -195,3 +198,37 @@ def test_validate_inputs_no_db_url(tmp_path: object) -> None:
     args = EmbedArgs(contexts_path=f, db_url="")
     with pytest.raises(ValueError, match="Database URL"):
         validate_inputs(args)
+
+
+# --- is_quality_text ---
+
+
+def test_quality_text_good() -> None:
+    from scripts.embed_and_store import is_quality_text
+    text = "today we will build our foundation of time and work scaffolding"
+    assert is_quality_text(text) is True
+
+
+def test_quality_text_garbled_repetition() -> None:
+    from scripts.embed_and_store import is_quality_text
+    text = ("अवाईवोद अवाईवोद अवाईवोद अवाईवोद अवाईवोद अवाईवोद "
+            "अवाईवोद अवाईवोद अवाईवोद अवाईवोद अवाईवोद अवाईवोद")
+    assert is_quality_text(text) is False
+
+
+def test_quality_text_phrase_repetition() -> None:
+    from scripts.embed_and_store import is_quality_text
+    phrase = "tadi subh puchya " * 6
+    assert is_quality_text(phrase) is False
+
+
+def test_quality_text_too_short() -> None:
+    from scripts.embed_and_store import is_quality_text
+    assert is_quality_text("yes") is False
+    assert is_quality_text("   ") is False
+
+
+def test_quality_text_replacement_chars() -> None:
+    from scripts.embed_and_store import is_quality_text
+    text = "good content but has ��� garbled here and everywhere indeed"
+    assert is_quality_text(text) is False

@@ -77,29 +77,10 @@ def detect_alignment(
     if session_end > 0 and abs(student_end - session_end) / session_end <= duration_match_tolerance:
         return AlignmentResult(mode="session_aligned", offset=0.0)
 
-    # Duration mismatch — use text matching to find the actual offset.
-    first_student = next(
-        (s for s in student_segments if s.text.strip()),
-        None,
-    )
-    if first_student is None:
-        return AlignmentResult(mode="session_aligned", offset=0.0, uncertain=True)
-
-    best_offset: float | None = None
-    best_similarity = 0.0
-
-    for session_seg in session_segments:
-        sim = _word_overlap_ratio(first_student.text, session_seg.text)
-        if sim >= similarity_threshold and sim > best_similarity:
-            best_similarity = sim
-            best_offset = session_seg.start - first_student.start
-
-    if best_offset is None:
-        return AlignmentResult(mode="session_aligned", offset=0.0, uncertain=True)
-
-    if abs(best_offset) <= aligned_tolerance:
-        return AlignmentResult(mode="session_aligned", offset=0.0)
-    return AlignmentResult(mode="join_offset", offset=best_offset)
+    # Duration mismatch (student stopped speaking early) — still assume session_aligned.
+    # Zoom cloud per-student M4As always start at session start regardless of when the student
+    # first spoke. Text-based offset detection produced false positives (987.5s) on real data.
+    return AlignmentResult(mode="session_aligned", offset=0.0, uncertain=True)
 
 
 def build_speech_events(

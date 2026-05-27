@@ -63,6 +63,38 @@ def validate_inputs(args: EmbedArgs) -> None:
         raise ValueError("Database URL is required. Pass --db-url or set DATABASE_URL.")
 
 
+def is_quality_text(text: str, min_chars: int = 20) -> bool:
+    """Return False for garbled, repetitive, or too-short text — don't embed junk.
+
+    Catches:
+    - Single-word or phrase repetitions (Whisper hallucination on silence)
+    - Replacement-character-dense output (model failure on noisy audio)
+    - Chunks too short to contain useful information
+    """
+    from collections import Counter
+
+    stripped = text.strip()
+    if len(stripped) < min_chars:
+        return False
+
+    words = stripped.split()
+    if len(words) < 4:
+        return False
+
+    # Trigram repetition: any 3-word phrase appearing 4+ times → hallucinated
+    if len(words) >= 12:
+        trigrams = [" ".join(words[i : i + 3]) for i in range(len(words) - 2)]
+        if Counter(trigrams).most_common(1)[0][1] >= 4:
+            return False
+
+    # Unicode replacement chars → garbled audio segment
+    replacement_ratio = stripped.count("�") / max(len(stripped), 1)
+    if replacement_ratio > 0.02:
+        return False
+
+    return True
+
+
 def stable_chunk_id(student_id: str, chunk_type: str, text: str) -> str:
     payload = f"{student_id}|{chunk_type}|{text}"
     return hashlib.sha1(payload.encode()).hexdigest()
@@ -93,7 +125,7 @@ def chunk_student_context(
     records: list[EmbeddingRecord] = []
 
     for seg in ctx.spoken_segments:
-        if seg.text.strip():
+        if seg.text.strip() and is_quality_text(seg.text):
             records.append(
                 EmbeddingRecord(
                     id=stable_chunk_id(student_id, "spoken", seg.text),
@@ -110,7 +142,7 @@ def chunk_student_context(
             )
 
     for seg in ctx.missed_segments:
-        if seg.text.strip():
+        if seg.text.strip() and is_quality_text(seg.text):
             records.append(
                 EmbeddingRecord(
                     id=stable_chunk_id(student_id, "missed", seg.text),
@@ -128,6 +160,8 @@ def chunk_student_context(
 
     class_text = " ".join(s.text for s in ctx.present_segments if s.text.strip())
     for chunk_text in _split_text(class_text, _MAX_CHUNK_CHARS):
+        if not is_quality_text(chunk_text):
+            continue
         records.append(
             EmbeddingRecord(
                 id=stable_chunk_id(student_id, "class_context", chunk_text),
