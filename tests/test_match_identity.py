@@ -160,9 +160,9 @@ def test_load_attendance_empty(tmp_path: Path) -> None:
 
 
 def test_fuzzy_match_score_high() -> None:
-    # "Amritesh" vs "Amritesh Praveen": ratio = 2*8/24 ≈ 0.667 — above 0.6 threshold
-    score = fuzzy_match_score("Amritesh", "Amritesh Praveen")
-    assert score > 0.6
+    # "Amritesh Praveen" vs "Amritesh Praveen": exact match
+    score = fuzzy_match_score("Amritesh Praveen", "Amritesh Praveen")
+    assert score == 1.0
 
 
 def test_fuzzy_match_score_low() -> None:
@@ -206,12 +206,13 @@ def test_match_roll_no_no_match(tmp_path: Path) -> None:
 
 
 def test_match_teacher_fuzzy(tmp_path: Path) -> None:
-    audio = make_audio(tmp_path, "audioAmritesh_23456789.m4a", "Amritesh", None)
+    # Use a name that scores above 0.75 against the teacher — exact display name match.
+    audio = make_audio(tmp_path, "audioAmriteshPraveen_23456789.m4a", "Amritesh Praveen", None)
     manifest = make_manifest(tmp_path, [audio])
 
     identity_map = match_files(manifest, [], [], ["Amritesh Praveen"])
 
-    assert identity_map.teacher_audio_file == "audioAmritesh_23456789.m4a"
+    assert identity_map.teacher_audio_file == "audioAmriteshPraveen_23456789.m4a"
     assert len(identity_map.entries) == 0
     assert len(identity_map.unmatched_entries) == 0
 

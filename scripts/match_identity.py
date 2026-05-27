@@ -278,10 +278,11 @@ def match_files(
         display_name = audio_file.display_name or ""
 
         # Step 1: Roll number match (primary, deterministic)
+        # Tries roster first; falls back to attendance-only when no roster is loaded.
         if roll_no_4digit is not None:
             roster_entry = roster_by_roll.get(roll_no_4digit)
+            attendance_record = attendance_by_roll.get(roll_no_4digit)
             if roster_entry is not None:
-                attendance_record = attendance_by_roll.get(roll_no_4digit)
                 matched_roll_nos.add(roll_no_4digit)
                 matched_entries.append(
                     _build_matched_entry(
@@ -294,10 +295,29 @@ def match_files(
                     )
                 )
                 continue
+            if attendance_record is not None:
+                # No roster — synthesise a minimal entry from attendance data.
+                synthetic = RosterEntry(
+                    name=attendance_record.name,
+                    roll_no=attendance_record.roll_no or roll_no_4digit,
+                    email="",
+                )
+                matched_roll_nos.add(roll_no_4digit)
+                matched_entries.append(
+                    _build_matched_entry(
+                        audio_file,
+                        synthetic,
+                        attendance_record,
+                        "roll_no",
+                        0.9,
+                        short_duration_threshold,
+                    )
+                )
+                continue
 
-        # Step 2: Teacher fuzzy match
+        # Step 2: Teacher fuzzy match (raised to 0.75 to avoid short-name collisions)
         teacher_score, _matched_teacher = _best_teacher_score(display_name, teacher_names)
-        if teacher_score >= 0.6:
+        if teacher_score >= 0.75:
             if teacher_audio_file is None:
                 teacher_audio_file = audio_file.filename
                 logger.info("Teacher identified: %s (score=%.2f)", audio_file.filename, teacher_score)

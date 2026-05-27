@@ -67,6 +67,14 @@ def test_parse_m4a_not_audio_prefix() -> None:
     assert roll is None
 
 
+def test_parse_m4a_no_underscore_teacher_style() -> None:
+    # e.g. audioNisha11031110282.m4a — teacher file with no roll, no underscore
+    name, number, roll = parse_m4a_filename("audioNisha11031110282.m4a")
+    assert name == "Nisha"
+    assert number is None
+    assert roll is None
+
+
 # --- File Classification ---
 
 
@@ -119,8 +127,9 @@ def test_classify_files_no_mp4_logs_warning(
 
 def test_classify_files_roll_numbers_parsed(tmp_path: Path) -> None:
     raw_dir = tmp_path / "raw"
-    raw_dir.mkdir()
-    (raw_dir / "audioAnshi_23013186578705.m4a").write_bytes(b"")
+    audio_dir = raw_dir / "Audio Record"
+    audio_dir.mkdir(parents=True)
+    (audio_dir / "audioAnshi_23013186578705.m4a").write_bytes(b"")
 
     manifest = classify_files(raw_dir, "class1")
 
@@ -134,9 +143,10 @@ def test_classify_files_roll_numbers_parsed(tmp_path: Path) -> None:
 
 def test_manifest_round_trip(tmp_path: Path) -> None:
     raw_dir = tmp_path / "raw"
-    raw_dir.mkdir()
+    audio_dir = raw_dir / "Audio Record"
+    audio_dir.mkdir(parents=True)
     (raw_dir / "session.mp4").write_bytes(b"")
-    (raw_dir / "audioAnshi_23013186578705.m4a").write_bytes(b"")
+    (audio_dir / "audioAnshi_23013186578705.m4a").write_bytes(b"")
 
     manifest = classify_files(raw_dir, "CS101")
     data = manifest.model_dump()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import zipfile
 from pathlib import Path
 from typing import Sequence
@@ -64,6 +65,12 @@ def parse_m4a_filename(filename: str) -> tuple[str | None, str | None, str | Non
 
     last_underscore = rest.rfind("_")
     if last_underscore == -1:
+        # No underscore — try to strip trailing digit block (participant index + meeting ID)
+        # e.g. "Nisha11031110282" → name="Nisha", no roll number
+        m = re.match(r"^(.*?)(\d{9,})$", rest)
+        if m:
+            name_part = m.group(1).rstrip("0123456789") or None
+            return name_part, None, None
         return rest, None, None
 
     candidate_name = rest[:last_underscore]
@@ -110,7 +117,10 @@ def classify_files(raw_dir: Path, class_name: str) -> ZoomFileManifest:
             else:
                 logger.warning("Multiple MP4 files found; using first: %s", session_mp4)
         elif suffix == ".m4a":
-            if name.startswith("audio"):
+            # Per-student M4As live inside an "Audio Record" subdirectory.
+            # Session-level mixed M4As sit at the top level even if they start with "audio".
+            in_audio_record = "audio record" in str(file_path.parent).lower()
+            if name.startswith("audio") and in_audio_record:
                 display_name, extracted_number, roll_no_4digit = parse_m4a_filename(name)
                 per_student_m4as.append(
                     PerStudentAudioFile(
