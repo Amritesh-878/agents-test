@@ -193,7 +193,7 @@ This confirms the dual-language pipeline is capturing the actual math class cont
 |-----------|--------|
 | Pipeline code (TASK-011–018) | Complete, 211 tests |
 | Database schema (pgvector) | Deployed on local PostgreSQL 17 |
-| First real class run | In progress (transcription re-running with hallucination filter) |
+| First real class run | Complete — Math Apr8, 14 chunks in pgvector |
 | Chatbot (chat.py) | Ready, pending first successful embed |
 | Evaluation framework | Built (eval_qa.json format) |
 | Multi-class batch | Ready (4 class zips available to test) |
@@ -202,13 +202,153 @@ This confirms the dual-language pipeline is capturing the actual math class cont
 
 ## What's Next
 
-1. **Verify first full run** — check that 7 student contexts are embedded in pgvector and chatbot answers real questions about the Time & Work class
-2. **Run all 4 classes** — Economics, Math Part 04, CTD, and Math Time & Work
-3. **Identify answer quality gaps** — run the eval framework against real student questions
-4. **Improvements identified so far:**
-   - Students who were mostly silent get very sparse contexts (expected limitation of per-student M4A approach)
-   - Topic extraction quality improves with longer classes (more content for TF-IDF)
-   - Roster CSV would improve absent-student context and attendance window accuracy
+1. **Run all 4 classes** — Economics (in progress), Math Part 04, CTD
+2. **Add roster CSV** — improves absent-student context and attendance window accuracy
+3. **Use teacher M4A as primary context source** — cleanest audio, should produce better chunks than mixed session MP4
+4. **Evaluate with real student questions** — run eval framework once more classes are loaded
+
+---
+
+## Real Data Results — Math.01 Time & Work (Apr 8, 17 min)
+
+**First end-to-end run with real Zoom exports. 11 bugs found and fixed in the process.**
+
+### Pipeline Run Stats
+```
+Class:     Math.01_A — Linear Equation Scaffolding: Time and Work
+Date:      April 8, 2026 (17 min 7 sec session)
+Students:  7 per-student M4As (Disha, Jagruti, Kalyani, Saisha, Sanaya, Shravani, Sonakshi)
+Teacher:   Nisha (identified at score=1.00 from filename)
+Chunks:    14 stored in pgvector (after quality filter)
+Duration:  ~18 min total pipeline (transcription on RTX 3050 CUDA)
+```
+
+### Session Transcript — Real Output Examples
+
+The dual-language WhisperX correctly captured the Hinglish class content (English dominant for this class):
+
+**Good segments — real teacher content:**
+```
+[23s]  "खेल today we हैं। will be going तो forward with the scaffolding, we will
+        build our foundation of time and work, we have already built enough foundation"
+
+[53s]  "this is already done, but it includes, it is just scaffolded in a..."
+
+[83s]  "yes, so we already know how this is to be done, only thing..."
+
+[443s] "You are telling me after you told me the second part Jagruti Kalyani
+        after you told me day 1 day 2"
+
+[472s] "day 2. You are telling me the second part Jagruti Kalyani day 1"
+
+[786s] "You are telling me the second part Jagruti Kalyani day 1, day 2."
+```
+
+**Bad segments — Whisper hallucinating on silence/noise:**
+```
+[0s]   "you"                          ← student muted, model outputs filler word
+[30s]  "you"                          ← same
+[141s] "yes, yes, yes, yes, yes, yes" ← looping on background noise
+[146s] "अवाईवोद अवाईवोद अवाईवोद..."  ← complete model failure on noise
+[368s] "अगर अगर अगर अगर अगर..."       ← another repeated hallucination
+```
+
+**The quality filter correctly blocked all hallucinated segments from entering pgvector.**
+
+### Alignment Detection — Before and After
+
+| Student | Run 1 (text matching) | Run 2 (duration-based) |
+|---------|----------------------|------------------------|
+| A_Disha | join_offset **+987.5s** ❌ | session_aligned 0.0s ✅ |
+| A_Jagruti | join_offset **+987.5s** ❌ | session_aligned 0.0s ✅ |
+| A_Kalyani | join_offset **+987.5s** ❌ | session_aligned 0.0s ✅ |
+| A_Saisha | join_offset **+987.5s** ❌ | session_aligned 0.0s ✅ |
+| A_Sanaya | join_offset **+987.5s** ❌ | session_aligned 0.0s ✅ |
+| A_Shravani | session_aligned (uncertain) | session_aligned 0.0s ✅ |
+| A_Sonakshi | join_offset **+987.5s** ❌ | session_aligned 0.0s ✅ |
+
+The 987.5s false offset was pushing all student events past the session end, causing the merge to produce only 4 segments. After the fix: 30 session segments used correctly.
+
+### Chunk Quality — Before and After Quality Filter
+
+**Before (62 chunks — garbled content in pgvector):**
+```
+[class_context] "अवाईवोद अवाईवोद अवाईवोद अवाईवोद अवाईवोद अवाईवोद..."  ← GARBAGE
+[class_context] "you खेल today we हैं। will be going forward with scaffolding..."  ← GOOD
+[spoken]        "तादी सुभ़ पूँच्य। तादी सुभ़ पूँच्य। तादी सुभ़..."  ← GARBAGE
+```
+
+**After (14 chunks — quality filter active):**
+```
+[class_context] "today we will be going forward with the scaffolding, we will
+                 build our foundation of time and work, we have already built
+                 enough foundation..."  ← GOOD
+
+[class_context] "You are telling me the second part Jagruti Kalyani day 1,
+                 day 2. You are telling me the second part Jagruti Kalyani..."  ← GOOD
+```
+
+### Retrieval Test — Real Question Against pgvector
+
+**Query:** "What was the time and work problem covered in class today?"
+**Student:** A_Disha (roll 2504)
+
+```
+[class_context] score=0.552
+  "today we will be going forward with the scaffolding, we will build our
+   foundation of time and work, we have already built enough foundation..."
+
+[class_context] score=0.552
+  "You are telling me the second part Jagruti Kalyani day 1, day 2..."
+
+[class_context] score=0.534
+  "I am going to paste you the whiteboard itself, so that you all can see..."
+```
+
+Retrieval is working semantically — the top results are genuinely relevant to the question.
+
+### Topics Extracted (TF-IDF)
+```
+['day', 'yes', 'second', 'telling', 'jagruti', 'jagruti kalyani',
+ 'kalyani day', 'day day', 'second jagruti', 'kalyani']
+```
+
+Topics reflect real class content (Jagruti and Kalyani being quizzed on day 1/day 2 time & work problems). Quality limited by short class duration (17 min) and noisy transcript.
+
+### Key Finding: Small Model on Mixed Audio = Noisy Transcripts
+
+The **WhisperX small model** struggles with:
+- Mixed session audio (all students' mics combined → echo + overlap)
+- Students who are muted/listening → hallucinated filler words ("you", "yes yes yes")
+- Hinglish code-switching under noise → garbled transliterations
+
+**What's salvageable:** The teacher's actual explanation sentences are captured correctly and retrievable. Roughly 5-7 clean segments per 17-minute class survived the quality filter.
+
+**Improvement path:** Use the **teacher's isolated M4A** (audioNisha.m4a) as the primary class context source. Her mic records only her voice → much cleaner audio → better transcription → more chunks per class.
+
+---
+
+## Real Data Results — Economics.02 Supply Function (Apr 16)
+
+*Run in progress — to be updated*
+
+---
+
+## Bugs Found and Fixed on Real Data (Complete List)
+
+| # | Where Found | Bug | Fix | Commit |
+|---|-------------|-----|-----|--------|
+| 1 | Ingest | Session M4A misclassified as per-student | Check for `Audio Record/` directory | `fad4147` |
+| 2 | Identity | Teacher "Nisha" matched student "A_Disha" (shared "isha") | Threshold 0.6 → 0.75 | `240aa39` |
+| 3 | Transcription | WhisperX VAD bootstrap URL returns HTTP 301 | Use `whisperx.asr.WhisperModel` directly | `90a4667` |
+| 4 | Transcription | `Wav2Vec2Processor.sampling_rate` removed in newer transformers | Drop alignment step, use faster-whisper word timestamps | `93b61d7` |
+| 5 | Transcription | `whisperx.load_audio` shells out to ffmpeg (not in CMD PATH) | Load WAV with `soundfile` (no ffmpeg needed) | `a236b84` |
+| 6 | All scripts | Windows CMD cp1252 rejects `→`, `✓`, `✗`, `📋`, `🎤` in print/log | Replace all non-ASCII with ASCII equivalents | `a3c02ef` |
+| 7 | Merge | Alignment text-matching returned false 987.5s offset for all students | Duration-based detection: if ±5% same duration → session_aligned | `f7d90f9` |
+| 8 | Transcription | Whisper hallucinates `अपने अपने...` on silent/muted student M4As | Skip segments where one word >70% of total | `f7d90f9` |
+| 9 | Context builder | 0 students embedded when no roster CSV provided | Also iterate `identity_map.entries` (attendance-matched students) | `f7d90f9` |
+| 10 | Embed | Garbled chunks (phrase repetition, replacement chars) in pgvector | Pre-embed quality filter: trigram repetition + `�` ratio check | `3e56131` |
+| 11 | Embed | Short/garbled segments diluting good content in class_context chunks | Filter individual segments before concatenating for chunking | `b9418c3` |
 
 ---
 
@@ -216,4 +356,4 @@ This confirms the dual-language pipeline is capturing the actual math class cont
 
 **GitHub:** https://github.com/Amritesh-878/agents-test  
 **Branch:** main  
-**Commits:** 13 commits since pipeline rebuild started (2026-05-27)
+**Commits:** 17 commits since pipeline rebuild started (2026-05-27)
