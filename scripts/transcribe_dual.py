@@ -330,11 +330,32 @@ def run_whisperx_language(
     if not formatted:
         return []
 
-    align_model, metadata = whisperx.load_align_model(language_code=language, device=device)
-    result: dict[str, Any] = whisperx.align(formatted, align_model, metadata, audio, device)
-    _release_gpu(align_model)
+    # Try alignment to get improved word timestamps.
+    # Falls back to raw ASR word timestamps if the alignment model has API incompatibilities
+    # (e.g. Wav2Vec2Processor.sampling_rate removed in newer transformers versions).
+    try:
+        align_model, metadata = whisperx.load_align_model(language_code=language, device=device)
+        result: dict[str, Any] = whisperx.align(formatted, align_model, metadata, audio, device)
+        _release_gpu(align_model)
+        return _extract_words_from_result(result)
+    except (AttributeError, KeyError, TypeError) as exc:
+        logger.warning(
+            "Alignment failed for language=%s (%s) — using raw ASR word timestamps.", language, exc
+        )
 
-    return _extract_words_from_result(result)
+    # Fallback: extract word timestamps directly from faster-whisper output.
+    words: list[TranscriptWord] = []
+    for seg in raw_segments:
+        for w in seg.words or []:
+            words.append(
+                TranscriptWord(
+                    start=float(w.start),
+                    end=float(w.end),
+                    word=str(w.word),
+                    score=float(w.probability) if hasattr(w, "probability") else None,
+                )
+            )
+    return words
 
 
 def convert_to_wav(audio_path: Path, wav_dir: Path) -> Path:
