@@ -325,6 +325,16 @@ def run_whisperx_language(
     return words
 
 
+def _load_wav(wav_path: Path) -> Any:
+    """Load a 16kHz mono WAV as a float32 numpy array — no ffmpeg needed."""
+    import soundfile as sf
+
+    data, _ = sf.read(str(wav_path), dtype="float32", always_2d=False)
+    if data.ndim > 1:
+        data = data.mean(axis=1)
+    return data
+
+
 def convert_to_wav(audio_path: Path, wav_dir: Path) -> Path:
     wav_dir.mkdir(parents=True, exist_ok=True)
     wav_path = wav_dir / (audio_path.stem + ".wav")
@@ -345,11 +355,9 @@ def transcribe_audio(
     roll_no: str | None = None,
     is_teacher: bool = False,
 ) -> PerStudentTranscript:
-    import whisperx
-
     wav_path = convert_to_wav(audio_path, wav_dir)
     device, compute_type = _get_device(args.allow_cpu)
-    audio: Any = whisperx.load_audio(str(wav_path))
+    audio: Any = _load_wav(wav_path)
 
     if args.single_language:
         hi_words = run_whisperx_language(audio, args.single_language, args.model, device, compute_type)
