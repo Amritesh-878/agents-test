@@ -521,10 +521,41 @@ Runtime status: ✅ PASS
 
 ---
 
-## Summary
+## Summary (Phase 1 v1)
 
 **Key Principle:** Validate environment first, extract audio second, run ML outputs independently but execute them sequentially on the local 4GB GPU, merge last.
 
-Begin with **TASK-001: Environment Setup** when ready. See individual TASK files for implementation details.
+Phase 1 v1 (TASK-001 through TASK-006) is complete as of 2026-05-20 with 62 passing tests.
 
-**Next Phase (not in scope here):** RAG pipeline — chunk diarized transcript, embed, store in pgvector, build retrieval layer for student chatbot.
+---
+
+## Phase 1 v2: Pipeline Rebuild (TASK-011 through TASK-018)
+
+**Status:** Planned (2026-05-27)
+
+**Why rebuild?** The current pipeline ignores per-student M4A audio files that Zoom cloud recording already provides. Instead it runs inaccurate pyannote speaker diarization on the mixed session audio. The rebuild also adds dual-language WhisperX for Hinglish, migrates ChromaDB to PostgreSQL + pgvector, and adds batch processing.
+
+**Full plan:** `.vscode/planned/pipeline-rebuild/MASTER_PLAN.md`
+
+**Task overview:**
+
+| Phase | Task                                          | Status  | Depends On |
+| ----- | --------------------------------------------- | ------- | ---------- |
+| 1     | TASK-011: Cleanup and Foundation Reset        | Done    | —          |
+| 2     | TASK-012: Zip Extraction + File Discovery     | Done    | 011        |
+| 2     | TASK-013: Identity Matching                   | Done    | 011, 012   |
+| 2     | TASK-014: Dual-Language WhisperX              | Done    | 011, 012   |
+| 3     | TASK-015: Transcript Merge                    | Done    | 013, 014   |
+| 3     | TASK-016: Student Context Builder             | Planned | 013, 015   |
+| 4     | TASK-017: pgvector Migration + Embedding      | Planned | 011, 016   |
+| 4     | TASK-018: Orchestrator + Retrieval/Chat       | Planned | 011–017    |
+
+**Key changes from v1:**
+- Pyannote diarization → per-student M4A filename identity matching
+- Single-language WhisperX → dual-language (Hindi + English) word-level merge
+- ChromaDB → PostgreSQL + pgvector
+- Manual script-by-script execution → batch orchestrator
+- Attendance-only students → every enrolled student from master roster
+- 62 old tests deleted, ~155 new tests planned
+
+**Individual task plans:** `.vscode/planned/pipeline-rebuild/TASK-011.md` through `TASK-018.md`
