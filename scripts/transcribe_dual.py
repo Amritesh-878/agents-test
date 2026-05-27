@@ -298,15 +298,40 @@ def run_whisperx_language(
     device: str,
     compute_type: str,
 ) -> list[TranscriptWord]:
+    # Use WhisperModel directly to bypass the VAD bootstrap URL (returns HTTP 301).
     import whisperx
+    import whisperx.asr
 
     logger.info("Transcribing with language=%s model=%s device=%s", language, model_name, device)
-    asr_model = whisperx.load_model(model_name, device, compute_type=compute_type, language=language)
-    result: dict[str, Any] = asr_model.transcribe(audio, language=language)
+    asr_model = whisperx.asr.WhisperModel(model_name, device=device, compute_type=compute_type)
+    segments_gen, _info = asr_model.transcribe(audio, language=language, word_timestamps=True)
+    raw_segments = list(segments_gen)
     _release_gpu(asr_model)
 
+    # Convert faster-whisper segments to whisperx alignment format.
+    formatted: list[dict[str, Any]] = [
+        {
+            "start": seg.start,
+            "end": seg.end,
+            "text": seg.text,
+            "words": [
+                {
+                    "start": w.start,
+                    "end": w.end,
+                    "word": w.word,
+                    "score": getattr(w, "probability", None),
+                }
+                for w in (seg.words or [])
+            ],
+        }
+        for seg in raw_segments
+    ]
+
+    if not formatted:
+        return []
+
     align_model, metadata = whisperx.load_align_model(language_code=language, device=device)
-    result = whisperx.align(result["segments"], align_model, metadata, audio, device)
+    result: dict[str, Any] = whisperx.align(formatted, align_model, metadata, audio, device)
     _release_gpu(align_model)
 
     return _extract_words_from_result(result)
