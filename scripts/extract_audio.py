@@ -27,7 +27,7 @@ class AudioExtractionError(RuntimeError):
 
 def parse_args(argv: Sequence[str] | None = None) -> ExtractionArgs:
     parser = argparse.ArgumentParser(
-        description="Extract 16kHz mono WAV audio from a Zoom MP4 recording."
+        description="Extract 16kHz mono WAV audio from a Zoom MP4 or M4A recording."
     )
     parser.add_argument("--input", required=True, help="Path to the input MP4 recording.")
     parser.add_argument(
@@ -47,8 +47,8 @@ def validate_inputs(args: ExtractionArgs) -> None:
         raise ValueError(f"Input file does not exist: {args.input_path}")
     if not args.input_path.is_file():
         raise ValueError(f"Input path is not a file: {args.input_path}")
-    if args.input_path.suffix.lower() != ".mp4":
-        raise ValueError("Input file must use the .mp4 extension.")
+    if args.input_path.suffix.lower() not in {".mp4", ".m4a"}:
+        raise ValueError("Input file must use the .mp4 or .m4a extension.")
     if args.output_path.suffix.lower() != ".wav":
         raise ValueError("Output file must use the .wav extension.")
 
