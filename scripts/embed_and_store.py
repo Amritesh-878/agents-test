@@ -158,7 +158,13 @@ def chunk_student_context(
                 )
             )
 
-    class_text = " ".join(s.text for s in ctx.present_segments if s.text.strip())
+    # Filter individual segments first, then concatenate — keeps garbled/short
+    # segments from polluting otherwise-good chunks when split.
+    quality_segs = [
+        s.text for s in ctx.present_segments
+        if s.text.strip() and is_quality_text(s.text, min_chars=15)
+    ]
+    class_text = " ".join(quality_segs)
     for chunk_text in _split_text(class_text, _MAX_CHUNK_CHARS):
         if not is_quality_text(chunk_text):
             continue
