@@ -298,8 +298,8 @@ def run_whisperx_language(
     device: str,
     compute_type: str,
 ) -> list[TranscriptWord]:
-    # Use WhisperModel directly to bypass the VAD bootstrap URL (returns HTTP 301).
-    import whisperx
+    # Use WhisperModel directly — bypasses VAD bootstrap URL (HTTP 301) and avoids
+    # loading alignment models that have Wav2Vec2Processor API breaks in newer transformers.
     import whisperx.asr
 
     logger.info("Transcribing with language=%s model=%s device=%s", language, model_name, device)
@@ -308,42 +308,9 @@ def run_whisperx_language(
     raw_segments = list(segments_gen)
     _release_gpu(asr_model)
 
-    # Convert faster-whisper segments to whisperx alignment format.
-    formatted: list[dict[str, Any]] = [
-        {
-            "start": seg.start,
-            "end": seg.end,
-            "text": seg.text,
-            "words": [
-                {
-                    "start": w.start,
-                    "end": w.end,
-                    "word": w.word,
-                    "score": getattr(w, "probability", None),
-                }
-                for w in (seg.words or [])
-            ],
-        }
-        for seg in raw_segments
-    ]
-
-    if not formatted:
-        return []
-
-    # Try alignment to get improved word timestamps.
-    # Falls back to raw ASR word timestamps if the alignment model has API incompatibilities
-    # (e.g. Wav2Vec2Processor.sampling_rate removed in newer transformers versions).
-    try:
-        align_model, metadata = whisperx.load_align_model(language_code=language, device=device)
-        result: dict[str, Any] = whisperx.align(formatted, align_model, metadata, audio, device)
-        _release_gpu(align_model)
-        return _extract_words_from_result(result)
-    except (AttributeError, KeyError, TypeError) as exc:
-        logger.warning(
-            "Alignment failed for language=%s (%s) — using raw ASR word timestamps.", language, exc
-        )
-
-    # Fallback: extract word timestamps directly from faster-whisper output.
+    # Use raw ASR word timestamps directly — avoids loading heavy alignment models
+    # (which have Wav2Vec2Processor API incompatibilities in newer transformers) and
+    # saves VRAM for the dual-language back-to-back runs on RTX 3050 4GB.
     words: list[TranscriptWord] = []
     for seg in raw_segments:
         for w in seg.words or []:
