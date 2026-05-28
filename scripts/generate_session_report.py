@@ -18,9 +18,18 @@ _NOISE_WORDS = {
     "uh", "hmm", "ah", "oh", "hm", "well", "just", "get", "got",
     "yep", "alright", "actually", "now", "also",
 }
-
 _ROLL_RE = re.compile(r"_\s*(\d{4})$")
 _PAREN_RE = re.compile(r"\s*\(.*?\)\s*$")
+_DEFN_RE = re.compile(
+    r"(?<!\bthat )\b(is a |is the |are |means |refers to|defined as|called an? |represents|is used to)\b",
+    re.I,
+)
+_HOMEWORK_RE = re.compile(
+    r"\b(monday|tuesday|wednesday|thursday|friday|saturday|next class|next week|"
+    r"homework|make sure|please make|assignment|submit|send me|by end of|when you come)\b",
+    re.I,
+)
+_QUESTION_RE = re.compile(r"\?\s*$")
 
 
 class ReportArgs(BaseModel):
@@ -31,12 +40,12 @@ class ReportArgs(BaseModel):
 
 def parse_args(argv: Sequence[str] | None = None) -> ReportArgs:
     parser = argparse.ArgumentParser(
-        description="Generate a single-page session engagement report."
+        description="Generate a session engagement report in the approved ISL format."
     )
     parser.add_argument("--class-dir", required=True, type=Path, dest="class_dir")
     parser.add_argument(
         "--attendance", type=Path, default=None,
-        help="Zoom attendance CSV — shows all attendees, not just those with M4A recordings.",
+        help="Zoom attendance CSV (full-day meeting export). Shown as appendix only.",
     )
     parser.add_argument("--output", type=Path, default=None)
     namespace = parser.parse_args(argv)
@@ -48,11 +57,8 @@ def parse_args(argv: Sequence[str] | None = None) -> ReportArgs:
 # ---------------------------------------------------------------------------
 
 def _clean(text: str) -> str:
-    """Collapse repeated spaces, fix spaced-out characters, strip trailing noise."""
     text = re.sub(r"\s{2,}", " ", text).strip()
     text = re.sub(r"([A-Za-z])\s+([A-Za-z])", r"\1 \2", text)
-    # Strip trailing Hindi particles and English fillers that leak into sentences
-    # Apply repeatedly to handle "या, या" double-patterns
     for _ in range(3):
         prev = text
         text = re.sub(r"[,\s]+(या|हैं|है|ह)[,\s.।]*$", "", text).strip()
@@ -92,11 +98,10 @@ def _engagement_level(quality_count: int) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Attendance CSV loading
+# Attendance CSV
 # ---------------------------------------------------------------------------
 
 def _load_attendance_csv(path: Path) -> list[dict]:
-    """Return list of {name, roll_no, duration_minutes, has_roll} dicts."""
     rows: list[dict] = []
     with path.open(encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
@@ -115,48 +120,113 @@ def _load_attendance_csv(path: Path) -> list[dict]:
             raw = (row.get(name_col, "") if name_col else "").strip()
             if not raw:
                 continue
-            # Strip parenthetical
+            if any(x in raw.lower() for x in ["otter", "read.ai", "notetaker", "notes"]):
+                continue
             clean_name = _PAREN_RE.sub("", raw).strip()
-            # Extract roll number
             m = _ROLL_RE.search(clean_name)
             roll_no = m.group(1) if m else None
             display = clean_name[:m.start()].strip() if m else clean_name
-            # Skip bots / notetakers
-            if any(x in raw.lower() for x in ["otter", "read.ai", "notetaker", "notes"]):
-                continue
             duration = 0.0
             if dur_col:
                 try:
                     duration = float(row.get(dur_col, "0") or "0")
                 except ValueError:
                     pass
-            rows.append({
-                "display": display,
-                "raw_name": raw,
-                "roll_no": roll_no,
-                "duration": duration,
-                "has_roll": roll_no is not None,
-            })
+            rows.append({"display": display, "roll_no": roll_no, "duration": duration})
     return sorted(rows, key=lambda r: -r["duration"])
 
 
 # ---------------------------------------------------------------------------
-# Topic extraction from quality segments
+# Dialogue reconstruction
 # ---------------------------------------------------------------------------
 
-_DEFN_RE = re.compile(
-    r"(?<!\bthat )\b(is a |is the |are |means |refers to|defined as|called an? |represents|is used to)\b",
-    re.I,
-)
+def _build_dialogue(
+    segments: list[dict],
+    teacher_name: str,
+    student_names: dict[str, str],  # source label -> display name
+) -> list[dict]:
+    """Return time-sorted list of {time, speaker, text, source} dicts, quality-filtered."""
+    result: list[dict] = []
+    seen: set[str] = set()
+
+    for seg in segments:
+        txt = _clean(seg.get("text", ""))
+        if not _is_meaningful(txt, min_chars=20, min_english=0.62):
+            continue
+        key = txt[:60].lower()
+        if key in seen:
+            continue
+        seen.add(key)
+
+        source = seg.get("source", "")
+        speakers = seg.get("speakers", [])
+        t = seg.get("start", 0.0)
+
+        if source == "session_fallback":
+            speaker = teacher_name
+        elif source == "per_student" and speakers:
+            speaker = student_names.get(speakers[0], speakers[0])
+        else:
+            continue
+
+        result.append({"time": t, "speaker": speaker, "text": txt[:250], "source": source})
+
+    return sorted(result, key=lambda d: d["time"])
 
 
-def _extract_topic_sentences(segments: list[dict], n: int = 5) -> list[str]:
-    """Extract definitional sentences from class segments.
+def _split_into_parts(
+    dialogue: list[dict],
+    duration_sec: float,
+    n_parts: int = 5,
+) -> list[tuple[str, list[dict]]]:
+    """Split dialogue into N time-based parts, return (label, entries) pairs."""
+    if not dialogue or duration_sec <= 0:
+        return []
 
-    Student segments are prioritised because student answers in Q&A classes
-    contain the clearest concept definitions (e.g. 'Supply schedule is a table
-    representation of price and quantity').  Teacher segments fill any gaps.
-    """
+    slot = duration_sec / n_parts
+    parts: list[tuple[str, list[dict]]] = []
+    labels = ["Part 1", "Part 2", "Part 3", "Part 4", "Part 5", "Part 6"]
+
+    for i in range(n_parts):
+        start = i * slot
+        end = (i + 1) * slot
+        entries = [d for d in dialogue if start <= d["time"] < end]
+        # Deduplicate within a part
+        seen: set[str] = set()
+        unique: list[dict] = []
+        for e in entries:
+            k = e["text"][:50].lower()
+            if k not in seen:
+                seen.add(k)
+                unique.append(e)
+        if unique:
+            start_min = round(start / 60)
+            end_min = round(end / 60)
+            label = f"{labels[i]} ({start_min}–{end_min} min)"
+            parts.append((label, unique[:8]))  # cap at 8 exchanges per part
+
+    return parts
+
+
+def _detect_homework(segments: list[dict]) -> list[str]:
+    """Find segments where homework or next-class instructions are given."""
+    results: list[str] = []
+    seen: set[str] = set()
+    for seg in reversed(segments):  # check from end of class
+        txt = _clean(seg.get("text", ""))
+        key = txt[:80].lower()
+        if key in seen:
+            continue
+        if len(txt) > 20 and _HOMEWORK_RE.search(txt) and _english_ratio(txt) > 0.55:
+            seen.add(key)
+            results.append(txt[:300])
+        if len(results) >= 2:
+            break
+    return results
+
+
+def _extract_definitions(segments: list[dict]) -> list[str]:
+    """Pull definitional sentences from student and teacher segments."""
     seen: set[str] = set()
     student_defns: list[tuple[float, str]] = []
     teacher_defns: list[tuple[float, str]] = []
@@ -172,20 +242,21 @@ def _extract_topic_sentences(segments: list[dict], n: int = 5) -> list[str]:
         if key in seen:
             continue
         seen.add(key)
-
         words = txt.split()
         real = sum(1 for w in words if w.lower() not in _NOISE_WORDS and w.isalpha() and len(w) > 3)
         score = (real / max(len(words), 1)) * _english_ratio(txt)
-
-        bucket = student_defns if source == "per_student" else teacher_defns
-        bucket.append((score, txt))
+        if score < 0.15:
+            continue
+        if source == "per_student":
+            student_defns.append((score, txt))
+        else:
+            teacher_defns.append((score, txt))
 
     student_defns.sort(reverse=True)
     teacher_defns.sort(reverse=True)
-
-    result = [t for _, t in student_defns[:n]]
-    result += [t for _, t in teacher_defns[: max(0, n - len(result))]]
-    return result[:n]
+    result = [t for _, t in student_defns[:4]]
+    result += [t for _, t in teacher_defns[:max(0, 4 - len(result))]]
+    return result[:5]
 
 
 def _session_type(segments: list[dict]) -> str:
@@ -198,33 +269,19 @@ def _session_type(segments: list[dict]) -> str:
     return "Class Session"
 
 
-def _build_timeline(segments: list[dict], duration_sec: float, n_slots: int = 6) -> list[tuple[float, str]]:
-    """One representative clean sentence per time slot across the session."""
-    slot_size = duration_sec / n_slots
-    result: list[tuple[float, str]] = []
-    seen: set[str] = set()
-    for i in range(n_slots):
-        slot_start = i * slot_size
-        slot_end = (i + 1) * slot_size
-        slot_segs = [
-            s for s in segments
-            if slot_start <= s.get("start", 0) < slot_end
-            and _is_meaningful(s.get("text", ""), min_chars=35, min_english=0.6)
-        ]
-        if not slot_segs:
+def _overview_sentence(segments: list[dict]) -> str:
+    """First meaningful teacher sentence — sets session context."""
+    for seg in segments:
+        if seg.get("source") != "session_fallback":
             continue
-        # Pick the one with highest English density
-        best = max(slot_segs, key=lambda s: _english_ratio(s.get("text", "")))
-        txt = _clean(best["text"])[:200]
-        key = txt[:50].lower()
-        if key not in seen:
-            seen.add(key)
-            result.append((best["start"] / 60, txt))
-    return result
+        txt = _clean(seg.get("text", ""))
+        if _is_meaningful(txt, min_chars=40, min_english=0.6):
+            return txt[:300]
+    return ""
 
 
 # ---------------------------------------------------------------------------
-# Report generator
+# Main report builder
 # ---------------------------------------------------------------------------
 
 def generate_report(class_dir: Path, attendance_path: Path | None = None) -> str:
@@ -237,63 +294,85 @@ def generate_report(class_dir: Path, attendance_path: Path | None = None) -> str
     duration_sec = merged.get("duration_seconds", 0.0)
     duration_min = round(duration_sec / 60, 1)
     teacher = merged.get("teacher_name", "Unknown")
-    all_segments = merged.get("segments", [])
+    all_segs = merged.get("segments", [])
     present = ctx.get("present_students", {})
     absent = ctx.get("absent_students", {})
 
-    session_type = _session_type(all_segments)
+    session_type = _session_type(all_segs)
 
-    # Load full attendance list from CSV if provided
-    attendance_rows: list[dict] = []
-    if attendance_path and attendance_path.exists():
-        attendance_rows = _load_attendance_csv(attendance_path)
+    # Build student map: roll_no/name -> display name
+    student_names: dict[str, str] = {}
+    for s in present.values():
+        student_names[s.get("name", "")] = s.get("name", "")
 
-    # Students with M4A recordings
-    recorded_rolls: set[str] = {
-        s.get("roll_no", "") for s in present.values() if s.get("roll_no")
-    }
-
-    # Build student participation table from M4A data
+    # Student participation data
     m4a_students: list[dict] = []
-    student_first_names: set[str] = set()
     for key, s in present.items():
         name = s.get("name", key)
-        for part in re.split(r"[_\s]", name.lower()):
-            if len(part) > 3:
-                student_first_names.add(part)
         spoken_segs = s.get("spoken_segments", [])
-        quality_segs = [seg for seg in spoken_segs if _is_meaningful(seg.get("text", ""))]
+        quality_segs = [sg for sg in spoken_segs if _is_meaningful(sg.get("text", ""))]
+
+        # Richer quotes — up to 8 clean quality contributions (English-dominant only)
         quotes: list[str] = []
-        for seg in quality_segs:
-            cleaned = _clean(seg.get("text", ""))
-            if len(cleaned) > 20 and _english_ratio(cleaned) > 0.5:
-                quotes.append(cleaned[:180])
-            if len(quotes) >= 3:
+        for sg in quality_segs:
+            cleaned = _clean(sg.get("text", ""))
+            if len(cleaned) > 20 and _english_ratio(cleaned) > 0.65:
+                quotes.append(cleaned[:250])
+            if len(quotes) >= 8:
                 break
+
+        # Engagement metrics
+        defns_answered = sum(
+            1 for sg in quality_segs
+            if _DEFN_RE.search(_clean(sg.get("text", "")))
+        )
+        qs_asked = sum(
+            1 for sg in quality_segs
+            if _QUESTION_RE.search(_clean(sg.get("text", "")))
+        )
+
         att_min = s.get("attendance_duration_minutes")
         att_display = "Full session" if att_min and att_min > duration_min else (
             f"{round(att_min)} min" if att_min else "—"
         )
+
         m4a_students.append({
             "name": name,
             "roll": s.get("roll_no", "—"),
             "att": att_display,
             "level": _engagement_level(len(quality_segs)),
             "quality": len(quality_segs),
+            "defns": defns_answered,
+            "qs_asked": qs_asked,
             "quotes": quotes,
         })
     m4a_students.sort(key=lambda r: -r["quality"])
 
-    # Topics — pull definitional sentences from ALL segments (student answers often clearest)
-    topic_sentences = _extract_topic_sentences(all_segments, n=5)
+    # Dialogue reconstruction
+    dialogue = _build_dialogue(all_segs, teacher, student_names)
+    parts = _split_into_parts(dialogue, duration_sec, n_parts=min(5, max(3, int(duration_min // 10))))
 
-    # Timeline
-    timeline = _build_timeline(all_segments, duration_sec)
+    # Key definitions and overview
+    definitions = _extract_definitions(all_segs)
+    overview = _overview_sentence(all_segs)
+    homework = _detect_homework(all_segs)
 
-    # Build report
+    # Attendance CSV
+    attendance_rows: list[dict] = []
+    recorded_rolls: set[str] = {s.get("roll_no", "") for s in present.values() if s.get("roll_no")}
+    if attendance_path and attendance_path.exists():
+        attendance_rows = _load_attendance_csv(attendance_path)
+
+    # ---------------------------------------------------------------------------
+    # Build markdown
+    # ---------------------------------------------------------------------------
     lines: list[str] = []
 
     # Header
+    student_str = (
+        m4a_students[0]["name"] if len(m4a_students) == 1
+        else f"{len(m4a_students)} students"
+    )
     lines += [
         "# Session Report",
         f"## {class_name.replace('_', ' ')}",
@@ -303,29 +382,91 @@ def generate_report(class_dir: Path, attendance_path: Path | None = None) -> str
         f"| **Session type** | {session_type} |",
         f"| **Duration** | {duration_min} minutes |",
         f"| **Teacher** | {teacher} |",
-        f"| **Students in this class** | {len(m4a_students)} |",
+        f"| **{'Student' if len(m4a_students) == 1 else 'Students'}** | {student_str} |",
+        f"| **Format** | {'1-on-1 Q&A' if len(m4a_students) == 1 else 'Group class'} |",
         "",
         "---",
         "",
     ]
 
-    # Students — definitive class list from M4A recordings
+    # Session overview
+    if overview:
+        lines += [
+            "## Session Overview",
+            "",
+        ]
+        # Auto-generate a brief narrative
+        overview_clean = overview[:200]
+        if m4a_students:
+            active = [s for s in m4a_students if s["level"] in ("Active", "Moderate")]
+            engagement_note = (
+                f"{m4a_students[0]['name']} was actively engaged throughout, answering questions and working through problems live."
+                if len(active) == 1 and len(m4a_students) == 1
+                else f"{len(active)} of {len(m4a_students)} students actively contributed."
+                if active
+                else "Students were primarily in listening mode."
+            )
+        else:
+            engagement_note = ""
+
+        lines += [
+            f"Opening: *\"{overview_clean}\"*",
+            "",
+            engagement_note,
+            "",
+            "---",
+            "",
+        ]
+
+    # Key concepts / definitions
+    if definitions:
+        lines += [
+            "## Key Concepts Covered",
+            "",
+            "_Definitions and explanations from the session transcript:_",
+            "",
+        ]
+        for d in definitions:
+            lines.append(f"- {d}")
+        lines += ["", "---", ""]
+
+    # Session dialogue — the main body
+    if parts:
+        lines += ["## Session — Detailed Dialogue", ""]
+        for label, exchanges in parts:
+            lines += [f"### {label}", ""]
+            for ex in exchanges:
+                spk = f"**{ex['speaker']}**"
+                lines.append(f"{spk}: {ex['text']}")
+                lines.append("")
+            lines += []
+        lines += ["---", ""]
+
+    # Homework
+    if homework:
+        lines += ["## Homework / Next Steps", ""]
+        for h in homework:
+            lines.append(f"> {h}")
+        lines += ["", "---", ""]
+
+    # Student engagement summary
+    lines += [
+        "## Student Engagement Summary",
+        "",
+    ]
     if m4a_students:
         lines += [
-            "## Students",
-            "",
-            "_Confirmed from per-student audio recordings in this Zoom class export._",
-            "",
-            "| Student | Roll | Attendance | Engagement | Verbal Contributions |",
-            "|---------|------|-----------|------------|---------------------|",
+            "| Student | Roll | Attendance | Engagement | Verbal Contributions | Definitions | Questions Asked |",
+            "|---------|------|-----------|------------|---------------------|-------------|-----------------|",
         ]
         for r in m4a_students:
             lines.append(
-                f"| {r['name']} | {r['roll']} | {r['att']} | **{r['level']}** | {r['quality']} verified segments |"
+                f"| {r['name']} | {r['roll']} | {r['att']} | **{r['level']}** | "
+                f"{r['quality']} segments | {r['defns']} | {r['qs_asked']} |"
             )
         lines += [""]
 
-        # Key quotes
+        # All student quotes
         active = [r for r in m4a_students if r["quotes"]]
         if active:
             lines += ["### What Students Said", ""]
@@ -334,85 +475,54 @@ def generate_report(class_dir: Path, attendance_path: Path | None = None) -> str
                 for q in r["quotes"]:
                     lines.append(f"> {q}")
                 lines.append("")
-
-        lines += ["---", ""]
-    elif absent:
+    else:
         lines += [
-            "## Students",
-            "",
-            "_No students had audio recordings in this class._",
-            "",
-            "---",
+            "_No students had isolated audio recordings in this class export._",
             "",
         ]
+    lines += ["---", ""]
 
-    # Absent students (from roster, if any)
+    # Absent students
     if absent:
         lines += ["## Absent Students (Enrolled, No Recording)", ""]
         for key, s in absent.items():
             lines.append(f"- **{s.get('name', key)}** (roll {s.get('roll_no', '—')})")
         lines += ["", "---", ""]
 
-    # What was covered
-    if topic_sentences:
-        lines += [
-            "## What Was Covered",
-            "",
-            "_Key concepts from the session transcript:_",
-            "",
-        ]
-        for sent in topic_sentences:
-            lines.append(f"- {sent}")
-        lines += ["", "---", ""]
-
-    # Session timeline
-    if timeline:
-        lines += [
-            "## Session Flow",
-            "",
-            "_Teacher content at regular intervals throughout the class:_",
-            "",
-        ]
-        for t_min, txt in timeline:
-            lines.append(f"**{t_min:.0f} min** — {txt}")
-            lines.append("")
-        lines += ["---", ""]
-
-    # Zoom meeting attendance — clearly scoped as full-meeting data
+    # Attendance appendix
     if attendance_rows:
         avg_dur = sum(r["duration"] for r in attendance_rows) / len(attendance_rows)
         is_multiclass = avg_dur > duration_min * 1.5
-
         scope_note = (
-            "_⚠️ This CSV covers the full Zoom meeting for the day, which includes multiple classes. "
-            "Durations shown are total time in the meeting, not time in this specific class._"
+            "_⚠️ This CSV covers the full Zoom meeting for the day — it includes multiple classes. "
+            "Durations are total time in the meeting, not time in this specific class. "
+            "Only students with M4A files in the class zip were confirmed in this class._"
             if is_multiclass
             else f"_{len(attendance_rows)} participants from the Zoom attendance export._"
         )
-
         lines += [
             "## Zoom Meeting Attendance",
             "",
             scope_note,
             "",
-            "| Student | Roll | Duration in meeting | Recording in this class |",
-            "|---------|------|-------------------|------------------------|",
+            "| Student | Roll | Duration in meeting | In this class |",
+            "|---------|------|-------------------|---------------|",
         ]
         for row in attendance_rows:
             dur = f"{round(row['duration'])} min" if row["duration"] else "—"
             roll = row["roll_no"] or "—"
-            has_audio = "✓ Audio recorded" if row["roll_no"] in recorded_rolls else ""
-            lines.append(f"| {row['display']} | {roll} | {dur} | {has_audio} |")
+            in_class = "✓ Audio recorded" if row["roll_no"] in recorded_rolls else "Other class"
+            lines.append(f"| {row['display']} | {roll} | {dur} | {in_class} |")
         lines += [""]
 
     # Footer
     lines += [
         "---",
         "",
-        "*Generated from Zoom cloud recording transcripts. "
-        "Students are confirmed from per-student M4A files in the class zip — "
-        "this is the ground truth for who participated in this specific class. "
-        "Verbal engagement is measured from isolated microphone audio only.*",
+        "*Generated from Zoom cloud recording transcripts (WhisperX dual-language, small model). "
+        "Students confirmed from per-student M4A files in the class zip. "
+        "Verbal contributions extracted from isolated microphone audio. "
+        "Transcript quality may vary — Hindi/Hinglish speech and background noise affect accuracy.*",
     ]
 
     return "\n".join(lines)
