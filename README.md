@@ -186,6 +186,40 @@ Without a roster, present students still get context (from attendance matching) 
 
 ---
 
+## Session Engagement Report
+
+Generate a single-page markdown report showing session type, topics covered, student engagement, and key student quotes:
+
+```powershell
+python -m scripts.generate_session_report   --class-dir "output\<class_name>"   --output "output\<class_name>\session_report.md"
+```
+
+**What the report includes:**
+- Session type (Class / Revision / Assessment — auto-detected from transcript)
+- Topics covered (TF-IDF, noise-filtered, student names excluded)
+- Engagement table: per-student attendance, engagement level (Active / Moderate / Passive / Silent), and contribution count
+- Key student quotes (verbatim from their isolated microphone recording)
+- Session timeline: what was discussed at each segment of the class
+
+**Example output** (Economics.02 — Supply Function, 51 min):
+```
+Type: Revision Session | Duration: 51.1 min | Teacher: Nisha
+
+Topics: supply, price, beta, function
+
+| Student      | Roll | Attendance   | Engagement | Contributions |
+|--------------|------|-------------|------------|---------------|
+| Bhagyashree  | 2302 | Full session | Active     | 75 segments   |
+
+Bhagyashree (Active):
+> "Market supply is a total quantity of goods that all the producers
+>  in the market are willing to supply at different price."
+> "Supply schedule is a table representation of price and quantity."
+> "Determinant of a supply is what changes supply. The factor."
+```
+
+---
+
 ## Development
 
 **Run tests:**
