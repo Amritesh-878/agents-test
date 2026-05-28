@@ -300,22 +300,65 @@ def generate_report(class_dir: Path, attendance_path: Path | None = None) -> str
         "",
         "| | |",
         "|--|--|",
-        f"| **Type** | {session_type} |",
+        f"| **Session type** | {session_type} |",
         f"| **Duration** | {duration_min} minutes |",
         f"| **Teacher** | {teacher} |",
-        f"| **Students with audio recording** | {len(m4a_students)} |",
-        f"| **Total attendees (from CSV)** | {len(attendance_rows) if attendance_rows else 'N/A — provide --attendance to see full list'} |",
+        f"| **Students in this class** | {len(m4a_students)} |",
         "",
         "---",
         "",
     ]
+
+    # Students — definitive class list from M4A recordings
+    if m4a_students:
+        lines += [
+            "## Students",
+            "",
+            "_Confirmed from per-student audio recordings in this Zoom class export._",
+            "",
+            "| Student | Roll | Attendance | Engagement | Verbal Contributions |",
+            "|---------|------|-----------|------------|---------------------|",
+        ]
+        for r in m4a_students:
+            lines.append(
+                f"| {r['name']} | {r['roll']} | {r['att']} | **{r['level']}** | {r['quality']} verified segments |"
+            )
+        lines += [""]
+
+        # Key quotes
+        active = [r for r in m4a_students if r["quotes"]]
+        if active:
+            lines += ["### What Students Said", ""]
+            for r in active:
+                lines.append(f"**{r['name']}** ({r['level']})")
+                for q in r["quotes"]:
+                    lines.append(f"> {q}")
+                lines.append("")
+
+        lines += ["---", ""]
+    elif absent:
+        lines += [
+            "## Students",
+            "",
+            "_No students had audio recordings in this class._",
+            "",
+            "---",
+            "",
+        ]
+
+    # Absent students (from roster, if any)
+    if absent:
+        lines += ["## Absent Students (Enrolled, No Recording)", ""]
+        for key, s in absent.items():
+            lines.append(f"- **{s.get('name', key)}** (roll {s.get('roll_no', '—')})")
+        lines += ["", "---", ""]
 
     # What was covered
     if topic_sentences:
         lines += [
             "## What Was Covered",
             "",
-            "_Key points discussed during the session (extracted from transcript):_",
+            "_Key concepts from the session transcript:_",
             "",
         ]
         for sent in topic_sentences:
@@ -327,7 +370,7 @@ def generate_report(class_dir: Path, attendance_path: Path | None = None) -> str
         lines += [
             "## Session Flow",
             "",
-            "_Snapshot of teacher content at regular intervals:_",
+            "_Teacher content at regular intervals throughout the class:_",
             "",
         ]
         for t_min, txt in timeline:
@@ -335,69 +378,41 @@ def generate_report(class_dir: Path, attendance_path: Path | None = None) -> str
             lines.append("")
         lines += ["---", ""]
 
-    # Students with audio — verbal participation
-    if m4a_students:
-        lines += [
-            "## Verbal Participation (Students with Audio Recording)",
-            "",
-            "| Student | Roll | Attendance | Engagement | Verbal Contributions |",
-            "|---------|------|-----------|------------|---------------------|",
-        ]
-        for r in m4a_students:
-            lines.append(
-                f"| {r['name']} | {r['roll']} | {r['att']} | **{r['level']}** | {r['quality']} verified segments |"
-            )
-        lines += [""]
-
-        # Key quotes from active students
-        active = [r for r in m4a_students if r["quotes"]]
-        if active:
-            lines += ["### What Students Said", ""]
-            for r in active:
-                lines.append(f"**{r['name']}**")
-                for q in r["quotes"]:
-                    lines.append(f"> {q}")
-                lines.append("")
-
-        lines += ["---", ""]
-
-    # Full attendance from CSV
+    # Zoom meeting attendance — clearly scoped as full-meeting data
     if attendance_rows:
+        avg_dur = sum(r["duration"] for r in attendance_rows) / len(attendance_rows)
+        is_multiclass = avg_dur > duration_min * 1.5
+
+        scope_note = (
+            "_⚠️ This CSV covers the full Zoom meeting for the day, which includes multiple classes. "
+            "Durations shown are total time in the meeting, not time in this specific class._"
+            if is_multiclass
+            else f"_{len(attendance_rows)} participants from the Zoom attendance export._"
+        )
+
         lines += [
-            "## Full Attendance (All Attendees)",
+            "## Zoom Meeting Attendance",
             "",
-            f"_{len(attendance_rows)} participants from the Zoom attendance export. "
-            f"Students marked ✓ have isolated audio recordings for detailed engagement analysis. "
-            f"Duration reflects total time in the Zoom meeting (may span multiple classes)._",
+            scope_note,
             "",
-            "| Student | Roll | Duration | Audio Recording |",
-            "|---------|------|---------|-----------------|",
+            "| Student | Roll | Duration in meeting | Recording in this class |",
+            "|---------|------|-------------------|------------------------|",
         ]
         for row in attendance_rows:
             dur = f"{round(row['duration'])} min" if row["duration"] else "—"
             roll = row["roll_no"] or "—"
-            has_audio = "✓" if row["roll_no"] in recorded_rolls else ""
+            has_audio = "✓ Audio recorded" if row["roll_no"] in recorded_rolls else ""
             lines.append(f"| {row['display']} | {roll} | {dur} | {has_audio} |")
-        lines += [""]
-
-    # Absent students (from roster, if any)
-    if absent:
-        lines += [
-            "## Absent Students (Enrolled, Not Present)",
-            "",
-        ]
-        for key, s in absent.items():
-            lines.append(f"- **{s.get('name', key)}** (roll {s.get('roll_no', '—')})")
         lines += [""]
 
     # Footer
     lines += [
         "---",
         "",
-        "*This report is auto-generated from Zoom cloud recording transcripts. "
-        "Verbal participation is measured from each student's isolated microphone recording. "
-        "Students without audio recordings are shown in the attendance table only. "
-        "Transcript quality varies with audio clarity and background noise.*",
+        "*Generated from Zoom cloud recording transcripts. "
+        "Students are confirmed from per-student M4A files in the class zip — "
+        "this is the ground truth for who participated in this specific class. "
+        "Verbal engagement is measured from isolated microphone audio only.*",
     ]
 
     return "\n".join(lines)
