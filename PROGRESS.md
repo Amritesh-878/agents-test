@@ -224,8 +224,13 @@ Audit fixes landed so far (see `AUDIT_AND_FIX_PLAN.md`):
     reconciliation. Roll numbers are still trusted from filenames, so the deeper "stop
     trusting the filename, use a real uid" hardening remains future work.
 
+- **#6 zip-bomb guard — CLOSED (decompression-bomb half).** `ingest_zip.extract_zip`
+  now calls `check_zip_safety` before `extractall`, rejecting archives over the
+  entry-count (`MAX_ZIP_ENTRY_COUNT`) or uncompressed-size (`MAX_ZIP_UNCOMPRESSED_BYTES`)
+  caps. Classic path-traversal Zip Slip was already mitigated by CPython's zipfile.
+
 Still open / not started this pass: #5 (Groq egress disclosure),
-#6 (zip-bomb guards), #10/#11 (alignment/missed correctness polish).
+#10/#11 (alignment/missed correctness polish).
 
 ---
 

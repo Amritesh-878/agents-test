@@ -14,6 +14,18 @@ from scripts.models.identity import PerStudentAudioFile, ZoomFileManifest
 
 logger = logging.getLogger(__name__)
 
+# Resource-exhaustion (zip-bomb) guards applied BEFORE extraction. A Zoom class
+# export is a session MP4 plus a handful of per-student M4As, so these caps are
+# generous for legitimate data while refusing decompression bombs. (Classic Zip
+# Slip path traversal is already mitigated by CPython's zipfile; this is only the
+# decompression-bomb / disk-exhaustion half of the guard.)
+MAX_ZIP_ENTRY_COUNT = 1000
+MAX_ZIP_UNCOMPRESSED_BYTES = 10 * 1024 * 1024 * 1024  # 10 GiB
+
+
+class ZipSafetyError(RuntimeError):
+    pass
+
 
 class IngestArgs(BaseModel):
     input_path: Path
@@ -163,11 +175,32 @@ def classify_files(raw_dir: Path, class_name: str) -> ZoomFileManifest:
     )
 
 
+def check_zip_safety(
+    zf: zipfile.ZipFile,
+    *,
+    max_entries: int = MAX_ZIP_ENTRY_COUNT,
+    max_uncompressed_bytes: int = MAX_ZIP_UNCOMPRESSED_BYTES,
+) -> None:
+    """Reject decompression bombs before extracting an untrusted archive."""
+    infos = zf.infolist()
+    if len(infos) > max_entries:
+        raise ZipSafetyError(
+            f"Zip has {len(infos)} entries, exceeding the limit of {max_entries}."
+        )
+    total = sum(info.file_size for info in infos)
+    if total > max_uncompressed_bytes:
+        raise ZipSafetyError(
+            f"Zip uncompressed size {total} bytes exceeds the limit of "
+            f"{max_uncompressed_bytes} bytes."
+        )
+
+
 def extract_zip(zip_path: Path, output_dir: Path) -> Path:
     class_name = zip_path.stem
     raw_dir = output_dir / class_name / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path) as zf:
+        check_zip_safety(zf)
         zf.extractall(raw_dir)
     logger.info("Extracted %s -> %s", zip_path.name, raw_dir)
     return raw_dir

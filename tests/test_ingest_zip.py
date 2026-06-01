@@ -3,11 +3,15 @@ from __future__ import annotations
 import logging
 import zipfile
 from pathlib import Path
+from typing import cast
 
 import pytest
 
 from scripts.ingest_zip import (
+    MAX_ZIP_UNCOMPRESSED_BYTES,
     IngestArgs,
+    ZipSafetyError,
+    check_zip_safety,
     classify_files,
     parse_m4a_filename,
     parse_recording_conf,
@@ -16,6 +20,46 @@ from scripts.ingest_zip import (
     validate_inputs,
 )
 from scripts.models.identity import ZoomFileManifest
+
+
+class _FakeZip:
+    def __init__(self, infos: list[zipfile.ZipInfo]) -> None:
+        self._infos = infos
+
+    def infolist(self) -> list[zipfile.ZipInfo]:
+        return self._infos
+
+
+def _zinfo(name: str, size: int) -> zipfile.ZipInfo:
+    info = zipfile.ZipInfo(name)
+    info.file_size = size
+    return info
+
+
+# --- check_zip_safety (zip-bomb guard) ---
+
+
+def test_check_zip_safety_entry_count_cap() -> None:
+    infos = [_zinfo(f"f{i}.bin", 1) for i in range(5)]
+    with pytest.raises(ZipSafetyError, match="entries"):
+        check_zip_safety(cast(zipfile.ZipFile, _FakeZip(infos)), max_entries=4)
+
+
+def test_check_zip_safety_uncompressed_cap() -> None:
+    infos = [_zinfo("big.bin", 500)]
+    with pytest.raises(ZipSafetyError, match="uncompressed size"):
+        check_zip_safety(cast(zipfile.ZipFile, _FakeZip(infos)), max_uncompressed_bytes=100)
+
+
+def test_check_zip_safety_default_size_cap_trips() -> None:
+    infos = [_zinfo("bomb.bin", MAX_ZIP_UNCOMPRESSED_BYTES + 1)]
+    with pytest.raises(ZipSafetyError):
+        check_zip_safety(cast(zipfile.ZipFile, _FakeZip(infos)))
+
+
+def test_check_zip_safety_within_limits_ok() -> None:
+    infos = [_zinfo("session.mp4", 1024), _zinfo("a.m4a", 2048)]
+    check_zip_safety(cast(zipfile.ZipFile, _FakeZip(infos)))  # should not raise
 
 
 # --- Helpers ---
