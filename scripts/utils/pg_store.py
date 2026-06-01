@@ -48,6 +48,8 @@ FROM embeddings
 WHERE student_id = %s
 """
 
+_GET_STUDENT_NAME_SQL = "SELECT student_name FROM embeddings WHERE student_id = %s LIMIT 1"
+
 
 class PgVectorStore:
     def __init__(self, conn: Any) -> None:
@@ -167,6 +169,15 @@ class PgVectorStore:
                 )
             )
         return results
+
+    def get_student_name(self, student_id: str) -> str | None:
+        with self._conn.cursor() as cur:
+            cur.execute(_GET_STUDENT_NAME_SQL, (student_id,))
+            row = cur.fetchone()
+        if row is None:
+            return None
+        name = row[0]
+        return name if isinstance(name, str) and name else None
 
     def close(self) -> None:
         self._conn.close()

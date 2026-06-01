@@ -155,6 +155,32 @@ def test_get_student_chunks_no_distance() -> None:
     assert chunks[0].chunk_type == "missed"
 
 
+# --- get_student_name ---
+
+
+def test_get_student_name_returns_name() -> None:
+    store, mock_conn = make_store()
+    mock_cursor = MagicMock()
+    mock_cursor.fetchone.return_value = ("Bhagyashree",)
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    assert store.get_student_name("2302") == "Bhagyashree"
+    sql, params = mock_cursor.execute.call_args.args
+    assert "LIMIT 1" in sql
+    assert params == ("2302",)
+
+
+def test_get_student_name_missing_returns_none() -> None:
+    store, mock_conn = make_store()
+    mock_cursor = MagicMock()
+    mock_cursor.fetchone.return_value = None
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    assert store.get_student_name("9999") is None
+
+
 # --- close ---
 
 
