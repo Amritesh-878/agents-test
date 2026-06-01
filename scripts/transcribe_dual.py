@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import gc
 import logging
+import shutil
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -427,25 +428,29 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     processed = 0
 
-    if manifest.session_mp4 is not None:
-        logger.info("Transcribing session MP4: %s", manifest.session_mp4.name)
-        result = transcribe_audio(manifest.session_mp4, wav_dir, args)
-        out = args.output_dir / "session.json"
-        out.write_text(result.model_dump_json(indent=2), encoding="utf-8")
-        processed += 1
+    try:
+        if manifest.session_mp4 is not None:
+            logger.info("Transcribing session MP4: %s", manifest.session_mp4.name)
+            result = transcribe_audio(manifest.session_mp4, wav_dir, args)
+            out = args.output_dir / "session.json"
+            out.write_text(result.model_dump_json(indent=2), encoding="utf-8")
+            processed += 1
 
-    for audio_file in manifest.per_student_m4as:
-        logger.info("Transcribing per-student M4A: %s", audio_file.filename)
-        result = transcribe_audio(
-            audio_file.path,
-            wav_dir,
-            args,
-            student_name=audio_file.display_name,
-            roll_no=audio_file.roll_no_4digit,
-        )
-        out = args.output_dir / f"{audio_file.filename}.json"
-        out.write_text(result.model_dump_json(indent=2), encoding="utf-8")
-        processed += 1
+        for audio_file in manifest.per_student_m4as:
+            logger.info("Transcribing per-student M4A: %s", audio_file.filename)
+            result = transcribe_audio(
+                audio_file.path,
+                wav_dir,
+                args,
+                student_name=audio_file.display_name,
+                roll_no=audio_file.roll_no_4digit,
+            )
+            out = args.output_dir / f"{audio_file.filename}.json"
+            out.write_text(result.model_dump_json(indent=2), encoding="utf-8")
+            processed += 1
+    finally:
+        # The WAV cache is purely intermediate; drop it so it doesn't grow unbounded.
+        shutil.rmtree(wav_dir, ignore_errors=True)
 
     print(f"Transcribed {processed} audio file(s) -> {args.output_dir}")
 
