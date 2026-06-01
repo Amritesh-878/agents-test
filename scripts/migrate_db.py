@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import argparse
 import logging
-from typing import Sequence
+from typing import TYPE_CHECKING, Any, Sequence
 
 from pydantic import BaseModel
 
 from scripts.models.pipeline import MigrationResult
 from scripts.utils.db_url import resolve_db_url
+
+if TYPE_CHECKING:
+    import psycopg
 
 logger = logging.getLogger(__name__)
 
@@ -71,18 +74,15 @@ def validate_inputs(args: MigrateArgs) -> None:
         )
 
 
-def run_migration(conn: object) -> MigrationResult:
+def run_migration(conn: psycopg.Connection[Any]) -> MigrationResult:
     extensions_created: list[str] = []
     tables_created: list[str] = []
     indexes_created: list[str] = []
 
-    import psycopg  # type: ignore[import]
-
-    assert isinstance(conn, psycopg.Connection)
     with conn.cursor() as cur:
         for kind, name, sql in _DDL:
             logger.info("Running: %s %s", kind, name)
-            cur.execute(sql)  # type: ignore[arg-type]
+            cur.execute(sql)
             if kind == "extension":
                 extensions_created.append(name)
             elif kind == "table":
