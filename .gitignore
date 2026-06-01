@@ -7,6 +7,9 @@ __pycache__/
 data/chroma/
 output/
 
+# Login credentials (holds secrets) — the .example file is tracked
+data/credentials.csv
+
 # Zoom recording exports and attendance data (large/sensitive, not tracked)
 *.zip
 participants_*.csv

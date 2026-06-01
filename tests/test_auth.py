@@ -31,6 +31,14 @@ def test_load_credentials_skips_blank_lines(tmp_path: Path) -> None:
     assert load_credentials(path) == {"2302": "alpha", "2504": "beta"}
 
 
+def test_load_credentials_skips_comment_lines(tmp_path: Path) -> None:
+    path = write_csv(
+        tmp_path / "c.csv",
+        "student_id,password\n2302,alpha\n# a docs comment line,ignored\n",
+    )
+    assert load_credentials(path) == {"2302": "alpha"}
+
+
 def test_load_credentials_missing_file(tmp_path: Path) -> None:
     with pytest.raises(AuthError, match="not found"):
         load_credentials(tmp_path / "nope.csv")

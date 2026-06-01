@@ -1,3 +1,10 @@
+"""Student-scoped pgvector retrieval.
+
+Note: this module's CLI is an unauthenticated *local dev/debug tool* that trusts
+``--student-id`` directly. The authenticated entry point for students is
+``scripts.chat`` (which derives the id from login); do not expose this CLI.
+"""
+
 from __future__ import annotations
 
 import argparse

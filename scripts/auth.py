@@ -41,6 +41,8 @@ def load_credentials(path: Path) -> dict[str, str]:
             norm = {_normalize_header(k): (v or "").strip() for k, v in row.items() if k}
             student_id = norm.get("student_id", "")
             password = norm.get("password", "")
+            if student_id.startswith("#"):
+                continue  # comment line (e.g. docs in the .example template)
             if not student_id and not password:
                 continue  # fully-blank line
             if not student_id:

@@ -135,26 +135,53 @@ output/<class_name>/
 
 ## Chatting with a Student
 
+Students no longer pass `--student-id`. Instead they **log in**: the chatbot prompts
+for a student id and password (entered with no echo), verifies them against a
+credentials CSV, and scopes every retrieval to the logged-in id. There is no CLI flag
+that can point the chatbot at another student's data.
+
 ```powershell
-python -m scripts.chat `
-  --student-id <roll_no> `
-  --student-name "<Student Name>" `
-  --db-url "postgresql://postgres:<password>@localhost:5432/adira"
+# DATABASE_URL in .env is preferred over passing --db-url (which leaks the password
+# into process listings / shell history).
+python -m scripts.chat --credentials data/credentials.csv
 ```
 
-Example:
+You are then prompted:
 ```
+Student id: 2302
+Password:
+Chat ready for Bhagyashree (2302). Session: output/chat_sessions/...
 You: What was the supply function formula we used today?
 Assistant: In today's class, Nisha introduced the supply function where A is the
-intercept (a constant, not related to x). You then derived the quantity supply
-by solving the right-hand side of the equation...
+intercept (a constant, not related to x)...
 ```
 
-**Single question (non-interactive):**
+**Single question (still logs in first, interactively):**
 ```powershell
-python -m scripts.chat --student-id 2302 --student-name "Bhagyashree" `
-  --db-url "postgresql://..." --question "What did I miss today?"
+python -m scripts.chat --credentials data/credentials.csv --question "What did I miss today?"
 ```
+
+### Credentials CSV (login)
+
+`--credentials` defaults to `data/credentials.csv` (gitignored — it holds secrets).
+Copy `data/credentials.example.csv` and fill in real rows:
+
+```csv
+student_id,password
+2302,somePassword
+2504,anotherPassword
+```
+
+- **`student_id` must EXACTLY match the embeddings partition id** — the 4-digit roll
+  number from the M4A filename, or for roster-less students the name slug
+  (`name.lower().replace(" ", "_")`). A mismatched id authenticates fine but retrieval
+  returns nothing, because no chunks are stored under that id.
+- `student_id` must be unique; loading fails loudly on a duplicate id, an empty id, or
+  an empty password. Passwords are stored as plaintext for this local alpha and compared
+  in constant time (hashing/DB-backed credentials are a later hardening step).
+
+> **Scope note:** this login gates `scripts.chat` only. `scripts.retrieval`'s CLI remains
+> an *unauthenticated local dev tool* that still takes `--student-id` — do not expose it.
 
 ---
 

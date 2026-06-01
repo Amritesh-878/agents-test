@@ -200,6 +200,32 @@ This confirms the dual-language pipeline is capturing the actual math class cont
 
 ---
 
+## Security & Audit Remediation
+
+Audit fixes landed so far (see `AUDIT_AND_FIX_PLAN.md`):
+
+- **#1 DB password in chat traces — CLOSED.** `db_url` dropped from session records.
+- **#2 secrets via CLI flag — CLOSED.** `DATABASE_URL` env is primary; `--db-url` warns.
+- **#7 dead `chromadb` dep — CLOSED.** Removed from `requirements.txt`.
+- **#8 chunk-type filter after LIMIT — CLOSED.** Filter pushed into search SQL.
+- **#9 model/connection reload per turn — CLOSED.** Embedder + connection reused.
+- **#12–#18 cleanups — CLOSED.**
+- **Per-student login (#3 access half) — PARTIAL.** `scripts.chat` now authenticates
+  against a credentials CSV and scopes retrieval to the logged-in `student_id`; no CLI
+  input can redirect it. **Scope is honest and limited:**
+  - **#3 is closed for `chat.py` ONLY.** `scripts.retrieval`'s CLI is intentionally left
+    as an *unauthenticated local dev tool* that still trusts `--student-id`. Do not expose it.
+  - **#4 — only the *access* half.** The CSV rejects duplicate `student_id`s, so two
+    *credential rows* can't share an id. It does **NOT** un-merge data the ingest pipeline
+    may already have co-mingled under a colliding 4-digit roll prefix; logging in as a
+    collided id still surfaces both students' chunks. **The ingest-time uniqueness /
+    data-integrity half of #4 remains OPEN** (fix-order step 4, not done).
+
+Still open / not started this pass: #4 (data half), #5 (Groq egress disclosure),
+#6 (zip-bomb guards), #10/#11 (alignment/missed correctness polish).
+
+---
+
 ## What's Next
 
 1. **Run all 4 classes** — Economics (in progress), Math Part 04, CTD
