@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 from typing import Sequence
 
-from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from scripts.models.pipeline import MigrationResult
+from scripts.utils.db_url import resolve_db_url
 
 logger = logging.getLogger(__name__)
 
@@ -58,13 +57,11 @@ def parse_args(argv: Sequence[str] | None = None) -> MigrateArgs:
     parser.add_argument(
         "--db-url",
         dest="db_url",
-        default="",
+        default=None,
         help="PostgreSQL connection URL. Falls back to DATABASE_URL env var.",
     )
     namespace = parser.parse_args(argv)
-    load_dotenv()
-    db_url = namespace.db_url or os.getenv("DATABASE_URL", "")
-    return MigrateArgs(db_url=db_url)
+    return MigrateArgs(db_url=resolve_db_url(namespace.db_url))
 
 
 def validate_inputs(args: MigrateArgs) -> None:

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from scripts.embed_and_store import DEFAULT_EMBEDDING_MODEL
 from scripts.models.pipeline import SearchResult
 from scripts.utils.chunker import ChunkType, SourceSegmentReference
+from scripts.utils.db_url import resolve_db_url
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,12 @@ def parse_args(argv: Sequence[str] | None = None) -> RetrievalArgs:
     )
     parser.add_argument("--student-id", required=True, dest="student_id")
     parser.add_argument("--query", required=True)
-    parser.add_argument("--db-url", required=True, dest="db_url")
+    parser.add_argument(
+        "--db-url",
+        default=None,
+        dest="db_url",
+        help="PostgreSQL connection URL. Falls back to DATABASE_URL env var.",
+    )
     parser.add_argument("--top-k", type=int, default=5, dest="top_k")
     parser.add_argument(
         "--chunk-type",
@@ -92,7 +98,7 @@ def parse_args(argv: Sequence[str] | None = None) -> RetrievalArgs:
     parser.add_argument("--debug-output", type=Path, default=None, dest="debug_output")
     namespace = parser.parse_args(argv)
     return RetrievalArgs(
-        db_url=namespace.db_url,
+        db_url=resolve_db_url(namespace.db_url),
         student_id=namespace.student_id,
         query=namespace.query,
         top_k=namespace.top_k,

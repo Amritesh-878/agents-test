@@ -13,6 +13,7 @@ from scripts.models.pipeline import (
     PipelineReport,
     StepResult,
 )
+from scripts.utils.db_url import resolve_db_url
 
 logger = logging.getLogger(__name__)
 
@@ -40,14 +41,21 @@ def parse_args(argv: Sequence[str] | None = None) -> RunArgs:
     parser.add_argument("--teacher", action="append", default=[], dest="teacher")
     parser.add_argument("--roster", type=Path, dest="roster_path", default=None)
     parser.add_argument("--attendance", type=Path, dest="attendance_path", default=None)
-    parser.add_argument("--db-url", default="", dest="db_url")
+    parser.add_argument(
+        "--db-url",
+        default=None,
+        dest="db_url",
+        help="PostgreSQL connection URL. Falls back to DATABASE_URL env var.",
+    )
     parser.add_argument("--model", default="small")
     parser.add_argument("--single-language", default=None, dest="single_language")
     parser.add_argument("--allow-cpu", action="store_true", dest="allow_cpu")
     parser.add_argument("--skip-transcribe", action="store_true", dest="skip_transcribe")
     parser.add_argument("--skip-embed", action="store_true", dest="skip_embed")
     namespace = parser.parse_args(argv)
-    return RunArgs.model_validate(vars(namespace))
+    data = vars(namespace)
+    data["db_url"] = resolve_db_url(data.get("db_url"))
+    return RunArgs.model_validate(data)
 
 
 def validate_inputs(args: RunArgs) -> None:

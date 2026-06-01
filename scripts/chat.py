@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from scripts.embed_and_store import DEFAULT_EMBEDDING_MODEL
 from scripts.retrieval import RetrievalError, RetrievalResult, retrieve_from_pgvector
 from scripts.utils.chunker import ChunkType
+from scripts.utils.db_url import resolve_db_url
 
 DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant"
 EXIT_COMMANDS = {"exit", "quit"}
@@ -88,7 +89,12 @@ def parse_args(argv: Sequence[str] | None = None) -> ChatArgs:
     )
     parser.add_argument("--student-id", required=True, dest="student_id")
     parser.add_argument("--student-name", required=True, dest="student_name")
-    parser.add_argument("--db-url", required=True, dest="db_url")
+    parser.add_argument(
+        "--db-url",
+        default=None,
+        dest="db_url",
+        help="PostgreSQL connection URL. Falls back to DATABASE_URL env var.",
+    )
     parser.add_argument("--question", default=None)
     parser.add_argument("--top-k", type=int, default=5, dest="top_k")
     parser.add_argument(
@@ -105,7 +111,7 @@ def parse_args(argv: Sequence[str] | None = None) -> ChatArgs:
     parser.add_argument("--max-history-turns", type=int, default=3, dest="max_history_turns")
     namespace = parser.parse_args(argv)
     return ChatArgs(
-        db_url=namespace.db_url,
+        db_url=resolve_db_url(namespace.db_url),
         student_id=namespace.student_id,
         student_name=namespace.student_name,
         chunk_types=list(namespace.chunk_types or []),
@@ -119,6 +125,10 @@ def parse_args(argv: Sequence[str] | None = None) -> ChatArgs:
 
 
 def validate_inputs(args: ChatArgs) -> None:
+    if not args.db_url.strip():
+        raise ValueError(
+            "Database URL is required. Pass --db-url or set DATABASE_URL in .env."
+        )
     if not args.student_id.strip():
         raise ValueError("Student id must not be empty.")
     if not args.student_name.strip():
