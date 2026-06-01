@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Sequence
 
@@ -55,7 +56,6 @@ class PgVectorStore:
     def upsert_chunks(self, records: Sequence[EmbeddingRecord]) -> int:
         if not records:
             return 0
-        import json
 
         with self._conn.cursor() as cur:
             for rec in records:
@@ -92,8 +92,6 @@ class PgVectorStore:
         top_k: int = 5,
         chunk_types: Sequence[str] | None = None,
     ) -> list[SearchResult]:
-        import json
-
         types = list(chunk_types or [])
         if types:
             sql = _SEARCH_SQL_WITH_TYPES
@@ -138,8 +136,6 @@ class PgVectorStore:
         return results
 
     def get_student_chunks(self, student_id: str) -> list[SearchResult]:
-        import json
-
         with self._conn.cursor() as cur:
             cur.execute(_GET_STUDENT_SQL, (student_id,))
             rows = cur.fetchall()
