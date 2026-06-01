@@ -55,7 +55,6 @@ class ChatTurnRecord(BaseModel):
 
 
 class ChatSessionRecord(BaseModel):
-    db_url: str
     embedding_model: str
     groq_model: str
     last_updated_at: str
@@ -330,7 +329,6 @@ class ChatService:
         resolved_id = session_id or build_session_id(args.student_id, now_provider())
         self.session_path = build_session_path(args.save_session_dir, resolved_id)
         self.session_record = ChatSessionRecord(
-            db_url=args.db_url,
             embedding_model=args.embedding_model,
             groq_model=args.groq_model,
             last_updated_at=started_at,
