@@ -82,7 +82,10 @@ def _timed_step(name: str, fn: object, *a: object, **kw: object) -> StepResult:
         )
     except Exception as exc:
         elapsed = time.monotonic() - t0
+        # Per-step isolation is intentional (one class failing must not abort the
+        # batch); log the full traceback at debug so real defects stay diagnosable.
         logger.error("Step %s failed: %s", name, exc)
+        logger.debug("Step %s traceback", name, exc_info=True)
         return StepResult(
             step_name=name, success=False, duration_seconds=elapsed, error=str(exc)
         )
