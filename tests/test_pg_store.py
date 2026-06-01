@@ -95,6 +95,35 @@ def test_search_returns_search_results() -> None:
     assert results[0].distance == 0.1
 
 
+def test_search_pushes_chunk_type_filter_into_sql() -> None:
+    store, mock_conn = make_store()
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = []
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    store.search([0.1, 0.2, 0.3], "2301", top_k=5, chunk_types=["spoken"])
+
+    sql, params = mock_cursor.execute.call_args.args
+    assert "chunk_type = ANY(%s)" in sql
+    # types array is passed as a parameter (not interpolated), preserving the LIMIT.
+    assert params == ([0.1, 0.2, 0.3], "2301", ["spoken"], 5)
+
+
+def test_search_without_chunk_types_uses_plain_sql() -> None:
+    store, mock_conn = make_store()
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = []
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    store.search([0.1], "2301", top_k=5)
+
+    sql, params = mock_cursor.execute.call_args.args
+    assert "chunk_type = ANY" not in sql
+    assert params == ([0.1], "2301", 5)
+
+
 def test_search_empty_returns_empty_list() -> None:
     store, mock_conn = make_store()
     mock_cursor = MagicMock()

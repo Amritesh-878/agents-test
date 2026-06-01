@@ -206,13 +206,10 @@ def retrieve_from_pgvector(
 
     try:
         query_embedding = embed_query(query, embedding_model)
-        raw_results = pg_store.search(query_embedding, student_id, top_k)
+        raw_results = pg_store.search(query_embedding, student_id, top_k, resolved_chunk_types)
     finally:
         if close_after:
             pg_store.close()
-
-    if resolved_chunk_types:
-        raw_results = [r for r in raw_results if r.chunk_type in resolved_chunk_types]
 
     if not raw_results:
         warnings.append("No stored chunks found for this student scope.")

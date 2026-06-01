@@ -28,6 +28,16 @@ ORDER BY distance
 LIMIT %s
 """
 
+_SEARCH_SQL_WITH_TYPES = """
+SELECT id, student_id, student_name, class_name, chunk_type, text,
+       start_time, end_time, speaker, metadata,
+       embedding <=> %s::vector AS distance
+FROM embeddings
+WHERE student_id = %s AND chunk_type = ANY(%s)
+ORDER BY distance
+LIMIT %s
+"""
+
 _DELETE_CLASS_SQL = "DELETE FROM embeddings WHERE class_name = %s"
 
 _GET_STUDENT_SQL = """
@@ -80,11 +90,20 @@ class PgVectorStore:
         query_embedding: list[float],
         student_id: str,
         top_k: int = 5,
+        chunk_types: Sequence[str] | None = None,
     ) -> list[SearchResult]:
         import json
 
+        types = list(chunk_types or [])
+        if types:
+            sql = _SEARCH_SQL_WITH_TYPES
+            params: tuple[Any, ...] = (query_embedding, student_id, types, top_k)
+        else:
+            sql = _SEARCH_SQL
+            params = (query_embedding, student_id, top_k)
+
         with self._conn.cursor() as cur:
-            cur.execute(_SEARCH_SQL, (query_embedding, student_id, top_k))
+            cur.execute(sql, params)
             rows = cur.fetchall()
 
         results: list[SearchResult] = []
