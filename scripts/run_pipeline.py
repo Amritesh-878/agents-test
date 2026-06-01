@@ -92,7 +92,7 @@ def process_single_class(zip_path: Path, config: RunArgs) -> ClassSessionReport:
     from scripts.build_student_context import build_context_document, full_transcript_text
     from scripts.ingest_zip import process_zip
     from scripts.match_identity import load_attendance, load_roster, match_files
-    from scripts.merge_transcripts import merge_all
+    from scripts.merge_transcripts import format_review_md, merge_all
     from scripts.models.identity import IdentityMap
     from scripts.models.transcript import MergedTranscriptDocument, PerStudentTranscript
     from scripts.utils.topics import extract_topics
@@ -182,7 +182,7 @@ def process_single_class(zip_path: Path, config: RunArgs) -> ClassSessionReport:
         p = output_dir / "transcript_merged.json"
         p.write_text(merged.model_dump_json(indent=2), encoding="utf-8")
         (output_dir / "transcript_review.md").write_text(
-            __import__("scripts.merge_transcripts", fromlist=["format_review_md"]).format_review_md(merged),
+            format_review_md(merged),
             encoding="utf-8",
         )
         return p
