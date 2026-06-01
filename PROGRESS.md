@@ -215,13 +215,16 @@ Audit fixes landed so far (see `AUDIT_AND_FIX_PLAN.md`):
   input can redirect it. **Scope is honest and limited:**
   - **#3 is closed for `chat.py` ONLY.** `scripts.retrieval`'s CLI is intentionally left
     as an *unauthenticated local dev tool* that still trusts `--student-id`. Do not expose it.
-  - **#4 — only the *access* half.** The CSV rejects duplicate `student_id`s, so two
-    *credential rows* can't share an id. It does **NOT** un-merge data the ingest pipeline
-    may already have co-mingled under a colliding 4-digit roll prefix; logging in as a
-    collided id still surfaces both students' chunks. **The ingest-time uniqueness /
-    data-integrity half of #4 remains OPEN** (fix-order step 4, not done).
+  - **#4 — CLOSED (both halves), within the filename-trust model.** *Access half:* the
+    login CSV rejects duplicate `student_id`s. *Data half:* `match_identity.match_files`
+    now FAILS LOUD when two distinct per-student M4As resolve to the same 4-digit roll
+    (in both the roster and no-roster/attendance-only paths), so ambiguous identities are
+    refused at ingest instead of silently co-mingled. **Caveat:** this closes #4 by
+    *refusing* ambiguous input; it does NOT introduce a stable `student_uid` / roster
+    reconciliation. Roll numbers are still trusted from filenames, so the deeper "stop
+    trusting the filename, use a real uid" hardening remains future work.
 
-Still open / not started this pass: #4 (data half), #5 (Groq egress disclosure),
+Still open / not started this pass: #5 (Groq egress disclosure),
 #6 (zip-bomb guards), #10/#11 (alignment/missed correctness polish).
 
 ---

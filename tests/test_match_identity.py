@@ -14,6 +14,7 @@ from scripts.match_identity import (
     validate_inputs,
 )
 from scripts.models.identity import (
+    AttendanceRecord,
     IdentityMap,
     PerStudentAudioFile,
     RosterEntry,
@@ -295,6 +296,36 @@ def test_duplicate_roll_no_raises(tmp_path: Path) -> None:
     ]
     with pytest.raises(ValueError, match="Duplicate roll numbers"):
         match_files(manifest, roster, [], ["Teacher"])
+
+
+def test_match_colliding_audio_roll_roster_raises(tmp_path: Path) -> None:
+    a1 = make_audio(tmp_path, "audioAnshi_23011111111111.m4a", "Anshi", "2301")
+    a2 = make_audio(tmp_path, "audioBhavya_23012222222222.m4a", "Bhavya", "2301")
+    manifest = make_manifest(tmp_path, [a1, a2])
+    roster = [RosterEntry(name="Anshi", roll_no="2301", email="a@b.com")]
+    with pytest.raises(ValueError, match="same roll 2301"):
+        match_files(manifest, roster, [], ["Teacher"])
+
+
+def test_match_colliding_audio_roll_attendance_only_raises(tmp_path: Path) -> None:
+    a1 = make_audio(tmp_path, "audioAnshi_23011111111111.m4a", "Anshi", "2301")
+    a2 = make_audio(tmp_path, "audioBhavya_23012222222222.m4a", "Bhavya", "2301")
+    manifest = make_manifest(tmp_path, [a1, a2])
+    attendance = [AttendanceRecord(name="Anshi", roll_no="2301", duration_minutes=30.0)]
+    with pytest.raises(ValueError, match="same roll 2301"):
+        match_files(manifest, [], attendance, ["Teacher"])
+
+
+def test_match_distinct_rolls_two_students_ok(tmp_path: Path) -> None:
+    a1 = make_audio(tmp_path, "audioAnshi_23011111111111.m4a", "Anshi", "2301")
+    a2 = make_audio(tmp_path, "audioBhavya_23022222222222.m4a", "Bhavya", "2302")
+    manifest = make_manifest(tmp_path, [a1, a2])
+    roster = [
+        RosterEntry(name="Anshi", roll_no="2301", email="a@b.com"),
+        RosterEntry(name="Bhavya", roll_no="2302", email="c@d.com"),
+    ]
+    identity_map = match_files(manifest, roster, [], ["Teacher"])
+    assert len(identity_map.entries) == 2
 
 
 # --- validate_inputs ---

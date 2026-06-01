@@ -269,6 +269,7 @@ def match_files(
     }
 
     matched_roll_nos: set[str] = set()
+    roll_to_audio: dict[str, str] = {}
     matched_entries: list[IdentityMapEntry] = []
     unmatched_entries: list[IdentityMapEntry] = []
     teacher_audio_file: str | None = None
@@ -282,6 +283,17 @@ def match_files(
         if roll_no_4digit is not None:
             roster_entry = roster_by_roll.get(roll_no_4digit)
             attendance_record = attendance_by_roll.get(roll_no_4digit)
+            # Two DISTINCT per-student M4As resolving to the same 4-digit roll would
+            # co-mingle both students under one id (build_student_context silently
+            # drops the second). Refuse to ingest an ambiguous identity. This guard
+            # fires in BOTH the roster and the no-roster/attendance-only paths.
+            if roster_entry is not None or attendance_record is not None:
+                if roll_no_4digit in roll_to_audio:
+                    raise ValueError(
+                        f"Two audio files resolve to the same roll {roll_no_4digit}: "
+                        f"{roll_to_audio[roll_no_4digit]} and {audio_file.filename}"
+                    )
+                roll_to_audio[roll_no_4digit] = audio_file.filename
             if roster_entry is not None:
                 matched_roll_nos.add(roll_no_4digit)
                 matched_entries.append(
