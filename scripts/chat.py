@@ -14,7 +14,12 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 from scripts.embed_and_store import DEFAULT_EMBEDDING_MODEL
-from scripts.retrieval import RetrievalError, RetrievalResult, retrieve_from_pgvector
+from scripts.retrieval import (
+    QueryEmbedder,
+    RetrievalError,
+    RetrievalResult,
+    retrieve_from_pgvector,
+)
 from scripts.utils.chunker import ChunkType
 from scripts.utils.db_url import resolve_db_url
 
@@ -306,7 +311,18 @@ class GroqChatBackend:
 
 
 class RetrievalBackend:
+    def __init__(self, *, embedder: QueryEmbedder | None = None, store: Any | None = None) -> None:
+        self._embedder = embedder
+        self._store = store
+        self._owns_store = store is None
+
     def retrieve(self, args: ChatArgs, question: str) -> RetrievalResult:
+        if self._embedder is None:
+            self._embedder = QueryEmbedder(args.embedding_model)
+        if self._store is None:
+            from scripts.utils.pg_store import connect_pg_store
+
+            self._store = connect_pg_store(args.db_url)
         return retrieve_from_pgvector(
             student_id=args.student_id,
             query=question,
@@ -314,7 +330,14 @@ class RetrievalBackend:
             chunk_types=args.chunk_types,
             db_url=args.db_url,
             embedding_model=args.embedding_model,
+            store=self._store,
+            embedder=self._embedder,
         )
+
+    def close(self) -> None:
+        if self._owns_store and self._store is not None:
+            self._store.close()
+        self._store = None
 
 
 class ChatService:
@@ -466,6 +489,11 @@ class ChatService:
         while keep_running:
             keep_running = self.handle_user_input(self.input_fn("You: "))
 
+    def close(self) -> None:
+        closer = getattr(self.retrieval_backend, "close", None)
+        if callable(closer):
+            closer()
+
 
 def main(argv: Sequence[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -473,7 +501,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         args = parse_args(argv)
         validate_inputs(args)
         chat_service = ChatService(args, llm_backend=GroqChatBackend(load_groq_api_key()))
-        chat_service.run()
+        try:
+            chat_service.run()
+        finally:
+            chat_service.close()
     except (ChatError, RetrievalError, ValueError, OSError) as error:
         print(f"Chat failed: {error}", file=sys.stderr)
         raise SystemExit(1) from error

@@ -179,11 +179,23 @@ def build_context_string(
     return "\n".join(lines)
 
 
-def embed_query(query: str, model_name: str) -> list[float]:
-    from sentence_transformers import SentenceTransformer
+class QueryEmbedder:
+    """Lazily load a sentence-transformer once and reuse it across queries.
 
-    model = SentenceTransformer(model_name)
-    return model.encode(query).tolist()
+    Constructing ``SentenceTransformer`` reloads ~80 MB from disk, so a long-lived
+    embedder (e.g. one per chat session) avoids paying that cost on every turn.
+    """
+
+    def __init__(self, model_name: str = DEFAULT_EMBEDDING_MODEL) -> None:
+        self.model_name = model_name
+        self._model: Any | None = None
+
+    def encode(self, query: str) -> list[float]:
+        if self._model is None:
+            from sentence_transformers import SentenceTransformer
+
+            self._model = SentenceTransformer(self.model_name)
+        return self._model.encode(query).tolist()
 
 
 def retrieve_from_pgvector(
@@ -195,6 +207,7 @@ def retrieve_from_pgvector(
     db_url: str,
     embedding_model: str = DEFAULT_EMBEDDING_MODEL,
     store: Any | None = None,
+    embedder: QueryEmbedder | None = None,
 ) -> RetrievalResult:
     from scripts.utils.pg_store import PgVectorStore, connect_pg_store
 
@@ -203,9 +216,10 @@ def retrieve_from_pgvector(
 
     pg_store: PgVectorStore = store or connect_pg_store(db_url)
     close_after = store is None
+    active_embedder = embedder if embedder is not None else QueryEmbedder(embedding_model)
 
     try:
-        query_embedding = embed_query(query, embedding_model)
+        query_embedding = active_embedder.encode(query)
         raw_results = pg_store.search(query_embedding, student_id, top_k, resolved_chunk_types)
     finally:
         if close_after:
