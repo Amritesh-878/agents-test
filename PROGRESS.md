@@ -234,7 +234,14 @@ Audit fixes landed so far (see `AUDIT_AND_FIX_PLAN.md`):
   This is only the *notice*; the retention/consent policy decision remains the owner's
   and is not yet made. Do not treat #5 as fully resolved.
 
-Still open / not started this pass: #10/#11 (alignment/missed correctness polish).
+- **#10 dead alignment path — RESOLVED (documented).** `detect_alignment`'s unused
+  offset params/constants (`aligned_tolerance`, `similarity_threshold`) were removed and
+  the hard "Zoom per-student M4As are always session-aligned, offset is always 0.0"
+  assumption is now documented in the function and at the `merge_all` call site. Runtime
+  behavior is unchanged (still `session_aligned`); a non-session-aligned Drive source
+  would require restoring a validated offset check.
+
+Still open / not started this pass: #11 (inert "missed" trust flag).
 
 ---
 

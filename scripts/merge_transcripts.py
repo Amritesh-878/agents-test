@@ -21,8 +21,6 @@ from scripts.models.transcript import (
 
 logger = logging.getLogger(__name__)
 
-_ALIGNED_TOLERANCE = 2.0     # seconds: delta < this → session-aligned
-_SIMILARITY_THRESHOLD = 0.5  # word-overlap ratio to consider two segments matching
 _GAP_EPSILON = 0.05          # seconds: ignore gaps smaller than this
 
 
@@ -46,7 +44,12 @@ class SpeechEvent:
 
 
 def _word_overlap_ratio(text_a: str, text_b: str) -> float:
-    """Dice-coefficient word overlap between two strings."""
+    """Dice-coefficient word overlap between two strings.
+
+    Currently unused in production (text-based offset detection was removed from
+    detect_alignment); retained as a tested helper for the future Drive-phase, where a
+    validated offset/alignment check may be restored.
+    """
     words_a = set(text_a.lower().split())
     words_b = set(text_b.lower().split())
     if not words_a or not words_b:
@@ -57,15 +60,20 @@ def _word_overlap_ratio(text_a: str, text_b: str) -> float:
 def detect_alignment(
     student_segments: list[TranscriptSegment],
     session_segments: list[TranscriptSegment],
-    aligned_tolerance: float = _ALIGNED_TOLERANCE,
-    similarity_threshold: float = _SIMILARITY_THRESHOLD,
     duration_match_tolerance: float = 0.05,
 ) -> AlignmentResult:
-    """Detect whether per-student M4A timestamps match the session timeline.
+    """Return the alignment between per-student M4A timestamps and the session timeline.
 
-    Primary signal: if both recordings span a similar total duration (within 5%),
-    they must start at the same point — Zoom cloud recordings always do this.
-    Text-matching is used only when durations diverge significantly.
+    HARD ASSUMPTION: Zoom cloud per-student M4As ALWAYS start at session start, so the
+    offset is ALWAYS 0.0 and the mode is ALWAYS ``session_aligned``. Text-based offset
+    detection was deliberately removed because it produced false 987.5s offsets on real
+    data, leaving the offset machinery dead by design. The only value this computes is
+    the ``uncertain`` flag: clear when the student and session durations match (within
+    ``duration_match_tolerance``), set otherwise — or when either side is empty — to
+    signal a low-confidence but still session-aligned merge.
+
+    If a non-session-aligned source is ever introduced (e.g. the Drive phase), this
+    assumption breaks and a real, *validated* offset check must be restored here.
     """
     if not student_segments or not session_segments:
         return AlignmentResult(mode="session_aligned", offset=0.0, uncertain=True)
@@ -73,13 +81,11 @@ def detect_alignment(
     student_end = student_segments[-1].end
     session_end = session_segments[-1].end
 
-    # Duration check: if both cover the same span, they're session-aligned.
+    # Same total span → confident session-aligned. Duration mismatch (student stopped
+    # speaking early) is still session-aligned, just flagged uncertain. Offset is 0.0
+    # either way per the hard assumption above.
     if session_end > 0 and abs(student_end - session_end) / session_end <= duration_match_tolerance:
         return AlignmentResult(mode="session_aligned", offset=0.0)
-
-    # Duration mismatch (student stopped speaking early) — still assume session_aligned.
-    # Zoom cloud per-student M4As always start at session start regardless of when the student
-    # first spoke. Text-based offset detection produced false positives (987.5s) on real data.
     return AlignmentResult(mode="session_aligned", offset=0.0, uncertain=True)
 
 
@@ -309,7 +315,9 @@ def merge_all(
 ) -> MergedTranscriptDocument:
     session_segments = session_doc.transcript.segments
 
-    # Detect alignment for every student
+    # detect_alignment always returns session_aligned with offset=0.0 by design (see its
+    # docstring — Zoom per-student M4As start at session start). This loop exists only to
+    # surface each student's `uncertain` flag, not to compute a real time offset.
     alignment_results: dict[str, AlignmentResult] = {}
     for name, doc in student_docs.items():
         result = detect_alignment(doc.transcript.segments, session_segments)
