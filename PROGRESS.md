@@ -229,8 +229,12 @@ Audit fixes landed so far (see `AUDIT_AND_FIX_PLAN.md`):
   entry-count (`MAX_ZIP_ENTRY_COUNT`) or uncompressed-size (`MAX_ZIP_UNCOMPRESSED_BYTES`)
   caps. Classic path-traversal Zip Slip was already mitigated by CPython's zipfile.
 
-Still open / not started this pass: #5 (Groq egress disclosure),
-#10/#11 (alignment/missed correctness polish).
+- **#5 Groq egress — DISCLOSED, not resolved.** The chat banner and README now state
+  that questions + retrieved transcript excerpts are sent to Groq (external US LLM API).
+  This is only the *notice*; the retention/consent policy decision remains the owner's
+  and is not yet made. Do not treat #5 as fully resolved.
+
+Still open / not started this pass: #10/#11 (alignment/missed correctness polish).
 
 ---
 

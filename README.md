@@ -140,6 +140,11 @@ for a student id and password (entered with no echo), verifies them against a
 credentials CSV, and scopes every retrieval to the logged-in id. There is no CLI flag
 that can point the chatbot at another student's data.
 
+> **Privacy notice (third-party egress):** to generate answers, each question and the
+> retrieved transcript excerpts are sent to **Groq**, an external US LLM API. This notice
+> is surfaced in the chat banner. A retention/consent policy is the owner's call and is
+> not yet decided — treat student transcript content as leaving the machine when chatting.
+
 ```powershell
 # DATABASE_URL in .env is preferred over passing --db-url (which leaks the password
 # into process listings / shell history).

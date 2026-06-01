@@ -151,3 +151,16 @@ def test_resolve_display_name_falls_back_to_id() -> None:
 def test_retrieval_backend_close_is_safe_without_store() -> None:
     backend = RetrievalBackend()
     backend.close()  # should not raise even though no store was ever opened
+
+
+# --- #5: Groq egress disclosure surfaced in the banner ---
+
+
+def test_banner_includes_groq_egress_notice(tmp_path: Path) -> None:
+    from scripts.chat import GROQ_EGRESS_NOTICE
+
+    captured: list[str] = []
+    service = ChatService(make_args(tmp_path), output_fn=captured.append)
+    service.print_banner()
+
+    assert GROQ_EGRESS_NOTICE in "\n".join(captured)

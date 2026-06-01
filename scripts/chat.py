@@ -27,6 +27,10 @@ from scripts.utils.chunker import ChunkType
 from scripts.utils.db_url import resolve_db_url
 
 DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant"
+GROQ_EGRESS_NOTICE = (
+    "Notice: your questions and the retrieved transcript excerpts are sent to Groq "
+    "(an external US LLM API) to generate answers."
+)
 EXIT_COMMANDS = {"exit", "quit"}
 HELP_COMMANDS = {"?", "help"}
 CONTEXT_COMMANDS = {"context"}
@@ -423,6 +427,7 @@ class ChatService:
         self.output_fn(
             f"Chat ready for {self.args.student_name} ({self.args.student_id}). "
             f"Session: {self.session_path}\n"
+            f"{GROQ_EGRESS_NOTICE}\n"
             "Commands: context, sources, help, quit"
         )
 
