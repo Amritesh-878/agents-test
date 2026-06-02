@@ -149,11 +149,31 @@ python -m scripts.drive_sync `
   --attendance "path\to\attendance.csv"
 ```
 
-> **Runtime note:** transcription is GPU-bound, and standard GitHub Actions runners are
-> CPU-only. The intended deployment is a **self-hosted Actions runner on the GPU box** (it
-> also keeps Postgres on `localhost` and secrets on one machine). The Drive-sync code is
-> runtime-independent and runs anywhere with a GPU; the scheduled-workflow YAML is **not
-> yet built** (pending owner sign-off on the runtime).
+### Scheduled run (GitHub Actions, self-hosted runner)
+
+`.github/workflows/drive-sync.yml` runs this sync on a schedule. Because WhisperX
+transcription is GPU-bound and GitHub-hosted runners are CPU-only, it targets a
+**self-hosted Actions runner on the RTX 3050 box** — Postgres stays `localhost` and
+secrets stay on one machine. (The GPU half is planned to move to AWS in a later stage;
+this self-hosted runner is the interim runtime.)
+
+**One-time runner provisioning** (per [Setup](#setup)): register a self-hosted runner on
+the GPU box with labels `self-hosted, windows`, with the project `.venv` (CUDA torch +
+WhisperX) and local Postgres already in place. The workflow refreshes only the pinned app
+deps — it does not reinstall the heavy GPU wheels.
+
+**Repository secrets** (Settings → Secrets and variables → Actions):
+
+| Secret | Purpose |
+|--------|---------|
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Full JSON key content (reuse the one from the Zoom→Drive project); the Drive folder is shared with its email |
+| `GOOGLE_DRIVE_FOLDER_ID` | Id of the Drive folder holding the Zoom `.zip` exports |
+| `DATABASE_URL` | `postgresql://…@localhost:5432/adira` |
+| `HF_TOKEN` | WhisperX model downloads |
+| `GROQ_API_KEY` | Only if a later step runs chat/eval |
+
+Plus a repository **variable** `TEACHER_NAME` (the teacher's Zoom display name). The
+schedule is daily at 02:00 UTC and is also runnable on demand via **Run workflow**.
 
 ---
 

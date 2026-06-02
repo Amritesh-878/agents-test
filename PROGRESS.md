@@ -278,11 +278,14 @@ internals were not touched beyond calling `process_single_class`.
 - Tests mock the Drive client and `process_single_class` (no network/Drive calls), covering
   dedup-skip, download+process+record, `processed_files` insertion, and failure isolation.
 
-**Not built (pending owner decision):** the scheduled **GitHub Actions workflow YAML** and
-self-hosted GPU-runner provisioning. Standard Actions runners are CPU-only and WhisperX is
-GPU-bound; the recommended runtime is a **self-hosted runner on the RTX 3050 box** (keeps
-Postgres on `localhost` and secrets on one machine). The Python ingestion code runs anywhere
-with a GPU regardless of that decision; only the CI orchestration is blocked on sign-off.
+**Runtime (owner-approved):** `.github/workflows/drive-sync.yml` runs the full pipeline on
+a **self-hosted Actions runner on the RTX 3050 box** (daily schedule + manual dispatch),
+because WhisperX transcription is GPU-bound and GitHub-hosted runners are CPU-only. Postgres
+stays on `localhost`; secrets are GitHub repo secrets (the service-account JSON is reused
+from the owner's Zoom→Drive project). The workflow assumes a pre-provisioned `.venv` (CUDA
+torch + WhisperX) and refreshes only the pinned app deps. **Deferred to a later stage:**
+moving the GPU half to **AWS** (the owner's "AWS refresh" plan) — the ingestion code is
+runtime-independent, so that migration changes only where the GPU step runs, not the code.
 
 ---
 

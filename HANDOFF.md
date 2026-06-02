@@ -89,9 +89,11 @@ python -m scripts.chat --credentials data/credentials.csv
 > runtime-independent Python — `processed_files` migration + `ProcessedFilesStore`,
 > `scripts/drive_sync.py` (`DriveSyncService` + `GoogleDriveClient`), roster wiring, and
 > pinned `google-api-python-client` / `google-auth` — is done. See `PROGRESS.md` →
-> "Google Drive Ingestion Front-End" for specifics. **Still pending owner sign-off:** the
-> scheduled **GitHub Actions workflow YAML** + self-hosted GPU-runner provisioning (the
-> ⚠️ runtime note below). The design notes below are retained as the original spec.
+> "Google Drive Ingestion Front-End" for specifics. **Runtime decided + built:**
+> `.github/workflows/drive-sync.yml` runs the full pipeline on a **self-hosted runner on
+> the RTX 3050 box** (owner-approved interim; the GPU half moves to AWS later). Only
+> runner provisioning + repo secrets remain an owner setup task. The design notes below
+> are retained as the original spec.
 
 ### Confirmed design decisions (from project owner)
 
