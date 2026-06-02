@@ -2,6 +2,8 @@
 
 **For:** The next agent building the Google Drive ingestion pipeline.
 **Date:** 2026-05-28
+**Updated:** 2026-06-02 — security/audit fix-plan steps 1–6 implemented and the per-student
+login system built. See `PROGRESS.md` → "Security & Audit Remediation" for the full status.
 **Repo:** https://github.com/Amritesh-878/agents-test (branch `main`)
 
 ---
@@ -21,7 +23,7 @@ This already works end-to-end for the zip-based pipeline. **Your job is to put a
 
 ## 2. What Already Exists and Works (do not rebuild)
 
-The full processing pipeline is **done, tested (216 tests passing), and validated on two real classes.** It lives in `scripts/` and is orchestrated by `scripts/run_pipeline.py`.
+The full processing pipeline is **done, tested (263 tests passing), and validated on two real classes.** It lives in `scripts/` and is orchestrated by `scripts/run_pipeline.py`.
 
 ### The pipeline (all working)
 ```
@@ -38,10 +40,19 @@ merge_transcripts  →  build_student_context  →  embed_and_store (pgvector)  
 | `build_student_context.py` | Per-student spoken/present/missed segments + TF-IDF topics | ✅ Works |
 | `migrate_db.py` | Idempotent pgvector schema (extension, table, HNSW index) | ✅ Works |
 | `embed_and_store.py` | Chunks + embeds (all-MiniLM-L6-v2) → pgvector, quality-filtered | ✅ Works |
-| `retrieval.py` | Student-scoped pgvector similarity search | ✅ Works |
-| `chat.py` | CLI chatbot: Groq llama-3.1-8b + pgvector retrieval | ✅ Works |
+| `retrieval.py` | Student-scoped pgvector similarity search (now an **unauthenticated local dev tool** — still takes `--student-id`) | ✅ Works |
+| `auth.py` | `AuthService` — CSV-backed, constant-time login used by `chat.py` | ✅ Works |
+| `chat.py` | CLI chatbot: **login-gated** (id+password vs credentials CSV), Groq llama-3.1-8b + pgvector retrieval | ✅ Works |
 | `generate_session_report.py` | Per-class engagement report (Nisha-approved format) | ✅ Works |
 | `run_pipeline.py` | Orchestrates all steps, batch mode, per-class failure isolation | ✅ Works |
+
+> **Security hardening since the audit (steps 1–6, all landed — see `AUDIT_AND_FIX_PLAN.md` / `PROGRESS.md`):**
+> per-student **login** gates `chat.py` (student_id derived from auth, never CLI); `match_identity`
+> now **fails loud** if two M4As share a 4-digit roll; `ingest_zip` has a **zip-bomb guard**
+> (entry-count + uncompressed-size caps) before `extractall`; `--db-url` warns and `DATABASE_URL`
+> env is preferred; Groq third-party egress is disclosed in the chat banner. **Relevant to your
+> phase:** untrusted Drive zips now pass through the zip-bomb guard, and colliding-roll zips will
+> fail the ingest step loudly rather than silently co-mingle students.
 
 ### Verified results on real data
 
@@ -61,15 +72,26 @@ merge_transcripts  →  build_student_context  →  embed_and_store (pgvector)  
 
 ### Run it (current manual flow)
 ```powershell
-python -m scripts.migrate_db --db-url "postgresql://postgres:<pw>@localhost:5432/adira"
-python -m scripts.run_pipeline --input "path\to\class.zip" --output-dir output/ \
-  --teacher "Nisha" --attendance "attendance.csv" --db-url "postgresql://..."
-python -m scripts.chat --student-id 2302 --student-name "Bhagyashree" --db-url "postgresql://..."
+# Prefer setting DATABASE_URL in .env over passing --db-url (a secret-bearing flag warns).
+python -m scripts.migrate_db            # reads DATABASE_URL from .env
+python -m scripts.run_pipeline --input "path\to\class.zip" --output-dir output/ `
+  --teacher "Nisha" --attendance "attendance.csv"
+# chat.py is login-gated: it prompts for student id + password (verified against the
+# credentials CSV) and scopes retrieval to the logged-in id. No --student-id flag.
+python -m scripts.chat --credentials data/credentials.csv
 ```
 
 ---
 
 ## 3. Your Task — Google Drive Ingestion Pipeline
+
+> **STATUS (2026-06-02): ingestion code BUILT and gated green (289 tests).** The
+> runtime-independent Python — `processed_files` migration + `ProcessedFilesStore`,
+> `scripts/drive_sync.py` (`DriveSyncService` + `GoogleDriveClient`), roster wiring, and
+> pinned `google-api-python-client` / `google-auth` — is done. See `PROGRESS.md` →
+> "Google Drive Ingestion Front-End" for specifics. **Still pending owner sign-off:** the
+> scheduled **GitHub Actions workflow YAML** + self-hosted GPU-runner provisioning (the
+> ⚠️ runtime note below). The design notes below are retained as the original spec.
 
 ### Confirmed design decisions (from project owner)
 
@@ -134,8 +156,10 @@ These map to the current `.env` keys. **Never commit them** — `.env` is gitign
 2. **Whisper hallucination on silence** — muted students produce repeated junk (`अपने अपने…`). Filtered by `is_hallucinated_segment` (transcribe) and `is_quality_text` (embed), but multi-word garble can still slip through.
 3. **Attendance CSV is full-day, multi-class.** The Zoom export covers the entire day's meeting, not one class. **Per-student M4A files in the zip are the ground truth** for who was in a given class. Reports treat the CSV as an appendix only.
 4. **No roster yet** → absent-student chatbot is blocked until the roster CSV exists (now in your scope).
-5. **`chromadb` still in `requirements.txt`** — leftover from v1, no longer used (replaced by pgvector). Safe to remove.
-6. **`scripts/transcribe.py`** (v1) still present and unused; v2 uses `transcribe_dual.py`.
+5. **Identity still trusts the filename roll.** The colliding-roll guard refuses ambiguous input, but there is no stable `student_uid` / roster reconciliation yet — a misnamed/spoofed M4A can still misattribute a recording. Deeper hardening (#4 in the audit plan) is future work.
+
+> Resolved since the audit (no longer limitations): `chromadb` removed from `requirements.txt`;
+> dead v1 `scripts/transcribe.py` retired to `scripts/transcribe.py.txt`.
 
 ---
 
@@ -143,6 +167,7 @@ These map to the current `.env` keys. **Never commit them** — `.env` is gitign
 - `README.md` — setup + usage for the current pipeline
 - `PROGRESS.md` — detailed results, real output examples, full bug history
 - `AUDITCONTEXT.md` — companion doc for the code/security auditor
+- `AUDIT_AND_FIX_PLAN.md` — audit findings + fix order + the per-student login design. **Steps 1–6 are now implemented** (login built); see its status banner and `PROGRESS.md` for what's closed vs. still open before touching security/auth
 - `.vscode/planned/pipeline-rebuild/` — TASK-011 through TASK-018 specs (how the current pipeline was designed)
 - Data models: `scripts/models/` (transcript, identity, context, pipeline)
 

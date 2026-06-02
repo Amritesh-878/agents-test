@@ -70,7 +70,7 @@ Zoom .zip export
 | Vector DB | PostgreSQL 17 + pgvector (HNSW index, cosine distance) |
 | LLM | Groq `llama-3.1-8b-instant` |
 | Data models | Pydantic v2 |
-| Code quality | ruff, mypy, pytest — 0 errors, 211 tests passing |
+| Code quality | ruff, mypy, pytest — 0 errors, 263 tests passing |
 | Python | 3.11, CUDA 11.8, RTX 3050 4GB |
 
 ---
@@ -191,7 +191,7 @@ This confirms the dual-language pipeline is capturing the actual math class cont
 
 | Component | Status |
 |-----------|--------|
-| Pipeline code (TASK-011–018) | Complete, 211 tests |
+| Pipeline code (TASK-011–018) | Complete, 263 tests |
 | Database schema (pgvector) | Deployed on local PostgreSQL 17 |
 | First real class run | Complete — Math Apr8, 14 chunks in pgvector |
 | Chatbot (chat.py) | Ready, pending first successful embed |
@@ -248,8 +248,41 @@ Audit fixes landed so far (see `AUDIT_AND_FIX_PLAN.md`):
   modeling still needs join/leave timestamps, which the duration-only data lacks.)
 
 Still open (future work, out of scope this pass): #4 stable-`student_uid` hardening (stop
-trusting the filename roll), #5 retention/consent policy decision (owner's call), Google
-Drive ingestion front-end (see HANDOFF.md), and the transcript quality ceiling.
+trusting the filename roll), #5 retention/consent policy decision (owner's call), and the
+transcript quality ceiling.
+
+---
+
+## Google Drive Ingestion Front-End
+
+The automated Drive ingestion front-end (see `DRIVE_INGESTION_TASK.md` / `HANDOFF.md` §3)
+is built and tested. It puts a polling front-end on the existing pipeline — the pipeline
+internals were not touched beyond calling `process_single_class`.
+
+**Built (runtime-independent, gated green):**
+- **`processed_files` table** added to `scripts/migrate_db.py` (idempotent
+  `CREATE TABLE IF NOT EXISTS`, `drive_file_id` PRIMARY KEY + `class_name` + `processed_at`).
+- **`scripts/utils/processed_files.py`** — `ProcessedFilesStore` (parameterized raw SQL,
+  mirrors `PgVectorStore`): `is_processed`, `mark_processed`, `processed_ids`.
+- **`scripts/drive_sync.py`** — `DriveSyncService` lists a Drive folder, filters to
+  `*.zip`, skips file ids already in `processed_files`, downloads each new zip to a temp
+  dir, runs `process_single_class`, and records it **only on success**. Per-file failure
+  isolation: the zip-bomb and colliding-roll guard rejections (and any other error) leave
+  the file unrecorded so it can be retried, and one bad zip never aborts the batch.
+  `GoogleDriveClient` wraps the Drive v3 API (service-account auth via `google-auth`);
+  secrets (`GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_DRIVE_FOLDER_ID`, `DATABASE_URL`) come
+  from env, never CLI flags.
+- **Roster wiring** — `resolve_roster_path` feeds `roster.csv` (flag → `ROSTER_CSV` env →
+  `data/roster.csv`) into `run_pipeline`'s `--roster`, unblocking absent-student context.
+- **Deps** — `google-api-python-client` + `google-auth` pinned in `requirements.txt`.
+- Tests mock the Drive client and `process_single_class` (no network/Drive calls), covering
+  dedup-skip, download+process+record, `processed_files` insertion, and failure isolation.
+
+**Not built (pending owner decision):** the scheduled **GitHub Actions workflow YAML** and
+self-hosted GPU-runner provisioning. Standard Actions runners are CPU-only and WhisperX is
+GPU-bound; the recommended runtime is a **self-hosted runner on the RTX 3050 box** (keeps
+Postgres on `localhost` and secrets on one machine). The Python ingestion code runs anywhere
+with a GPU regardless of that decision; only the CI orchestration is blocked on sign-off.
 
 ---
 

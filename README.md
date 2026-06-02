@@ -113,6 +113,50 @@ python -m scripts.run_pipeline ... --skip-transcribe
 
 ---
 
+## Google Drive Ingestion (automated front-end)
+
+Instead of running each zip by hand, `scripts.drive_sync` polls a Google Drive folder
+of Zoom `.zip` exports and feeds any new ones through the same pipeline above. It is
+**idempotent**: a `processed_files` Postgres table (keyed by Drive file id) records every
+zip that completes, so re-runs skip what's already ingested.
+
+**What it does per run:**
+1. Lists the configured Drive folder and filters to `*.zip`.
+2. For each zip whose Drive file id is **not** in `processed_files`: downloads it to a
+   temp dir, runs `process_single_class`, and on success records
+   `{drive_file_id, class_name, processed_at}`.
+3. A file that **fails** — including the pipeline's zip-bomb guard (oversized /
+   too-many-entry archives) and colliding-roll guard (two M4As sharing a 4-digit roll) —
+   is left **unrecorded** so a fixed re-upload can be retried, and one bad zip never
+   stops the batch.
+
+**Auth + config come from the environment** (secrets are never CLI flags). Add to `.env`:
+
+```powershell
+#   GOOGLE_SERVICE_ACCOUNT_JSON=path\to\service-account.json   (Drive auth)
+#   GOOGLE_DRIVE_FOLDER_ID=<id of the shared Drive folder>
+#   ROSTER_CSV=data\roster.csv                                 (optional; absent-student context)
+#   DATABASE_URL=postgresql://postgres:<password>@localhost:5432/adira
+```
+
+The Drive folder must be **shared with the service account's email**. The roster path is
+resolved from `--roster`, then `ROSTER_CSV`, then `data/roster.csv` if present.
+
+```powershell
+python -m scripts.drive_sync `
+  --output-dir output\ `
+  --teacher "Nisha" `
+  --attendance "path\to\attendance.csv"
+```
+
+> **Runtime note:** transcription is GPU-bound, and standard GitHub Actions runners are
+> CPU-only. The intended deployment is a **self-hosted Actions runner on the GPU box** (it
+> also keeps Postgres on `localhost` and secrets on one machine). The Drive-sync code is
+> runtime-independent and runs anywhere with a GPU; the scheduled-workflow YAML is **not
+> yet built** (pending owner sign-off on the runtime).
+
+---
+
 ## Output Structure
 
 ```
@@ -265,7 +309,7 @@ python -m ruff check --fix .
 python -m mypy .
 ```
 
-**Test suite:** 216 tests, 0 errors, 0 warnings.
+**Test suite:** 289 tests, 0 errors, 0 warnings.
 
 ---
 
