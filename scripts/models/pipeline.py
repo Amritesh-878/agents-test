@@ -83,3 +83,25 @@ class PipelineReport(BaseModel):
     total_classes: int = 0
     successful_classes: int = 0
     failed_classes: int = 0
+
+
+class DriveFile(BaseModel):
+    id: str
+    name: str
+
+
+class DriveFileResult(BaseModel):
+    drive_file_id: str
+    name: str
+    class_name: str
+    status: str  # "processed" | "skipped_duplicate" | "failed"
+    error: str | None = None
+
+
+class DriveSyncReport(BaseModel):
+    folder_id: str
+    total_listed: int = 0
+    processed: int = 0
+    skipped: int = 0
+    failed: int = 0
+    results: list[DriveFileResult] = Field(default_factory=list)
