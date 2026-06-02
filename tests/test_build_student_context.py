@@ -5,9 +5,12 @@ from scripts.build_student_context import (
     build_context_document,
     build_present_context,
     build_unmatched_context,
+    class_context_text,
     full_transcript_text,
     merged_seg_to_context,
+    teacher_segments_from_transcript,
 )
+from scripts.models.context import ContextSegment
 from scripts.models.identity import (
     AttendanceRecord,
     IdentityMap,
@@ -18,7 +21,35 @@ from scripts.models.transcript import (
     MergedSegment,
     MergedTranscriptDocument,
     MergeMetadata,
+    PerStudentTranscript,
+    TranscriptDocument,
+    TranscriptSegment,
 )
+
+
+def make_teacher_doc(
+    segments: list[tuple[float, float, str]],
+    audio_file: str = "audioNisha_0000.m4a",
+) -> PerStudentTranscript:
+    segs = [TranscriptSegment(start=s, end=e, text=t) for s, e, t in segments]
+    return PerStudentTranscript(
+        audio_file=audio_file,
+        is_teacher=True,
+        transcript=TranscriptDocument(model="small", segments=segs),
+        merged_words=[],
+    )
+
+
+def cseg(
+    start: float,
+    end: float,
+    text: str,
+    speakers: list[str] | None = None,
+    source: str = "teacher",
+) -> ContextSegment:
+    return ContextSegment(
+        start=start, end=end, text=text, speakers=speakers or ["Dr Smith"], source=source
+    )
 
 
 # --- Helpers ---
@@ -250,3 +281,160 @@ def test_context_document_round_trip() -> None:
 
     restored = StudentContextDocument.model_validate(data)
     assert restored.class_name == doc.class_name
+
+
+# --- teacher_segments_from_transcript ---
+
+
+def test_teacher_segments_from_transcript_maps_and_attributes() -> None:
+    teacher_doc = make_teacher_doc([(0, 10, "today we cover supply"), (10, 20, "and demand")])
+    segs = teacher_segments_from_transcript(teacher_doc, "Nisha")
+    assert len(segs) == 2
+    assert segs[0].text == "today we cover supply"
+    assert segs[0].speakers == ["Nisha"]
+    assert segs[0].source == "teacher"
+
+
+def test_teacher_segments_from_transcript_skips_blank() -> None:
+    teacher_doc = make_teacher_doc([(0, 5, "   "), (5, 10, "real content here")])
+    segs = teacher_segments_from_transcript(teacher_doc, "Nisha")
+    assert len(segs) == 1
+    assert segs[0].text == "real content here"
+
+
+# --- class_context_text ---
+
+
+def test_class_context_text_prefers_teacher() -> None:
+    transcript = make_transcript([(0, 10, "noisy mixed mp4 text", ["UNKNOWN"])], duration=10.0)
+    teacher_doc = make_teacher_doc([(0, 10, "clean teacher words")])
+    text = class_context_text(transcript, teacher_doc)
+    assert "clean teacher words" in text
+    assert "noisy mixed mp4 text" not in text
+
+
+def test_class_context_text_falls_back_to_merged() -> None:
+    transcript = make_transcript([(0, 10, "merged timeline text", ["Anshi"])], duration=10.0)
+    text = class_context_text(transcript, None)
+    assert "merged timeline text" in text
+
+
+# --- build_present_context: teacher M4A as primary class-context source ---
+
+
+def test_build_present_teacher_plus_own_only() -> None:
+    # Merged timeline mixes the student's own speech, a peer, and noisy session fallback.
+    transcript = make_transcript(
+        [
+            (0, 5, "anshi own answer", ["Anshi"]),
+            (5, 10, "peer bob speaks", ["Bob"]),
+            (10, 15, "noisy mp4 fallback", ["UNKNOWN"]),
+        ],
+        duration=30.0,
+    )
+    entry = make_entry(matched_name="Anshi", matched_roll_no="2301")
+    student = make_roster()
+    teacher_segs = [cseg(0, 30, "teacher explains the topic")]
+    att = {"2301": AttendanceRecord(name="Anshi", roll_no="2301", duration_minutes=0.5)}  # 30s
+    ctx = build_present_context(student, entry, transcript, att, [], teacher_segs)
+
+    present_texts = [s.text for s in ctx.present_segments]
+    assert "teacher explains the topic" in present_texts
+    assert "anshi own answer" in present_texts  # student's own contribution kept
+    assert "peer bob speaks" not in present_texts  # peer excluded
+    assert "noisy mp4 fallback" not in present_texts  # session fallback excluded
+    # spoken is unaffected — still derived from the merged timeline by speaker name
+    assert [s.text for s in ctx.spoken_segments] == ["anshi own answer"]
+
+
+def test_build_present_teacher_segments_past_window_land_in_missed() -> None:
+    # Teacher track runs PAST class_duration/window_end (offset-0 shared-clock edge).
+    # Late teacher segments must land in `missed` without crashing.
+    transcript = make_transcript([(0, 5, "anshi own answer", ["Anshi"])], duration=20.0)
+    entry = make_entry(matched_name="Anshi", matched_roll_no="2301")
+    student = make_roster()
+    teacher_segs = [cseg(0, 10, "during class"), cseg(25, 35, "after the session ended")]
+    # No attendance -> window_end = class_duration = 20s.
+    ctx = build_present_context(student, entry, transcript, {}, [], teacher_segs)
+
+    present_texts = [s.text for s in ctx.present_segments]
+    missed_texts = [s.text for s in ctx.missed_segments]
+    assert "during class" in present_texts
+    assert "after the session ended" in missed_texts
+
+
+def test_build_present_fallback_parity_without_teacher() -> None:
+    # teacher_segments=None -> identical to pre-teacher behavior (full merged timeline).
+    transcript = make_transcript(
+        [(0, 5, "anshi own answer", ["Anshi"]), (5, 10, "peer bob speaks", ["Bob"])],
+        duration=20.0,
+    )
+    entry = make_entry(matched_name="Anshi", matched_roll_no="2301")
+    student = make_roster()
+    ctx = build_present_context(student, entry, transcript, {}, [], None)
+    present_texts = [s.text for s in ctx.present_segments]
+    assert "anshi own answer" in present_texts
+    assert "peer bob speaks" in present_texts  # peer present in fallback mode
+
+
+# --- build_unmatched_context with teacher segments ---
+
+
+def test_build_unmatched_context_teacher_plus_own() -> None:
+    transcript = make_transcript(
+        [
+            (0, 5, "unknown speaks", ["audioUnknown_99991234.m4a"]),
+            (5, 10, "peer noise", ["UNKNOWN"]),
+        ],
+        duration=10.0,
+    )
+    entry = make_entry(audio_file="audioUnknown_99991234.m4a")
+    teacher_segs = [cseg(0, 10, "teacher content")]
+    ctx = build_unmatched_context(entry, transcript, [], teacher_segs)
+    present_texts = [s.text for s in ctx.present_segments]
+    assert "teacher content" in present_texts
+    assert "unknown speaks" in present_texts
+    assert "peer noise" not in present_texts
+    assert "unmatched" in ctx.tags
+
+
+# --- build_context_document: teacher-primary end-to-end ---
+
+
+def test_build_context_document_teacher_primary() -> None:
+    transcript = make_transcript(
+        [
+            (0, 5, "anshi own answer", ["Anshi"]),
+            (5, 10, "peer bob speaks", ["Bob"]),
+        ],
+        duration=20.0,
+        teacher="Dr Smith",
+    )
+    roster = [make_roster("Anshi Kumar", "2301")]
+    entry = make_entry(matched_name="Anshi", matched_roll_no="2301")
+    imap = IdentityMap(
+        teacher_name="Dr Smith",
+        teacher_audio_file="audioSmith_0000.m4a",
+        entries=[entry],
+    )
+    teacher_doc = make_teacher_doc([(0, 20, "teacher explains supply and demand")])
+    doc = build_context_document(transcript, imap, roster, [], ["supply"], teacher_doc)
+
+    ctx = doc.present_students["2301"]
+    present_texts = [s.text for s in ctx.present_segments]
+    assert "teacher explains supply and demand" in present_texts
+    assert "anshi own answer" in present_texts
+    assert "peer bob speaks" not in present_texts
+
+
+def test_build_context_document_no_teacher_doc_is_fallback() -> None:
+    transcript = make_transcript(
+        [(0, 5, "anshi own answer", ["Anshi"]), (5, 10, "peer bob speaks", ["Bob"])],
+        duration=20.0,
+    )
+    roster = [make_roster("Anshi Kumar", "2301")]
+    entry = make_entry(matched_name="Anshi", matched_roll_no="2301")
+    imap = IdentityMap(teacher_name="Dr Smith", entries=[entry])
+    doc = build_context_document(transcript, imap, roster, [], [], None)
+    present_texts = [s.text for s in doc.present_students["2301"].present_segments]
+    assert "peer bob speaks" in present_texts  # full merged timeline when no teacher M4A

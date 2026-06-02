@@ -7,7 +7,79 @@ from unittest.mock import patch
 import pytest
 
 from scripts.models.pipeline import ClassSessionReport, PipelineReport, StepResult
+from scripts.models.transcript import (
+    PerStudentTranscript,
+    TranscriptDocument,
+    TranscriptSegment,
+)
 from scripts.run_pipeline import RunArgs, validate_inputs
+
+
+def _write_transcript(
+    path: Path,
+    segments: list[tuple[float, float, str]],
+    audio_file: str,
+    is_teacher: bool = False,
+) -> None:
+    doc = PerStudentTranscript(
+        audio_file=audio_file,
+        is_teacher=is_teacher,
+        transcript=TranscriptDocument(
+            model="small",
+            segments=[TranscriptSegment(start=s, end=e, text=t) for s, e, t in segments],
+        ),
+        merged_words=[],
+    )
+    path.write_text(doc.model_dump_json(), encoding="utf-8")
+
+
+def _stage_class(tmp_path: Path, *, stage_teacher_transcript: bool) -> tuple[Path, RunArgs]:
+    """Stage a class zip + pre-built transcripts for a --skip-transcribe run.
+
+    The student (Anshi, roll 2301) speaks once; the session MP4 transcript is noisy
+    UNKNOWN filler; the teacher (Nisha) M4A has clean class content. Returns the zip
+    path and a RunArgs configured to skip transcription and embedding.
+    """
+    roster = tmp_path / "roster.csv"
+    roster.write_text("Name,RollNo,Email\nAnshi Kumar,2301,anshi@example.com\n", encoding="utf-8")
+
+    zip_path = tmp_path / "CS101.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("GMT_Session.mp4", "x")
+        zf.writestr("Audio Record/audioNisha.m4a", "x")
+        zf.writestr("Audio Record/audioAnshi_2301.m4a", "x")
+
+    out = tmp_path / "out"
+    transcripts = out / "CS101" / "transcripts"
+    transcripts.mkdir(parents=True, exist_ok=True)
+    _write_transcript(
+        transcripts / "session.json",
+        [(0, 5, "noisy session unknown filler"), (5, 10, "more mixed noise")],
+        "GMT_Session.mp4",
+    )
+    _write_transcript(
+        transcripts / "audioAnshi_2301.m4a.json",
+        [(2, 4, "anshi own answer")],
+        "audioAnshi_2301.m4a",
+    )
+    if stage_teacher_transcript:
+        _write_transcript(
+            transcripts / "audioNisha.m4a.json",
+            [(0, 20, "teacher explains supply and demand clearly")],
+            "audioNisha.m4a",
+            is_teacher=True,
+        )
+
+    args = RunArgs(
+        input_path=zip_path,
+        output_dir=out,
+        teacher=["Nisha"],
+        roster_path=roster,
+        db_url="",
+        skip_transcribe=True,
+        skip_embed=True,
+    )
+    return zip_path, args
 
 
 # --- validate_inputs ---
@@ -166,6 +238,47 @@ def test_run_pipeline_failed_class_continues(tmp_path: Path) -> None:
     assert call_count == 2  # both processed even though ClassA failed
     assert report.failed_classes == 1
     assert report.successful_classes == 1
+
+
+# --- teacher M4A as primary class-context source (process_single_class wiring) ---
+
+
+def test_process_single_class_uses_teacher_transcript(tmp_path: Path) -> None:
+    import json
+
+    from scripts.run_pipeline import process_single_class
+
+    zip_path, args = _stage_class(tmp_path, stage_teacher_transcript=True)
+    report = process_single_class(zip_path, args)
+    assert report.success, report.error
+
+    contexts = json.loads(
+        (args.output_dir / "CS101" / "student_contexts.json").read_text(encoding="utf-8")
+    )
+    present = contexts["present_students"]["2301"]["present_segments"]
+    texts = [s["text"] for s in present]
+    assert "teacher explains supply and demand clearly" in texts
+    assert "anshi own answer" in texts  # student's own contribution kept
+    assert not any("noisy session" in t for t in texts)  # session fallback excluded
+
+
+def test_process_single_class_falls_back_without_teacher_transcript(tmp_path: Path) -> None:
+    import json
+
+    from scripts.run_pipeline import process_single_class
+
+    # teacher_audio_file is still detected, but its transcript JSON is absent ->
+    # warn + fall back to the full merged (session-MP4-driven) timeline.
+    zip_path, args = _stage_class(tmp_path, stage_teacher_transcript=False)
+    report = process_single_class(zip_path, args)
+    assert report.success, report.error
+
+    contexts = json.loads(
+        (args.output_dir / "CS101" / "student_contexts.json").read_text(encoding="utf-8")
+    )
+    present = contexts["present_students"]["2301"]["present_segments"]
+    texts = [s["text"] for s in present]
+    assert any("noisy session" in t for t in texts)  # fallback uses session timeline
 
 
 # --- retrieval layer ---

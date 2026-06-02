@@ -293,8 +293,37 @@ runtime-independent, so that migration changes only where the GPU step runs, not
 
 1. **Run all 4 classes** — Economics (in progress), Math Part 04, CTD
 2. **Add roster CSV** — improves absent-student context and attendance window accuracy
-3. **Use teacher M4A as primary context source** — cleanest audio, should produce better chunks than mixed session MP4
+3. ~~Use teacher M4A as primary context source~~ — **DONE** (see "Teacher M4A as Primary Class-Context Source" below)
 4. **Evaluate with real student questions** — run eval framework once more classes are loaded
+
+---
+
+## Teacher M4A as Primary Class-Context Source
+
+The teacher's isolated M4A (e.g. `audioNisha*.m4a`) — her mic only, far cleaner than the
+mixed session MP4 — is now the primary source of each student's `class_context` and
+`missed` content. It was always transcribed alongside the students; previously its clean
+transcript was discarded and class context came from the noisy mixed MP4.
+
+**How:** the teacher transcript is injected at the context-building layer
+(`build_student_context`), not the merge. The merge is unchanged, so `spoken` attribution
+is exactly as before. When a teacher M4A is identified (`identity_map.teacher_audio_file`),
+each present student's `present`/`missed`/`class_context` is built from the teacher's clean
+segments **plus that student's own spoken segments**, split on the attendance `window_end`.
+
+**Intentional scope (so future-me knows *why* content is missing):** with a teacher M4A
+present, `class_context`/`missed` = **primary-teacher mic + the student's own speech only**.
+A *second* teacher, guests, played media, and **peer-student discussion are deliberately
+excluded** — a peer's good explanation will NOT appear in another student's data. This is by
+design (cleaner signal + stronger per-student isolation; the student's own words are still
+captured in `spoken`). When **no** teacher M4A exists (or its transcript is missing), the old
+full-merged-timeline behavior (session-MP4-driven, includes peers + fallback) still applies.
+
+**Alignment assumption:** combining teacher + own segments on one clock and splitting on
+`window_end` assumes the teacher M4A starts at session start (offset 0.0) — the same Zoom
+assumption documented for finding #10 in `merge_transcripts.detect_alignment`. No
+teacher-track offset is derived. `chunk_type`s and the `student_id` partition (login/isolation
+key) are unchanged.
 
 ---
 

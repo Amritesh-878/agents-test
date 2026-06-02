@@ -22,7 +22,11 @@ from scripts.models.identity import (
     IdentityMapEntry,
     RosterEntry,
 )
-from scripts.models.transcript import MergedSegment, MergedTranscriptDocument
+from scripts.models.transcript import (
+    MergedSegment,
+    MergedTranscriptDocument,
+    PerStudentTranscript,
+)
 from scripts.utils.topics import extract_topics
 
 logger = logging.getLogger(__name__)
@@ -37,6 +41,7 @@ MISSED_UNKNOWN_TAG = "missed_unknown_no_attendance"
 class ContextArgs(BaseModel):
     transcript_path: Path
     identity_map_path: Path
+    teacher_transcript_path: Path | None = None
     roster_path: Path | None = None
     attendance_path: Path | None = None
     output_path: Path
@@ -51,6 +56,14 @@ def parse_args(argv: Sequence[str] | None = None) -> ContextArgs:
     )
     parser.add_argument("--transcript", required=True, type=Path, dest="transcript_path")
     parser.add_argument("--identity-map", required=True, type=Path, dest="identity_map_path")
+    parser.add_argument(
+        "--teacher-transcript",
+        type=Path,
+        dest="teacher_transcript_path",
+        default=None,
+        help="Teacher's isolated-M4A transcript JSON. When given, it is the primary "
+        "source of class_context/missed; without it, the merged session timeline is used.",
+    )
     parser.add_argument("--roster", type=Path, dest="roster_path", default=None)
     parser.add_argument("--attendance", type=Path, dest="attendance_path", default=None)
     parser.add_argument("--output", required=True, type=Path, dest="output_path")
@@ -66,6 +79,8 @@ def validate_inputs(args: ContextArgs) -> None:
         raise ValueError(f"Transcript not found: {args.transcript_path}")
     if not args.identity_map_path.exists():
         raise ValueError(f"Identity map not found: {args.identity_map_path}")
+    if args.teacher_transcript_path is not None and not args.teacher_transcript_path.exists():
+        raise ValueError(f"Teacher transcript not found: {args.teacher_transcript_path}")
     if args.roster_path is not None and not args.roster_path.exists():
         raise ValueError(f"Roster not found: {args.roster_path}")
     if args.attendance_path is not None and not args.attendance_path.exists():
@@ -86,13 +101,71 @@ def full_transcript_text(transcript: MergedTranscriptDocument) -> str:
     return " ".join(s.text for s in transcript.segments if s.text.strip())
 
 
+def teacher_segments_from_transcript(
+    teacher_doc: PerStudentTranscript, teacher_name: str
+) -> list[ContextSegment]:
+    """Convert the teacher's isolated-M4A transcript into class-context segments.
+
+    The teacher's mic captures only her voice, so this is far cleaner than the mixed
+    session MP4. Segments are attributed to the teacher and tagged ``source="teacher"``
+    so downstream chunking treats them as clean class content, not noisy fallback.
+    """
+    segments: list[ContextSegment] = []
+    for seg in teacher_doc.transcript.segments:
+        if not seg.text.strip():
+            continue
+        segments.append(
+            ContextSegment(
+                start=seg.start,
+                end=seg.end,
+                text=seg.text,
+                speakers=[teacher_name],
+                source="teacher",
+            )
+        )
+    return segments
+
+
+def class_context_text(
+    transcript: MergedTranscriptDocument,
+    teacher_doc: PerStudentTranscript | None,
+) -> str:
+    """Return the text used for TF-IDF topic extraction.
+
+    Prefer the teacher's clean isolated-mic transcript when available; fall back to the
+    full merged timeline (driven by the noisy session MP4) when no teacher M4A exists.
+    """
+    if teacher_doc is not None:
+        return " ".join(
+            s.text for s in teacher_doc.transcript.segments if s.text.strip()
+        )
+    return full_transcript_text(transcript)
+
+
 def build_present_context(
     student: RosterEntry,
     entry: IdentityMapEntry,
     transcript: MergedTranscriptDocument,
     attendance_by_roll: dict[str, AttendanceRecord],
     topics: list[str],
+    teacher_segments: list[ContextSegment] | None = None,
 ) -> StudentContext:
+    """Build a present student's context.
+
+    Class-context source: when ``teacher_segments`` is provided (a teacher M4A was
+    identified), present/missed are built from the teacher's clean isolated-mic speech
+    PLUS this student's own spoken segments — peer students and the noisy session-MP4
+    fallback are excluded. When it is ``None``, the full merged timeline is used
+    (pre-teacher-M4A behavior). ``spoken_segments`` always come from the merged
+    timeline and are unaffected by this choice.
+
+    ALIGNMENT ASSUMPTION: combining ``teacher_segments`` with the student's spoken
+    segments on one shared clock and splitting on ``window_end`` assumes the teacher
+    M4A starts at session start (offset 0.0) — the same "Zoom per-student M4As are
+    always session-aligned" assumption documented in
+    ``merge_transcripts.detect_alignment`` (finding #10). No teacher-track offset is
+    derived; a non-session-aligned source would break this the same way #10's does.
+    """
     att = attendance_by_roll.get(student.roll_no or "")
     class_duration = transcript.duration_seconds
     attendance_known = bool(att and att.duration_minutes)
@@ -106,8 +179,12 @@ def build_present_context(
     spoken_name = entry.matched_name or student.name
 
     spoken_segments = [s for s in all_segs if spoken_name in s.speakers]
-    present_segments = [s for s in all_segs if s.start < window_end]
-    missed_segments = [s for s in all_segs if s.start >= window_end]
+    if teacher_segments is not None:
+        class_timeline = sorted(teacher_segments + spoken_segments, key=lambda s: s.start)
+    else:
+        class_timeline = all_segs
+    present_segments = [s for s in class_timeline if s.start < window_end]
+    missed_segments = [s for s in class_timeline if s.start >= window_end]
 
     tags = list(entry.tags) if entry.tags else []
     if att and att.tags:
@@ -152,17 +229,22 @@ def build_unmatched_context(
     entry: IdentityMapEntry,
     transcript: MergedTranscriptDocument,
     topics: list[str],
+    teacher_segments: list[ContextSegment] | None = None,
 ) -> StudentContext:
     all_segs = [merged_seg_to_context(s) for s in transcript.segments]
     name = entry.audio_file
     spoken = [s for s in all_segs if name in s.speakers]
+    if teacher_segments is not None:
+        present = sorted(teacher_segments + spoken, key=lambda s: s.start)
+    else:
+        present = all_segs
     return StudentContext(
         name=name,
         roll_no=None,
         email=None,
         status="present",
         spoken_segments=spoken,
-        present_segments=all_segs,
+        present_segments=present,
         missed_segments=[],
         topics_discussed=topics,
         class_duration_seconds=transcript.duration_seconds,
@@ -177,8 +259,16 @@ def build_context_document(
     roster: list[RosterEntry],
     attendance: list[AttendanceRecord],
     topics: list[str],
+    teacher_doc: PerStudentTranscript | None = None,
 ) -> StudentContextDocument:
     class_name = transcript.class_name
+    # Clean class-context source: the teacher's isolated mic when available, else None
+    # (each student then falls back to the full merged timeline — pre-teacher behavior).
+    teacher_segments = (
+        teacher_segments_from_transcript(teacher_doc, transcript.teacher_name)
+        if teacher_doc is not None
+        else None
+    )
     identity_by_roll: dict[str, IdentityMapEntry] = {
         e.matched_roll_no: e
         for e in identity_map.entries
@@ -198,7 +288,7 @@ def build_context_document(
         if entry is not None:
             covered_roll_nos.add(student.roll_no or "")
             present_students[key] = build_present_context(
-                student, entry, transcript, attendance_by_roll, topics
+                student, entry, transcript, attendance_by_roll, topics, teacher_segments
             )
         else:
             absent_students[key] = build_absent_summary(student, transcript, topics)
@@ -219,14 +309,16 @@ def build_context_document(
         )
         covered_roll_nos.add(roll)
         present_students[key] = build_present_context(
-            synthetic, entry, transcript, attendance_by_roll, topics
+            synthetic, entry, transcript, attendance_by_roll, topics, teacher_segments
         )
 
     # Unmatched M4A entries (not in roster and not matched by roll/attendance)
     unmatched_count = 0
     for entry in identity_map.unmatched_entries:
         key = entry.audio_file
-        present_students[key] = build_unmatched_context(entry, transcript, topics)
+        present_students[key] = build_unmatched_context(
+            entry, transcript, topics, teacher_segments
+        )
         unmatched_count += 1
 
     all_enrolled = [s.roll_no or s.name for s in roster]
@@ -329,10 +421,18 @@ def main(argv: Sequence[str] | None = None) -> None:
     roster = load_roster(args.roster_path) if args.roster_path else []
     attendance = load_attendance(args.attendance_path) if args.attendance_path else []
 
-    text = full_transcript_text(transcript)
+    teacher_doc: PerStudentTranscript | None = None
+    if args.teacher_transcript_path is not None:
+        teacher_doc = PerStudentTranscript.model_validate_json(
+            args.teacher_transcript_path.read_text(encoding="utf-8")
+        )
+
+    text = class_context_text(transcript, teacher_doc)
     topics = extract_topics(text, top_n=args.top_topics)
 
-    doc = build_context_document(transcript, identity_map, roster, attendance, topics)
+    doc = build_context_document(
+        transcript, identity_map, roster, attendance, topics, teacher_doc
+    )
 
     args.output_path.parent.mkdir(parents=True, exist_ok=True)
     args.output_path.write_text(doc.model_dump_json(indent=2), encoding="utf-8")

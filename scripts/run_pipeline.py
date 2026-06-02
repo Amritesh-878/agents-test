@@ -92,7 +92,7 @@ def _timed_step(name: str, fn: object, *a: object, **kw: object) -> StepResult:
 
 
 def process_single_class(zip_path: Path, config: RunArgs) -> ClassSessionReport:
-    from scripts.build_student_context import build_context_document, full_transcript_text
+    from scripts.build_student_context import build_context_document, class_context_text
     from scripts.ingest_zip import process_zip
     from scripts.match_identity import load_attendance, load_roster, match_files
     from scripts.merge_transcripts import format_review_md, merge_all
@@ -204,9 +204,26 @@ def process_single_class(zip_path: Path, config: RunArgs) -> ClassSessionReport:
 
     # Step 5: student context building
     def _build_context() -> Path:
-        text = full_transcript_text(merged_transcript)
+        # The teacher's isolated M4A is the primary, clean source of class_context/missed.
+        # It was transcribed alongside the students to transcripts_dir/{file}.json. When it
+        # is absent or its transcript is missing, fall back to the merged session timeline.
+        teacher_doc: PerStudentTranscript | None = None
+        if identity_map.teacher_audio_file:
+            teacher_tf = transcripts_dir / f"{identity_map.teacher_audio_file}.json"
+            if teacher_tf.exists():
+                teacher_doc = PerStudentTranscript.model_validate_json(
+                    teacher_tf.read_text(encoding="utf-8")
+                )
+            else:
+                logger.warning(
+                    "Teacher transcript not found: %s - class context falls back to session MP4",
+                    teacher_tf.name,
+                )
+        text = class_context_text(merged_transcript, teacher_doc)
         topics = extract_topics(text)
-        doc = build_context_document(merged_transcript, identity_map, roster, attendance, topics)
+        doc = build_context_document(
+            merged_transcript, identity_map, roster, attendance, topics, teacher_doc
+        )
         p = output_dir / "student_contexts.json"
         p.write_text(doc.model_dump_json(indent=2), encoding="utf-8")
         return p
