@@ -40,6 +40,15 @@ _DDL = [
         "CREATE INDEX IF NOT EXISTS idx_embeddings_student_class ON embeddings (student_id, class_name)",
     ),
     (
+        "table",
+        "processed_files",
+        """CREATE TABLE IF NOT EXISTS processed_files (
+    drive_file_id TEXT PRIMARY KEY,
+    class_name TEXT NOT NULL,
+    processed_at TIMESTAMPTZ DEFAULT NOW()
+)""",
+    ),
+    (
         "index",
         "idx_embeddings_hnsw",
         """CREATE INDEX IF NOT EXISTS idx_embeddings_hnsw

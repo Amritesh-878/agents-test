@@ -54,6 +54,21 @@ def test_ddl_hnsw_index_present() -> None:
     assert any("hnsw" in sql.lower() for sql in index_stmts)
 
 
+def test_ddl_has_processed_files_table() -> None:
+    stmts = get_ddl_statements()
+    names = [name for kind, name, _ in stmts if kind == "table"]
+    assert "processed_files" in names
+
+
+def test_ddl_processed_files_keyed_by_drive_file_id() -> None:
+    stmts = get_ddl_statements()
+    sql = next(s for k, n, s in stmts if k == "table" and n == "processed_files")
+    lowered = sql.lower()
+    assert "drive_file_id text primary key" in lowered
+    assert "class_name" in lowered
+    assert "processed_at" in lowered
+
+
 def test_migration_result_model() -> None:
     result = MigrationResult(
         extensions_created=["vector"],
