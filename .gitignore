@@ -10,6 +10,13 @@ output/
 # Login credentials (holds secrets) — the .example file is tracked
 data/credentials.csv
 
+# Cloud credential files (OAuth client/token, GCP service-account keys) — never commit.
+# Patterns are name-specific so tracked data json (e.g. data/eval_qa.json) is unaffected.
+client_secret*.json
+token*.json
+*service-account*.json
+*-sa.json
+
 # Zoom recording exports and attendance data (large/sensitive, not tracked)
 *.zip
 participants_*.csv
