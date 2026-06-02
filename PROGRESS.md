@@ -241,7 +241,15 @@ Audit fixes landed so far (see `AUDIT_AND_FIX_PLAN.md`):
   behavior is unchanged (still `session_aligned`); a non-session-aligned Drive source
   would require restoring a validated offset check.
 
-Still open / not started this pass: #11 (inert "missed" trust flag).
+- **#11 inert "missed" — RESOLVED (trust flag).** When a present student has no usable
+  per-class attendance window (`build_student_context.build_present_context`), the context
+  is now tagged `missed_unknown_no_attendance` instead of silently emitting an empty
+  "missed" list. The flag is absent when attendance is known. (The deeper late-join/rejoin
+  modeling still needs join/leave timestamps, which the duration-only data lacks.)
+
+Still open (future work, out of scope this pass): #4 stable-`student_uid` hardening (stop
+trusting the filename roll), #5 retention/consent policy decision (owner's call), Google
+Drive ingestion front-end (see HANDOFF.md), and the transcript quality ceiling.
 
 ---
 

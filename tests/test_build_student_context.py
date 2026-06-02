@@ -150,6 +150,28 @@ def test_build_present_no_speech() -> None:
     assert len(ctx.present_segments) == 2
 
 
+def test_build_present_no_attendance_flags_missed_unknown() -> None:
+    from scripts.build_student_context import MISSED_UNKNOWN_TAG
+
+    transcript = make_transcript([(0, 10, "hello", ["Anshi"])], duration=20.0)
+    entry = make_entry(matched_name="Anshi", matched_roll_no="2301")
+    student = make_roster()
+    ctx = build_present_context(student, entry, transcript, {}, [])
+    assert MISSED_UNKNOWN_TAG in ctx.tags
+    assert len(ctx.missed_segments) == 0  # still empty, but now explicitly flagged
+
+
+def test_build_present_with_attendance_has_no_missed_unknown_flag() -> None:
+    from scripts.build_student_context import MISSED_UNKNOWN_TAG
+
+    transcript = make_transcript([(0, 10, "hello", ["Anshi"])], duration=20.0)
+    entry = make_entry(matched_name="Anshi", matched_roll_no="2301")
+    student = make_roster()
+    att = {"2301": AttendanceRecord(name="Anshi", roll_no="2301", duration_minutes=0.34)}
+    ctx = build_present_context(student, entry, transcript, att, [])
+    assert MISSED_UNKNOWN_TAG not in ctx.tags
+
+
 # --- build_absent_summary ---
 
 

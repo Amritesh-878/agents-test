@@ -27,6 +27,12 @@ from scripts.utils.topics import extract_topics
 
 logger = logging.getLogger(__name__)
 
+# Tag attached when no usable attendance window is known for a present student.
+# Without a per-class attendance duration, window_end == class_duration, so
+# missed_segments is ALWAYS empty — which means "missed is unknown", not "nothing
+# was missed". This flag makes that ambiguity explicit instead of silent.
+MISSED_UNKNOWN_TAG = "missed_unknown_no_attendance"
+
 
 class ContextArgs(BaseModel):
     transcript_path: Path
@@ -89,9 +95,10 @@ def build_present_context(
 ) -> StudentContext:
     att = attendance_by_roll.get(student.roll_no or "")
     class_duration = transcript.duration_seconds
+    attendance_known = bool(att and att.duration_minutes)
     window_end = (
         min(att.duration_minutes * 60, class_duration)
-        if att and att.duration_minutes
+        if attendance_known and att
         else class_duration
     )
 
@@ -107,6 +114,8 @@ def build_present_context(
         for t in att.tags:
             if t not in tags:
                 tags.append(t)
+    if not attendance_known and MISSED_UNKNOWN_TAG not in tags:
+        tags.append(MISSED_UNKNOWN_TAG)
 
     return StudentContext(
         name=student.name,
