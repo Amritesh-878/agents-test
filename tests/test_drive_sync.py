@@ -10,6 +10,7 @@ from scripts.drive_sync import (
     DriveSyncService,
     GoogleDriveClient,
     build_run_config,
+    resolve_roster_path,
     validate_inputs,
 )
 from scripts.models.pipeline import ClassSessionReport, DriveFile
@@ -225,3 +226,33 @@ def test_build_run_config_carries_pipeline_settings(tmp_path: Path) -> None:
     assert config.roster_path == roster
     assert config.model == "medium"
     assert config.db_url == "postgresql://localhost/adira"
+
+
+# --- resolve_roster_path ---
+
+
+def test_resolve_roster_path_prefers_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ROSTER_CSV", str(tmp_path / "env.csv"))
+    flag = tmp_path / "flag.csv"
+    assert resolve_roster_path(flag) == flag
+
+
+def test_resolve_roster_path_uses_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("ROSTER_CSV", str(tmp_path / "env.csv"))
+    assert resolve_roster_path(None) == tmp_path / "env.csv"
+
+
+def test_resolve_roster_path_none_when_no_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ROSTER_CSV", raising=False)
+    monkeypatch.setattr("scripts.drive_sync._DEFAULT_ROSTER_PATH", Path("does/not/exist.csv"))
+    assert resolve_roster_path(None) is None
+
+
+def test_resolve_roster_path_falls_back_to_existing_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("ROSTER_CSV", raising=False)
+    default = tmp_path / "roster.csv"
+    default.write_text("Name,RollNo,Email\n", encoding="utf-8")
+    monkeypatch.setattr("scripts.drive_sync._DEFAULT_ROSTER_PATH", default)
+    assert resolve_roster_path(None) == default

@@ -185,6 +185,24 @@ class DriveSyncArgs(BaseModel):
     allow_cpu: bool = False
 
 
+_DEFAULT_ROSTER_PATH = Path("data/roster.csv")
+
+
+def resolve_roster_path(flag_value: Path | None) -> Path | None:
+    """Resolve the roster CSV (Name, RollNo, Email) for absent-student context.
+
+    Precedence: an explicit ``--roster`` flag, then the ``ROSTER_CSV`` env var, then
+    a ``data/roster.csv`` default if it exists. Returns ``None`` when no roster is
+    available, in which case absent students simply get no context object.
+    """
+    if flag_value is not None:
+        return flag_value
+    env_val = os.getenv("ROSTER_CSV", "").strip()
+    if env_val:
+        return Path(env_val)
+    return _DEFAULT_ROSTER_PATH if _DEFAULT_ROSTER_PATH.exists() else None
+
+
 def parse_args(argv: Sequence[str] | None = None) -> DriveSyncArgs:
     parser = argparse.ArgumentParser(
         description="Poll a Google Drive folder for Zoom .zip exports and ingest new ones."
@@ -213,7 +231,7 @@ def parse_args(argv: Sequence[str] | None = None) -> DriveSyncArgs:
         output_dir=namespace.output_dir,
         teacher=namespace.teacher,
         db_url=resolve_db_url(namespace.db_url),
-        roster_path=namespace.roster_path,
+        roster_path=resolve_roster_path(namespace.roster_path),
         attendance_path=namespace.attendance_path,
         model=namespace.model,
         allow_cpu=namespace.allow_cpu,
