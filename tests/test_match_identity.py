@@ -263,7 +263,8 @@ def test_tagging_normal_duration(tmp_path: Path) -> None:
 
 
 def test_tagging_unmatched(tmp_path: Path) -> None:
-    audio = make_audio(tmp_path, "audioUnknown_99991234567890.m4a", "Unknown", "9999")
+    # A non-teacher file with NO parseable roll has no identity source and stays unmatched.
+    audio = make_audio(tmp_path, "audioUnknown_abc.m4a", "Unknown", None)
     manifest = make_manifest(tmp_path, [audio])
 
     identity_map = match_files(manifest, [], [], ["Teacher"])
@@ -271,6 +272,46 @@ def test_tagging_unmatched(tmp_path: Path) -> None:
     entry = identity_map.unmatched_entries[0]
     assert entry.is_unmatched is True
     assert "unmatched" in entry.tags
+
+
+# --- Filename roll fallback (no roster AND no attendance) ---
+
+
+def test_filename_roll_fallback_matches_present_student(tmp_path: Path) -> None:
+    # No roster, no attendance: the filename's 4-digit roll is ground truth.
+    audio = make_audio(tmp_path, "audioBhagyashree_230221290143706.m4a", "Bhagyashree", "2302")
+    manifest = make_manifest(tmp_path, [audio])
+
+    identity_map = match_files(manifest, [], [], ["Nisha"])
+
+    assert len(identity_map.unmatched_entries) == 0
+    assert len(identity_map.entries) == 1
+    entry = identity_map.entries[0]
+    assert entry.matched_roll_no == "2302"
+    assert entry.matched_name == "Bhagyashree"
+    assert entry.is_unmatched is False
+
+
+def test_filename_roll_fallback_same_student_multiple_files(tmp_path: Path) -> None:
+    # Same student recorded across multiple files (rejoin / multi-session zip):
+    # keep the first, ignore the rest — do not fail the class.
+    a1 = make_audio(tmp_path, "audioBhagyashree_230221938202934.m4a", "Bhagyashree", "2302")
+    a2 = make_audio(tmp_path, "audioBhagyashree_230221865787005.m4a", "Bhagyashree", "2302")
+    manifest = make_manifest(tmp_path, [a1, a2])
+
+    identity_map = match_files(manifest, [], [], ["Nisha"])
+
+    assert len(identity_map.entries) == 1
+    assert identity_map.entries[0].audio_file == "audioBhagyashree_230221938202934.m4a"
+
+
+def test_filename_roll_fallback_distinct_students_same_roll_raises(tmp_path: Path) -> None:
+    a1 = make_audio(tmp_path, "audioAnshi_23011111111111.m4a", "Anshi", "2301")
+    a2 = make_audio(tmp_path, "audioBhavya_23012222222222.m4a", "Bhavya", "2301")
+    manifest = make_manifest(tmp_path, [a1, a2])
+
+    with pytest.raises(ValueError, match="same roll 2301"):
+        match_files(manifest, [], [], ["Teacher"])
 
 
 # --- Roster students without audio ---

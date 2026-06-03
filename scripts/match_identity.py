@@ -270,6 +270,7 @@ def match_files(
 
     matched_roll_nos: set[str] = set()
     roll_to_audio: dict[str, str] = {}
+    roll_to_display: dict[str, str] = {}
     matched_entries: list[IdentityMapEntry] = []
     unmatched_entries: list[IdentityMapEntry] = []
     teacher_audio_file: str | None = None
@@ -322,6 +323,49 @@ def match_files(
                         attendance_record,
                         "roll_no",
                         0.9,
+                        short_duration_threshold,
+                    )
+                )
+                continue
+            if not roster and not attendance:
+                # No roster AND no attendance: the M4A filename's 4-digit roll is the
+                # only identity source, and per-student M4As are ground truth. Trust it
+                # so present students still get a roll-keyed context (student_id = roll)
+                # and spoken attribution, instead of being dropped as "unmatched".
+                prior = roll_to_audio.get(roll_no_4digit)
+                if prior is not None:
+                    # Same roll already taken. Same display name = one student recorded
+                    # across multiple files (rejoin / multi-session zip): keep the first,
+                    # ignore the rest. Distinct names sharing a roll is a real identity
+                    # collision and must fail loud (audit #4).
+                    prior_name = roll_to_display.get(roll_no_4digit, "")
+                    if prior_name.strip().casefold() != display_name.strip().casefold():
+                        raise ValueError(
+                            f"Two audio files resolve to the same roll {roll_no_4digit}: "
+                            f"{prior} ({prior_name}) and {audio_file.filename} ({display_name})"
+                        )
+                    logger.warning(
+                        "Additional audio file for %s (roll %s) ignored: %s",
+                        display_name or roll_no_4digit,
+                        roll_no_4digit,
+                        audio_file.filename,
+                    )
+                    continue
+                roll_to_audio[roll_no_4digit] = audio_file.filename
+                roll_to_display[roll_no_4digit] = display_name
+                synthetic = RosterEntry(
+                    name=display_name or roll_no_4digit,
+                    roll_no=roll_no_4digit,
+                    email="",
+                )
+                matched_roll_nos.add(roll_no_4digit)
+                matched_entries.append(
+                    _build_matched_entry(
+                        audio_file,
+                        synthetic,
+                        None,
+                        "roll_no",
+                        0.8,
                         short_duration_threshold,
                     )
                 )
