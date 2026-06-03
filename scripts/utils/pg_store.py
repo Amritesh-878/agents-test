@@ -50,6 +50,12 @@ WHERE student_id = %s
 
 _GET_STUDENT_NAME_SQL = "SELECT student_name FROM embeddings WHERE student_id = %s LIMIT 1"
 
+_LIST_STUDENTS_SQL = """
+SELECT DISTINCT student_id, student_name
+FROM embeddings
+ORDER BY student_name, student_id
+"""
+
 
 class PgVectorStore:
     def __init__(self, conn: Any) -> None:
@@ -178,6 +184,17 @@ class PgVectorStore:
             return None
         name = row[0]
         return name if isinstance(name, str) and name else None
+
+    def list_students(self) -> list[tuple[str, str]]:
+        """Return distinct ``(student_id, student_name)`` pairs present in the store.
+
+        Used by the demo UI to populate the teacher's student picker. Names may
+        repeat across ids, so the id is the stable selector.
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(_LIST_STUDENTS_SQL)
+            rows = cur.fetchall()
+        return [(str(sid), str(name)) for sid, name in rows]
 
     def close(self) -> None:
         self._conn.close()

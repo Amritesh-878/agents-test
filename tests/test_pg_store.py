@@ -181,6 +181,34 @@ def test_get_student_name_missing_returns_none() -> None:
     assert store.get_student_name("9999") is None
 
 
+# --- list_students ---
+
+
+def test_list_students_returns_distinct_pairs() -> None:
+    store, mock_conn = make_store()
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = [("2504", "A_Disha"), ("2302", "Bhagyashree")]
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    students = store.list_students()
+
+    assert students == [("2504", "A_Disha"), ("2302", "Bhagyashree")]
+    sql = mock_cursor.execute.call_args.args[0]
+    assert "DISTINCT" in sql
+    assert "student_id" in sql and "student_name" in sql
+
+
+def test_list_students_empty_returns_empty_list() -> None:
+    store, mock_conn = make_store()
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = []
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    assert store.list_students() == []
+
+
 # --- close ---
 
 
