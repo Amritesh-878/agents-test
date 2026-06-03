@@ -305,13 +305,34 @@ def test_filename_roll_fallback_same_student_multiple_files(tmp_path: Path) -> N
     assert identity_map.entries[0].audio_file == "audioBhagyashree_230221938202934.m4a"
 
 
-def test_filename_roll_fallback_distinct_students_same_roll_raises(tmp_path: Path) -> None:
+def test_filename_roll_fallback_distinct_students_same_roll_flags_not_aborts(
+    tmp_path: Path,
+) -> None:
+    # Distinct students sharing a 4-digit roll with no roster to disambiguate: keep the
+    # first, flag the second as a roll collision, and do NOT co-mingle or abort the class.
     a1 = make_audio(tmp_path, "audioAnshi_23011111111111.m4a", "Anshi", "2301")
     a2 = make_audio(tmp_path, "audioBhavya_23012222222222.m4a", "Bhavya", "2301")
     manifest = make_manifest(tmp_path, [a1, a2])
 
+    identity_map = match_files(manifest, [], [], ["Teacher"])
+
+    assert len(identity_map.entries) == 1
+    assert identity_map.entries[0].matched_name == "Anshi"
+    assert len(identity_map.unmatched_entries) == 1
+    flagged = identity_map.unmatched_entries[0]
+    assert flagged.audio_file == "audioBhavya_23012222222222.m4a"
+    assert "roll_collision" in flagged.tags
+
+
+def test_match_colliding_audio_roll_with_roster_still_raises(tmp_path: Path) -> None:
+    # With a roster (explicit identity context), a roll collision is a data-integrity
+    # error and must still fail loud — only the no-roster filename path degrades to flag.
+    a1 = make_audio(tmp_path, "audioAnshi_23011111111111.m4a", "Anshi", "2301")
+    a2 = make_audio(tmp_path, "audioBhavya_23012222222222.m4a", "Bhavya", "2301")
+    manifest = make_manifest(tmp_path, [a1, a2])
+    roster = [RosterEntry(name="Anshi", roll_no="2301", email="a@b.com")]
     with pytest.raises(ValueError, match="same roll 2301"):
-        match_files(manifest, [], [], ["Teacher"])
+        match_files(manifest, roster, [], ["Teacher"])
 
 
 # --- Roster students without audio ---

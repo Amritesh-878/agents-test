@@ -229,7 +229,9 @@ def _build_matched_entry(
     )
 
 
-def _build_unmatched_entry(audio_file: PerStudentAudioFile) -> IdentityMapEntry:
+def _build_unmatched_entry(
+    audio_file: PerStudentAudioFile, extra_tags: list[str] | None = None
+) -> IdentityMapEntry:
     return IdentityMapEntry(
         audio_file=audio_file.filename,
         roll_no_4digit=audio_file.roll_no_4digit,
@@ -241,7 +243,7 @@ def _build_unmatched_entry(audio_file: PerStudentAudioFile) -> IdentityMapEntry:
         is_teacher=False,
         is_unmatched=True,
         attendance_duration_minutes=None,
-        tags=["unmatched"],
+        tags=["unmatched", *(extra_tags or [])],
     )
 
 
@@ -334,16 +336,23 @@ def match_files(
                 # and spoken attribution, instead of being dropped as "unmatched".
                 prior = roll_to_audio.get(roll_no_4digit)
                 if prior is not None:
-                    # Same roll already taken. Same display name = one student recorded
-                    # across multiple files (rejoin / multi-session zip): keep the first,
-                    # ignore the rest. Distinct names sharing a roll is a real identity
-                    # collision and must fail loud (audit #4).
                     prior_name = roll_to_display.get(roll_no_4digit, "")
                     if prior_name.strip().casefold() != display_name.strip().casefold():
-                        raise ValueError(
-                            f"Two audio files resolve to the same roll {roll_no_4digit}: "
-                            f"{prior} ({prior_name}) and {audio_file.filename} ({display_name})"
+                        # Distinct students parsing to the same 4-digit roll: the filename
+                        # heuristic is ambiguous and there is no roster to disambiguate.
+                        # Don't co-mingle them under one id (audit #4) and don't abort the
+                        # whole class — keep the first, flag this one as a roll collision
+                        # so the other present students still ingest fine.
+                        logger.warning(
+                            "Roll collision %s: keeping %s (%s); flagging %s (%s) unmatched",
+                            roll_no_4digit, prior, prior_name, audio_file.filename, display_name,
                         )
+                        unmatched_entries.append(
+                            _build_unmatched_entry(audio_file, ["roll_collision"])
+                        )
+                        continue
+                    # Same display name = one student recorded across multiple files
+                    # (rejoin / multi-session zip): keep the first, ignore the rest.
                     logger.warning(
                         "Additional audio file for %s (roll %s) ignored: %s",
                         display_name or roll_no_4digit,
