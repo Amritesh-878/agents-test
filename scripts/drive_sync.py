@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Protocol, Sequence
 
+from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from scripts.models.pipeline import DriveFile, DriveFileResult, DriveSyncReport
@@ -220,6 +221,10 @@ def parse_args(argv: Sequence[str] | None = None) -> DriveSyncArgs:
     parser.add_argument("--model", default="small")
     parser.add_argument("--allow-cpu", action="store_true", dest="allow_cpu")
     namespace = parser.parse_args(argv)
+
+    # Load .env first so GOOGLE_* below resolve from it on the local-scheduler path
+    # (the CI path sets them as real env vars, which take precedence either way).
+    load_dotenv()
 
     # Secrets / infra identifiers come from the environment, never CLI flags.
     service_account_json = Path(os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip())
