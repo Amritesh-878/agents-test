@@ -149,31 +149,28 @@ python -m scripts.drive_sync `
   --attendance "path\to\attendance.csv"
 ```
 
-### Scheduled run (GitHub Actions, self-hosted runner)
+### Scheduled run (local, Windows Task Scheduler)
 
-`.github/workflows/drive-sync.yml` runs this sync on a schedule. Because WhisperX
-transcription is GPU-bound and GitHub-hosted runners are CPU-only, it targets a
-**self-hosted Actions runner on the RTX 3050 box** — Postgres stays `localhost` and
-secrets stay on one machine. (The GPU half is planned to move to AWS in a later stage;
-this self-hosted runner is the interim runtime.)
+WhisperX transcription is GPU-bound, so the sync runs on the machine with the GPU. Register
+a Windows Task Scheduler job that runs `drive_sync` on a timer — secrets stay in `.env`,
+nothing leaves the box.
 
-**One-time runner provisioning** (per [Setup](#setup)): register a self-hosted runner on
-the GPU box with labels `self-hosted, windows`, with the project `.venv` (CUDA torch +
-WhisperX) and local Postgres already in place. The workflow refreshes only the pinned app
-deps — it does not reinstall the heavy GPU wheels.
+```powershell
+$repo = "C:\path\to\Agents_test"
+$action  = New-ScheduledTaskAction -Execute "$repo\.venv\Scripts\python.exe" `
+  -Argument '-m scripts.drive_sync --output-dir output --teacher "Nisha"' -WorkingDirectory $repo
+$trigger = New-ScheduledTaskTrigger -Daily -At 2am
+Register-ScheduledTask -TaskName "adira-drive-sync" -Action $action -Trigger $trigger `
+  -Description "Ingest new Zoom zips from Drive"
+```
 
-**Repository secrets** (Settings → Secrets and variables → Actions):
+**One-time Google Cloud setup:** create a service account, enable the Drive API, download
+its JSON key, and **share the Drive folder with the service account's email**. Put the key
+path in `GOOGLE_SERVICE_ACCOUNT_JSON` and the folder id in `GOOGLE_DRIVE_FOLDER_ID` (see the
+`.env` block above).
 
-| Secret | Purpose |
-|--------|---------|
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | Full JSON key content (reuse the one from the Zoom→Drive project); the Drive folder is shared with its email |
-| `GOOGLE_DRIVE_FOLDER_ID` | Id of the Drive folder holding the Zoom `.zip` exports |
-| `DATABASE_URL` | `postgresql://…@localhost:5432/adira` |
-| `HF_TOKEN` | WhisperX model downloads |
-| `GROQ_API_KEY` | Only if a later step runs chat/eval |
-
-Plus a repository **variable** `TEACHER_NAME` (the teacher's Zoom display name). The
-schedule is daily at 02:00 UTC and is also runnable on demand via **Run workflow**.
+> If the task runs with no user logged on, CUDA may not initialize — prefer "run only when
+> user is logged on," or test headless once before trusting the schedule.
 
 ---
 
