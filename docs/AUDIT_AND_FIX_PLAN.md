@@ -15,15 +15,15 @@
 
 > Read this whole file first. It is self-contained: project context, audit findings,
 > fix order, and the new per-student login design are all here. Companion docs you
-> should also skim: [`AUDITCONTEXT.md`](AUDITCONTEXT.md), [`README.md`](README.md),
+> should also skim: [`AUDITCONTEXT.md`](AUDITCONTEXT.md), [`README.md`](../README.md),
 > [`HANDOFF.md`](HANDOFF.md), [`PROGRESS.md`](PROGRESS.md), and the rules in
-> [`CLAUDE.md`](CLAUDE.md) (these OVERRIDE defaults — follow them exactly).
+> [`CLAUDE.md`](../CLAUDE.md) (these OVERRIDE defaults — follow them exactly).
 
 ---
 
 ## 0. Ground rules for the implementing agent
 
-These come from [`CLAUDE.md`](CLAUDE.md) and the repo's established conventions. **Non-negotiable:**
+These come from [`CLAUDE.md`](../CLAUDE.md) and the repo's established conventions. **Non-negotiable:**
 
 - **Quality gate, in this exact order, after every change:**
   ```sh
@@ -43,7 +43,7 @@ These come from [`CLAUDE.md`](CLAUDE.md) and the repo's established conventions.
   (e.g. `test_pg_store.py` mocks psycopg; transcription/embedding GPU paths are mocked).
   Write whatever fixtures/mocks are needed to mimic real usage.
 - **Commit style:** short **one-line** messages, no body, **no `Co-Authored-By` line**.
-- **Do not edit [`AGENTS.md`](AGENTS.md)** without explicit permission.
+- **Do not edit [`AGENTS.md`](../AGENTS.md)** without explicit permission.
 - Pre-release alpha: **breaking changes are allowed.** Do not add backward-compat shims.
 - Prefer `git mv` to preserve history; to "delete" a file the repo convention is to
   rename it to `.txt`.
@@ -94,8 +94,8 @@ becomes *live* at that point. Findings below are tagged **🔴 blocking-for-depl
   the number in the M4A filename** (`scripts/ingest_zip.py` `parse_m4a_filename`,
   `candidate_number[:4]`). It is trusted from the filename, with no verification.
 - Retrieval is scoped by `WHERE student_id = %s` in SQL
-  ([`scripts/utils/pg_store.py`](scripts/utils/pg_store.py)). There is a *post-hoc*
-  leakage guard in [`scripts/retrieval.py`](scripts/retrieval.py) that raises
+  ([`scripts/utils/pg_store.py`](../scripts/utils/pg_store.py)). There is a *post-hoc*
+  leakage guard in [`scripts/retrieval.py`](../scripts/retrieval.py) that raises
   `RetrievalError` if a returned row's `student_id` ≠ the requested one — but it does
   **not** authenticate the caller (see Finding #3).
 - `student_id` is also assigned in `embed_and_store.chunk_student_context` as
@@ -109,32 +109,32 @@ becomes *live* at that point. Findings below are tagged **🔴 blocking-for-depl
 
 | # | Finding | Location |
 |---|---------|----------|
-| 1 | **DB password persisted in plaintext chat traces.** `ChatSessionRecord.db_url` = full `postgresql://user:PASSWORD@host/db`; written to `output/chat_sessions/<id>.json` every turn. | [`scripts/chat.py:58`](scripts/chat.py:58), [`:333`](scripts/chat.py:333), `write_session_record` [`:269`](scripts/chat.py:269) |
-| 2 | **Secrets passed as CLI flags.** `--db-url` with password is visible in process list / shell history / echoed logs. Env fallback already exists. | [`scripts/migrate_db.py:58`](scripts/migrate_db.py:58), [`scripts/run_pipeline.py:43`](scripts/run_pipeline.py:43) |
-| 3 | **No authorization on retrieval/chat.** `student_id` is a caller-supplied arg; the "leakage" guard only checks returned rows match the *requested* id, not that the caller is *entitled* to it. Full IDOR once networked. **This is what the new login system fixes — see §4.** | [`scripts/retrieval.py:183`](scripts/retrieval.py:183), [`:216`](scripts/retrieval.py:216), [`scripts/chat.py:300`](scripts/chat.py:300) |
-| 4 | **`student_id` = 4-digit filename prefix → collision + spoofing.** No uniqueness check in the no-roster/attendance-only path (the roster dup-guard only runs with `--roster`). Shared 4-digit prefixes co-mingle two students under one id. Roll is also trusted from the filename (rename → misattribution). | [`scripts/ingest_zip.py:80`](scripts/ingest_zip.py:80), [`scripts/match_identity.py:263`](scripts/match_identity.py:263), [`scripts/embed_and_store.py:124`](scripts/embed_and_store.py:124) |
-| 5 | **Undisclosed third-party PII egress to Groq.** Verbatim student transcript chunks sent to Groq (US LLM API) per question; no consent/disclosure/retention stance. | [`scripts/chat.py:284`](scripts/chat.py:284), context at [`:216`](scripts/chat.py:216) |
-| 6 | **No zip-bomb / size / entry-count guard before extract.** CPython's `zipfile` sanitizes `..`/abs paths (classic Zip Slip mostly mitigated), but a malicious/huge Drive zip can exhaust disk. Trusted today; untrusted in the Drive phase. | [`scripts/ingest_zip.py:170`](scripts/ingest_zip.py:170) |
+| 1 | **DB password persisted in plaintext chat traces.** `ChatSessionRecord.db_url` = full `postgresql://user:PASSWORD@host/db`; written to `output/chat_sessions/<id>.json` every turn. | [`scripts/chat.py:58`](../scripts/chat.py:58), [`:333`](../scripts/chat.py:333), `write_session_record` [`:269`](../scripts/chat.py:269) |
+| 2 | **Secrets passed as CLI flags.** `--db-url` with password is visible in process list / shell history / echoed logs. Env fallback already exists. | [`scripts/migrate_db.py:58`](../scripts/migrate_db.py:58), [`scripts/run_pipeline.py:43`](../scripts/run_pipeline.py:43) |
+| 3 | **No authorization on retrieval/chat.** `student_id` is a caller-supplied arg; the "leakage" guard only checks returned rows match the *requested* id, not that the caller is *entitled* to it. Full IDOR once networked. **This is what the new login system fixes — see §4.** | [`scripts/retrieval.py:183`](../scripts/retrieval.py:183), [`:216`](../scripts/retrieval.py:216), [`scripts/chat.py:300`](../scripts/chat.py:300) |
+| 4 | **`student_id` = 4-digit filename prefix → collision + spoofing.** No uniqueness check in the no-roster/attendance-only path (the roster dup-guard only runs with `--roster`). Shared 4-digit prefixes co-mingle two students under one id. Roll is also trusted from the filename (rename → misattribution). | [`scripts/ingest_zip.py:80`](../scripts/ingest_zip.py:80), [`scripts/match_identity.py:263`](../scripts/match_identity.py:263), [`scripts/embed_and_store.py:124`](../scripts/embed_and_store.py:124) |
+| 5 | **Undisclosed third-party PII egress to Groq.** Verbatim student transcript chunks sent to Groq (US LLM API) per question; no consent/disclosure/retention stance. | [`scripts/chat.py:284`](../scripts/chat.py:284), context at [`:216`](../scripts/chat.py:216) |
+| 6 | **No zip-bomb / size / entry-count guard before extract.** CPython's `zipfile` sanitizes `..`/abs paths (classic Zip Slip mostly mitigated), but a malicious/huge Drive zip can exhaust disk. Trusted today; untrusted in the Drive phase. | [`scripts/ingest_zip.py:170`](../scripts/ingest_zip.py:170) |
 | 7 | **`chromadb==1.5.9` dead dependency** still pinned (replaced by pgvector) → needless CVE/supply-chain surface. | `requirements.txt:5` |
 
 ### 🟡 Correctness bugs to fix now (degrade the product today)
 
 | # | Finding | Location |
 |---|---------|----------|
-| 8 | **Chunk-type filter applied AFTER `LIMIT top_k` → silent empty results.** SQL `LIMIT top_k` has no type predicate; Python filters afterward. `--chunk-type spoken --top-k 5` can return 0 even when `spoken` chunks exist. Push the filter into SQL `WHERE`. | [`scripts/retrieval.py:208`](scripts/retrieval.py:208) vs [`scripts/utils/pg_store.py:21`](scripts/utils/pg_store.py:21) |
-| 9 | **Embedding model reloaded from disk on every query; new PG connection per chat turn.** `embed_query` constructs `SentenceTransformer(...)` each call (~80 MB load); chat opens+closes a connection per turn. Load once, reuse. | [`scripts/retrieval.py:176`](scripts/retrieval.py:176), [`:198`](scripts/retrieval.py:198) |
-| 10 | **`detect_alignment` is a constant function** (both branches return `session_aligned, 0.0`); the entire offset machinery is dead. Correct for Zoom, but a silent-mis-merge trap for any non-session-aligned source in the Drive phase. Delete the dead path + document the hard assumption, or restore a *validated* check. | [`scripts/merge_transcripts.py:57-83`](scripts/merge_transcripts.py:57), [`:97`](scripts/merge_transcripts.py:97) |
-| 11 | **"Missed" detection is inert without per-class attendance** (`window_end = class_duration` → nothing missed) and assumes a contiguous block from t=0 (late-join/rejoin mis-split). Surface a trust flag instead of silently emitting empty "missed". | [`scripts/build_student_context.py:90-103`](scripts/build_student_context.py:90) |
+| 8 | **Chunk-type filter applied AFTER `LIMIT top_k` → silent empty results.** SQL `LIMIT top_k` has no type predicate; Python filters afterward. `--chunk-type spoken --top-k 5` can return 0 even when `spoken` chunks exist. Push the filter into SQL `WHERE`. | [`scripts/retrieval.py:208`](../scripts/retrieval.py:208) vs [`scripts/utils/pg_store.py:21`](../scripts/utils/pg_store.py:21) |
+| 9 | **Embedding model reloaded from disk on every query; new PG connection per chat turn.** `embed_query` constructs `SentenceTransformer(...)` each call (~80 MB load); chat opens+closes a connection per turn. Load once, reuse. | [`scripts/retrieval.py:176`](../scripts/retrieval.py:176), [`:198`](../scripts/retrieval.py:198) |
+| 10 | **`detect_alignment` is a constant function** (both branches return `session_aligned, 0.0`); the entire offset machinery is dead. Correct for Zoom, but a silent-mis-merge trap for any non-session-aligned source in the Drive phase. Delete the dead path + document the hard assumption, or restore a *validated* check. | [`scripts/merge_transcripts.py:57-83`](../scripts/merge_transcripts.py:57), [`:97`](../scripts/merge_transcripts.py:97) |
+| 11 | **"Missed" detection is inert without per-class attendance** (`window_end = class_duration` → nothing missed) and assumes a contiguous block from t=0 (late-join/rejoin mis-split). Surface a trust flag instead of silently emitting empty "missed". | [`scripts/build_student_context.py:90-103`](../scripts/build_student_context.py:90) |
 
 ### 🟢 Nice-to-have / code quality
 
 | # | Finding | Location |
 |---|---------|----------|
-| 12 | Dynamic `__import__("scripts.merge_transcripts", ...)` — replace with a top-level import. | [`scripts/run_pipeline.py:177`](scripts/run_pipeline.py:177) |
-| 13 | Broad `except Exception` in `_timed_step` hides real defects (validation errors become a "step failed" string). Narrow it or log full tracebacks at debug. | [`scripts/run_pipeline.py:75`](scripts/run_pipeline.py:75) |
-| 14 | `assert isinstance(conn, psycopg.Connection)` — asserts stripped under `-O`; use a typed connection. | [`scripts/migrate_db.py:84`](scripts/migrate_db.py:84) |
-| 15 | Lazy `import json` inside methods/loops violates the stdlib-imports-at-top rule. (Lazy `torch`/`whisperx`/`sentence_transformers`/`psycopg` imports are justified — leave those.) | [`scripts/utils/pg_store.py:48,84,122`](scripts/utils/pg_store.py:48) |
-| 16 | `_wav_tmp` WAV cache grows unbounded (no cleanup). | [`scripts/transcribe_dual.py:356`](scripts/transcribe_dual.py:356) |
+| 12 | Dynamic `__import__("scripts.merge_transcripts", ...)` — replace with a top-level import. | [`scripts/run_pipeline.py:177`](../scripts/run_pipeline.py:177) |
+| 13 | Broad `except Exception` in `_timed_step` hides real defects (validation errors become a "step failed" string). Narrow it or log full tracebacks at debug. | [`scripts/run_pipeline.py:75`](../scripts/run_pipeline.py:75) |
+| 14 | `assert isinstance(conn, psycopg.Connection)` — asserts stripped under `-O`; use a typed connection. | [`scripts/migrate_db.py:84`](../scripts/migrate_db.py:84) |
+| 15 | Lazy `import json` inside methods/loops violates the stdlib-imports-at-top rule. (Lazy `torch`/`whisperx`/`sentence_transformers`/`psycopg` imports are justified — leave those.) | [`scripts/utils/pg_store.py:48,84,122`](../scripts/utils/pg_store.py:48) |
+| 16 | `_wav_tmp` WAV cache grows unbounded (no cleanup). | [`scripts/transcribe_dual.py:356`](../scripts/transcribe_dual.py:356) |
 | 17 | Dead v1 code: `scripts/transcribe.py` and the `*.py.txt` files — remove or leave, but they add noise. | `scripts/transcribe.py`, `scripts/*.py.txt` |
 | 18 | Stray 0-byte `outputpipeline_run.log` at repo root is not covered by `.gitignore` (it's not under `output/`). Delete it or add to `.gitignore`. | `outputpipeline_run.log` |
 
@@ -290,7 +290,7 @@ python -m mypy .               # 0 errors
 python -m pytest               # 100% passing
 ```
 > Note: after the §4 login work lands, the `chat` invocation changes (login instead of
-> `--student-id`). Update [`README.md`](README.md) accordingly in the same commit.
+> `--student-id`). Update [`README.md`](../README.md) accordingly in the same commit.
 
 ---
 

@@ -3,7 +3,7 @@
 Personalized RAG chatbot for ISL students. After every Zoom class, each enrolled student gets their own AI assistant that knows what happened in class — what they said, what they missed, and what topics were covered. Students who were absent get a summary chatbot too.
 
 > **Status:** Phase 1 Pipeline v2 — functional end-to-end on real Zoom exports.  
-> See [`PROGRESS.md`](PROGRESS.md) for detailed results and real output examples.
+> See [`PROGRESS.md`](docs/PROGRESS.md) for detailed results and real output examples.
 
 ---
 
@@ -358,6 +358,6 @@ python -m mypy .
 
 ## Repository
 
-- **Progress & real output examples:** [`PROGRESS.md`](PROGRESS.md)
+- **Progress & real output examples:** [`PROGRESS.md`](docs/PROGRESS.md)
 - **Pipeline rebuild plan:** [`.vscode/planned/pipeline-rebuild/MASTER_PLAN.md`](.vscode/planned/pipeline-rebuild/MASTER_PLAN.md)
 - **GitHub:** https://github.com/Amritesh-878/agents-test
