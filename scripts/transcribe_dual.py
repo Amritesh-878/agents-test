@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 _VALID_LANGUAGES = {"hi", "en"}
 _SEGMENT_GAP_THRESHOLD = 1.5  # seconds
+_SELECTION_TIE_EPS = 0.05  # |mean_hi - mean_en| below this is a near-tie -> mass tiebreak
 
 
 class TranscribeArgs(BaseModel):
@@ -31,6 +32,7 @@ class TranscribeArgs(BaseModel):
     model: str = "small"
     single_language: str | None = None
     allow_cpu: bool = False
+    gate_monolingual: bool = False
 
 
 def parse_args(argv: Sequence[str] | None = None) -> TranscribeArgs:
@@ -61,13 +63,23 @@ def parse_args(argv: Sequence[str] | None = None) -> TranscribeArgs:
         default=None,
         dest="single_language",
         metavar="LANG",
-        help="Run only one language instead of dual (hi or en). Skips merge.",
+        help="Run only one language instead of dual (hi or en). Skips selection.",
     )
     parser.add_argument(
         "--allow-cpu",
         action="store_true",
         dest="allow_cpu",
         help="Allow CPU fallback when CUDA is unavailable.",
+    )
+    parser.add_argument(
+        "--gate-monolingual",
+        action="store_true",
+        dest="gate_monolingual",
+        help=(
+            "Opt-in speed optimization: skip the second language pass when the whole "
+            "track is confidently monolingual (multi-probe language ID). Default off; "
+            "validate on >2 tracks before enabling for a corpus backfill."
+        ),
     )
     namespace = parser.parse_args(argv)
     return TranscribeArgs.model_validate(vars(namespace))
@@ -92,121 +104,114 @@ def _safe_score(word: TranscriptWord) -> float:
     return max(word.score or 0.0, 0.0)
 
 
-def _words_overlap(a: TranscriptWord, b: TranscriptWord) -> bool:
-    return max(a.start, b.start) < min(a.end, b.end)
+def _group_by_gap(
+    words: list[DualLanguageWord],
+    gap_threshold: float,
+) -> list[list[DualLanguageWord]]:
+    """Group time-ordered words into windows separated by gaps > gap_threshold seconds.
 
-
-def merge_by_word_probability(
-    hi_words: list[TranscriptWord],
-    en_words: list[TranscriptWord],
-) -> list[DualLanguageWord]:
-    """Pick the higher-probability word at each time position from two language runs.
-
-    Hindi is preferred on equal scores (it is the primary class language).
-    Words present in only one run are included unchanged.
+    Tracks the running max end of the current window so it stays correct when the input
+    interleaves two overlapping language streams (the union built by per-segment
+    selection). For a single non-overlapping stream this is identical to grouping on the
+    previous word's end, so `resegment` behavior is preserved.
     """
-    result: list[DualLanguageWord] = []
-    hi_idx = 0
-    en_idx = 0
+    if not words:
+        return []
 
-    while hi_idx < len(hi_words) or en_idx < len(en_words):
-        hi_word = hi_words[hi_idx] if hi_idx < len(hi_words) else None
-        en_word = en_words[en_idx] if en_idx < len(en_words) else None
+    groups: list[list[DualLanguageWord]] = []
+    current: list[DualLanguageWord] = [words[0]]
+    max_end = words[0].end
 
-        if hi_word is None:
-            assert en_word is not None
-            result.append(
-                DualLanguageWord(
-                    start=en_word.start,
-                    end=en_word.end,
-                    word=en_word.word,
-                    score=_safe_score(en_word),
-                    source_language="en",
-                )
-            )
-            en_idx += 1
-        elif en_word is None:
-            result.append(
-                DualLanguageWord(
-                    start=hi_word.start,
-                    end=hi_word.end,
-                    word=hi_word.word,
-                    score=_safe_score(hi_word),
-                    source_language="hi",
-                )
-            )
-            hi_idx += 1
-        elif _words_overlap(hi_word, en_word):
-            hi_score = _safe_score(hi_word)
-            en_score = _safe_score(en_word)
-            if hi_score >= en_score:
-                result.append(
-                    DualLanguageWord(
-                        start=hi_word.start,
-                        end=hi_word.end,
-                        word=hi_word.word,
-                        score=hi_score,
-                        source_language="hi",
-                    )
-                )
-            else:
-                result.append(
-                    DualLanguageWord(
-                        start=en_word.start,
-                        end=en_word.end,
-                        word=en_word.word,
-                        score=en_score,
-                        source_language="en",
-                    )
-                )
-            hi_idx += 1
-            en_idx += 1
-        elif hi_word.start <= en_word.start:
-            result.append(
-                DualLanguageWord(
-                    start=hi_word.start,
-                    end=hi_word.end,
-                    word=hi_word.word,
-                    score=_safe_score(hi_word),
-                    source_language="hi",
-                )
-            )
-            hi_idx += 1
+    for word in words[1:]:
+        if word.start - max_end > gap_threshold:
+            groups.append(current)
+            current = [word]
+            max_end = word.end
         else:
-            result.append(
+            current.append(word)
+            max_end = max(max_end, word.end)
+
+    groups.append(current)
+    return groups
+
+
+def _pick_language(
+    hi_words: list[DualLanguageWord],
+    en_words: list[DualLanguageWord],
+    tie_eps: float,
+) -> str:
+    """Pick the language for one window by mean word confidence, mass-tiebroken.
+
+    - One side empty -> the other language.
+    - Clear mean winner (|mean_hi - mean_en| >= tie_eps) -> higher mean.
+    - Near-tie -> higher total confidence mass (sum of scores = confidence x coverage);
+      exact tie -> Hindi (primary class language convention).
+
+    Low confidence on BOTH is not special-cased: we still pick the higher mean and keep
+    the words. Dropping junk is the downstream is_quality_text filter's job, so this stays
+    lossless and single-responsibility.
+    """
+    if not hi_words:
+        return "en"
+    if not en_words:
+        return "hi"
+
+    mean_hi = sum(w.score for w in hi_words) / len(hi_words)
+    mean_en = sum(w.score for w in en_words) / len(en_words)
+    if abs(mean_hi - mean_en) >= tie_eps:
+        return "hi" if mean_hi > mean_en else "en"
+
+    mass_hi = sum(w.score for w in hi_words)
+    mass_en = sum(w.score for w in en_words)
+    return "hi" if mass_hi >= mass_en else "en"
+
+
+def select_language_per_segment(
+    hi_segments: list[TranscriptSegment],
+    en_segments: list[TranscriptSegment],
+    gap_threshold: float = _SEGMENT_GAP_THRESHOLD,
+    tie_eps: float = _SELECTION_TIE_EPS,
+) -> list[DualLanguageWord]:
+    """Choose ONE language per gap-delimited window; never interleave languages mid-clause.
+
+    Replaces per-word merging (which spliced confidently-wrong Devanagari into clean
+    English). Builds language-neutral windows from the union of both passes' words — real
+    inter-clause silences are gaps in both streams — then emits only the winning language's
+    words for each window. See `_pick_language` for the selection metric.
+    """
+    tagged: list[DualLanguageWord] = []
+    for seg in hi_segments:
+        for w in seg.words:
+            tagged.append(
                 DualLanguageWord(
-                    start=en_word.start,
-                    end=en_word.end,
-                    word=en_word.word,
-                    score=_safe_score(en_word),
-                    source_language="en",
+                    start=w.start, end=w.end, word=w.word, score=_safe_score(w), source_language="hi"
                 )
             )
-            en_idx += 1
+    for seg in en_segments:
+        for w in seg.words:
+            tagged.append(
+                DualLanguageWord(
+                    start=w.start, end=w.end, word=w.word, score=_safe_score(w), source_language="en"
+                )
+            )
+    tagged.sort(key=lambda x: x.start)
 
-    return result
+    selected: list[DualLanguageWord] = []
+    for group in _group_by_gap(tagged, gap_threshold):
+        hi_w = [x for x in group if x.source_language == "hi"]
+        en_w = [x for x in group if x.source_language == "en"]
+        winner = _pick_language(hi_w, en_w, tie_eps)
+        chosen = hi_w if winner == "hi" else en_w
+        selected.extend(sorted(chosen, key=lambda x: x.start))
+    return selected
 
 
 def resegment(
     words: list[DualLanguageWord],
     gap_threshold: float = _SEGMENT_GAP_THRESHOLD,
 ) -> list[TranscriptSegment]:
-    """Group merged words into segments separated by gaps > gap_threshold seconds."""
-    if not words:
-        return []
-
-    segments: list[TranscriptSegment] = []
-    current: list[DualLanguageWord] = [words[0]]
-
-    for word in words[1:]:
-        if word.start - current[-1].end > gap_threshold:
-            segments.append(_words_to_segment(current))
-            current = [word]
-        else:
-            current.append(word)
-
-    segments.append(_words_to_segment(current))
-    return segments
+    """Group selected words into segments separated by gaps > gap_threshold seconds."""
+    return [_words_to_segment(group) for group in _group_by_gap(words, gap_threshold)]
 
 
 def _words_to_segment(words: list[DualLanguageWord]) -> TranscriptSegment:
@@ -242,6 +247,57 @@ def build_transcript_document(
     return TranscriptDocument(model=model_name, language=dominant, segments=segments)
 
 
+def is_hallucinated_segment(words_text: list[str], threshold: float = 0.7) -> bool:
+    """Return True when one word dominates >threshold of a segment — Whisper silence artifact."""
+    if len(words_text) < 8:
+        return False
+    from collections import Counter
+
+    top_count = Counter(w.strip().lower() for w in words_text if w.strip()).most_common(1)
+    if not top_count:
+        return False
+    return top_count[0][1] / len(words_text) > threshold
+
+
+def _is_hallucinated(faster_whisper_words: list[Any]) -> bool:
+    texts = [getattr(w, "word", "") for w in faster_whisper_words]
+    return is_hallucinated_segment(texts)
+
+
+def _segments_from_raw(raw_segments: list[Any]) -> list[TranscriptSegment]:
+    """Shape raw faster-whisper segments into TranscriptSegments, dropping hallucinations.
+
+    Pure (no GPU) so it is unit-testable with fake segment objects.
+    """
+    segments: list[TranscriptSegment] = []
+    for seg in raw_segments:
+        seg_words = seg.words or []
+        if _is_hallucinated(seg_words):
+            logger.debug("Skipping hallucinated segment at %.1fs", getattr(seg, "start", -1.0))
+            continue
+        words = [
+            TranscriptWord(
+                start=float(w.start),
+                end=float(w.end),
+                word=str(w.word),
+                score=float(w.probability) if hasattr(w, "probability") else None,
+            )
+            for w in seg_words
+            if w.start is not None and w.end is not None
+        ]
+        if not words:
+            continue
+        segments.append(
+            TranscriptSegment(
+                start=words[0].start,
+                end=words[-1].end,
+                text=" ".join(w.word for w in words),
+                words=words,
+            )
+        )
+    return segments
+
+
 # ---------------------------------------------------------------------------
 # GPU-dependent functions — isolated for easy mocking in tests
 # ---------------------------------------------------------------------------
@@ -274,50 +330,17 @@ def _release_gpu(resource: object | None = None) -> None:
     gc.collect()
 
 
-def _extract_words_from_result(result: dict[str, Any]) -> list[TranscriptWord]:
-    words: list[TranscriptWord] = []
-    for seg in result.get("segments", []):
-        for w in seg.get("words", []):
-            if "start" not in w or "end" not in w:
-                logger.debug("Skipping word without timestamps: %s", w)
-                continue
-            words.append(
-                TranscriptWord(
-                    start=float(w["start"]),
-                    end=float(w["end"]),
-                    word=str(w.get("word", "")),
-                    score=float(w["score"]) if w.get("score") is not None else None,
-                )
-            )
-    return words
-
-
-def is_hallucinated_segment(words_text: list[str], threshold: float = 0.7) -> bool:
-    """Return True when one word dominates >threshold of a segment — Whisper silence artifact."""
-    if len(words_text) < 8:
-        return False
-    from collections import Counter
-
-    top_count = Counter(w.strip().lower() for w in words_text if w.strip()).most_common(1)
-    if not top_count:
-        return False
-    return top_count[0][1] / len(words_text) > threshold
-
-
-def _is_hallucinated(faster_whisper_words: list[Any]) -> bool:
-    texts = [getattr(w, "word", "") for w in faster_whisper_words]
-    return is_hallucinated_segment(texts)
-
-
-def run_whisperx_language(
+def run_whisperx_segments(
     audio: Any,
     language: str,
     model_name: str,
     device: str,
     compute_type: str,
-) -> list[TranscriptWord]:
+) -> list[TranscriptSegment]:
     # Use WhisperModel directly — bypasses VAD bootstrap URL (HTTP 301) and avoids
     # loading alignment models that have Wav2Vec2Processor API breaks in newer transformers.
+    # Segment structure is preserved (not flattened) so per-segment language selection can
+    # choose one language per clause.
     import whisperx.asr
 
     logger.info("Transcribing with language=%s model=%s device=%s", language, model_name, device)
@@ -325,23 +348,64 @@ def run_whisperx_language(
     segments_gen, _info = asr_model.transcribe(audio, language=language, word_timestamps=True)
     raw_segments = list(segments_gen)
     _release_gpu(asr_model)
+    return _segments_from_raw(raw_segments)
 
-    # Use raw ASR word timestamps, filtering hallucinated segments first.
-    words: list[TranscriptWord] = []
-    for seg in raw_segments:
-        if _is_hallucinated(seg.words or []):
-            logger.debug("Skipping hallucinated segment at %.1fs", seg.start)
-            continue
-        for w in seg.words or []:
-            words.append(
-                TranscriptWord(
-                    start=float(w.start),
-                    end=float(w.end),
-                    word=str(w.word),
-                    score=float(w.probability) if hasattr(w, "probability") else None,
-                )
-            )
-    return words
+
+def _decide_gate_language(probes: list[tuple[str, float]], prob_threshold: float) -> str | None:
+    """Pure gate decision: return the agreed language iff every probe agrees on a valid
+    language with probability >= threshold, else None (-> run both passes).
+    """
+    detected: set[str] = set()
+    for lang, prob in probes:
+        if lang not in _VALID_LANGUAGES or prob < prob_threshold:
+            return None
+        detected.add(lang)
+    if len(detected) == 1:
+        return next(iter(detected))
+    return None
+
+
+def detect_track_language(
+    audio: Any,
+    model_name: str,
+    device: str,
+    compute_type: str,
+    n_probes: int = 3,
+    prob_threshold: float = 0.85,
+    window_seconds: float = 30.0,
+    sample_rate: int = 16000,
+) -> str | None:
+    """Conservative multi-probe language ID over the whole track (opt-in gate).
+
+    Samples n_probes evenly-spaced ~window_seconds windows (start/middle/end) and only
+    returns a language when ALL probes agree with high confidence — so a track that opens
+    in one language and switches mid-way is NOT mis-gated (a later probe forces dual).
+    Returns None to mean "run both passes + per-segment selection".
+    """
+    import whisperx.asr
+
+    asr_model = whisperx.asr.WhisperModel(model_name, device=device, compute_type=compute_type)
+    try:
+        window = int(window_seconds * sample_rate)
+        total = len(audio)
+        if total <= window or n_probes <= 1:
+            offsets = [0]
+        else:
+            offsets = [int(i * (total - window) / (n_probes - 1)) for i in range(n_probes)]
+
+        probes: list[tuple[str, float]] = []
+        for off in offsets:
+            clip = audio[off : off + window]
+            _segs, info = asr_model.transcribe(clip, language=None, word_timestamps=False)
+            lang = str(getattr(info, "language", "") or "")
+            prob = float(getattr(info, "language_probability", 0.0) or 0.0)
+            probes.append((lang, prob))
+        decision = _decide_gate_language(probes, prob_threshold)
+        if decision is not None:
+            logger.info("Gate: track is confidently monolingual (%s); skipping other pass", decision)
+        return decision
+    finally:
+        _release_gpu(asr_model)
 
 
 def _load_wav(wav_path: Path) -> Any:
@@ -366,6 +430,18 @@ def convert_to_wav(audio_path: Path, wav_dir: Path) -> Path:
     return wav_path
 
 
+def _words_from_single_language(
+    segments: list[TranscriptSegment], language: str
+) -> list[DualLanguageWord]:
+    return [
+        DualLanguageWord(
+            start=w.start, end=w.end, word=w.word, score=_safe_score(w), source_language=language
+        )
+        for seg in segments
+        for w in seg.words
+    ]
+
+
 def transcribe_audio(
     audio_path: Path,
     wav_dir: Path,
@@ -379,21 +455,19 @@ def transcribe_audio(
     audio: Any = _load_wav(wav_path)
 
     if args.single_language:
-        hi_words = run_whisperx_language(audio, args.single_language, args.model, device, compute_type)
-        merged_words = [
-            DualLanguageWord(
-                start=w.start,
-                end=w.end,
-                word=w.word,
-                score=_safe_score(w),
-                source_language=args.single_language,
-            )
-            for w in hi_words
-        ]
+        segs = run_whisperx_segments(audio, args.single_language, args.model, device, compute_type)
+        merged_words = _words_from_single_language(segs, args.single_language)
     else:
-        hi_words = run_whisperx_language(audio, "hi", args.model, device, compute_type)
-        en_words = run_whisperx_language(audio, "en", args.model, device, compute_type)
-        merged_words = merge_by_word_probability(hi_words, en_words)
+        gated_language: str | None = None
+        if args.gate_monolingual:
+            gated_language = detect_track_language(audio, args.model, device, compute_type)
+        if gated_language is not None:
+            segs = run_whisperx_segments(audio, gated_language, args.model, device, compute_type)
+            merged_words = _words_from_single_language(segs, gated_language)
+        else:
+            hi_segs = run_whisperx_segments(audio, "hi", args.model, device, compute_type)
+            en_segs = run_whisperx_segments(audio, "en", args.model, device, compute_type)
+            merged_words = select_language_per_segment(hi_segs, en_segs)
 
     doc = build_transcript_document(merged_words, args.model)
     hi_avg, en_avg, dominant = compute_language_stats(merged_words)
