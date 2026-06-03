@@ -570,7 +570,7 @@ Real domain terms: **supply, price, beta, function** (intercept was called beta 
 
 ## Status — 2026-06-03
 
-Stage: pre-release alpha, local-only, real student PII. ~301 tests, ruff/mypy clean.
+Stage: pre-release alpha, local-only, real student PII. 314 tests, ruff/mypy clean.
 
 ### Done
 - Pipeline works end-to-end on real Zoom exports (ingest → identity → transcribe → merge → context → pgvector → chat).
@@ -578,11 +578,16 @@ Stage: pre-release alpha, local-only, real student PII. ~301 tests, ruff/mypy cl
 - Per-student login: CSV (id+password), constant-time compare. Data isolation: student sees only own data.
 - Google Drive ingestion: `drive_sync.py` + `processed_files` dedup table, idempotent, per-file failure isolation, read-only scope, self-hosted GPU runner workflow.
 - Teacher M4A as primary class-context source (cleaner than mixed MP4). Isolation key unchanged. Verified on Economics.02.
+- Teacher-evaluation demo (`app.py`, Streamlit): student picker from `list_students()`, chat box, per-answer grounding expander (chunk text/type/score/time span), per-student header (class names, chunk count, last top score). Heavy resources (`connect_pg_store`, `QueryEmbedder`, `GroqChatBackend`) cached once via `st.cache_resource`. Reuses the committed retrieval/chat pipeline; no pipeline logic touched.
+  - Non-UI logic in `scripts/demo_backend.py` (`student_summary`, `top_score`, `answer_for_student`) + `PgVectorStore.list_students()`; 11 new tests (9 backend + 2 pg_store). UI glue untested by design.
+  - Verified live against pgvector: 8 students listed; Bhagyashree (2302) 192 chunks, retrieval top score 0.707; full Groq answer path returns a grounded, source-citing answer.
+  - `docs/EVAL.md`: 5 verifiable questions per student generated from each student's actually-embedded text, mixed types (covered / what-I-said / missed / no-evidence probe for students with no `spoken` chunks), plus a per-student rating rubric (Accuracy, Grounded, Usefulness, Give-to-students Y/N + comments). Printable.
+  - `streamlit==1.36.0` added to `requirements.txt` (pins pandas <3 transitively). Run: `streamlit run app.py`.
 
 ### In flight
 - Transcription quality fix (per-segment language gating). Spike root-caused the Hinglish garble to the per-word merge, not model capacity (teacher track: en-only 0% Devanagari vs dual-merge 8.7% vs hi-only 28.5%). Design approved, building. No model/hardware change in this step.
 - Full-corpus backfill: paused behind the quality fix (transcribe each class once at good quality).
-- UI: not started.
+- UI: teacher-evaluation demo done (above); student-facing UI (login → session, retrieval-as-API) not started.
 
 ### Open risks / limitations
 - Hinglish transcription ceiling: `small` fits 4GB GPU but garbles code-switching. Software fix in progress; residual is model-capacity bound (`medium` fits but ~3–4× slower; `large-v3` doesn't fit safely).

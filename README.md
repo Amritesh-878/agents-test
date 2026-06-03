@@ -254,6 +254,31 @@ student_id,password
 
 ---
 
+## Teacher Evaluation Demo (Streamlit)
+
+Before students get their chatbots, teachers/leads test and rate them in a minimal web UI.
+Pick a student, ask questions, and inspect the **retrieved source chunks** behind every
+answer — the point is to confirm answers are *grounded* in that student's real class
+transcripts, not invented.
+
+```powershell
+streamlit run app.py
+```
+
+What it shows:
+- A student picker (populated live from pgvector — no hardcoding).
+- A per-student header: class name(s), embedded chunk count, last top retrieval score.
+- A chat box; each answer has a **Grounding** expander listing the retrieved chunks
+  (text, chunk type, similarity score, time span) so the answer can be verified.
+- The same isolation guarantee as `chat.py`: each chatbot sees only that student's data.
+
+Heavy resources (DB connection, embedding model, Groq client) are cached once with
+`st.cache_resource`, so they are never reloaded per message. `DATABASE_URL` and
+`GROQ_API_KEY` come from `.env`. The companion rating sheet (5 verifiable questions per
+student + a scoring rubric) is in [`docs/EVAL.md`](docs/EVAL.md).
+
+---
+
 ## Input File Formats
 
 ### Zoom .zip
@@ -329,7 +354,7 @@ python -m ruff check --fix .
 python -m mypy .
 ```
 
-**Test suite:** 305 tests, 0 errors, 0 warnings.
+**Test suite:** 314 tests, 0 errors, 0 warnings.
 
 ---
 
