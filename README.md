@@ -329,7 +329,7 @@ python -m ruff check --fix .
 python -m mypy .
 ```
 
-**Test suite:** 289 tests, 0 errors, 0 warnings.
+**Test suite:** 305 tests, 0 errors, 0 warnings.
 
 ---
 
@@ -338,7 +338,7 @@ python -m mypy .
 | Component | Technology |
 |-----------|-----------|
 | Transcription | WhisperX + faster-whisper (CUDA), `whisperx.asr.WhisperModel` |
-| Dual-language | Hindi + English word-level probability merge |
+| Dual-language | Hindi + English, one language selected per segment by confidence |
 | Embeddings | `sentence-transformers/all-MiniLM-L6-v2` (384-dim) |
 | Vector DB | PostgreSQL 17 + pgvector, HNSW index, cosine distance |
 | LLM | Groq `llama-3.1-8b-instant` |
