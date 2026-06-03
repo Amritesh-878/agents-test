@@ -565,3 +565,40 @@ Real domain terms: **supply, price, beta, function** (intercept was called beta 
 **GitHub:** https://github.com/Amritesh-878/agents-test  
 **Branch:** main  
 **Commits:** 17 commits since pipeline rebuild started (2026-05-27)
+
+---
+
+## Status — 2026-06-03
+
+Stage: pre-release alpha, local-only, real student PII. ~301 tests, ruff/mypy clean.
+
+### Done
+- Pipeline works end-to-end on real Zoom exports (ingest → identity → transcribe → merge → context → pgvector → chat).
+- Security/code audit: 18 findings; all blocking + correctness items fixed. Key: removed DB password from chat traces; secrets from env not CLI flags; chatbot `student_id` now login-derived (closes IDOR); ingest fails loud on roll collision; fixed chunk-type filter applied after `LIMIT`; reuse embedding model/connection; zip-bomb guard; removed dead `chromadb`; OAuth secret files removed + gitignored.
+- Per-student login: CSV (id+password), constant-time compare. Data isolation: student sees only own data.
+- Google Drive ingestion: `drive_sync.py` + `processed_files` dedup table, idempotent, per-file failure isolation, read-only scope, self-hosted GPU runner workflow.
+- Teacher M4A as primary class-context source (cleaner than mixed MP4). Isolation key unchanged. Verified on Economics.02.
+
+### In flight
+- Transcription quality fix (per-segment language gating). Spike root-caused the Hinglish garble to the per-word merge, not model capacity (teacher track: en-only 0% Devanagari vs dual-merge 8.7% vs hi-only 28.5%). Design approved, building. No model/hardware change in this step.
+- Full-corpus backfill: paused behind the quality fix (transcribe each class once at good quality).
+- UI: not started.
+
+### Open risks / limitations
+- Hinglish transcription ceiling: `small` fits 4GB GPU but garbles code-switching. Software fix in progress; residual is model-capacity bound (`medium` fits but ~3–4× slower; `large-v3` doesn't fit safely).
+- Local-only alpha, PII plaintext on disk; not network-hardened.
+- Class context is teacher-centric by design (peers/guests/played media excluded).
+- `student_id` = filename-derived roll; collisions fail loud, stable-UID reconciliation is future.
+- Groq external egress disclosed; retention/consent policy decision pending.
+- Per-segment selection content-retention on bilingual students' `spoken` chunks: to be measured before backfill.
+
+### Decisions needed
+- Hardware/GPU for transcription quality (`medium`/cloud vs accept ceiling).
+- UI scope (web vs desktop, login→session, retrieval as API).
+- Groq data-retention/consent policy.
+- Roster data to unblock absent-student support.
+
+### Next
+1. Finish + verify language-gating fix; measure bilingual content retention.
+2. Re-transcribe 2 sample classes, audit garble drop, then run full-corpus backfill.
+3. Scope + start UI in parallel.

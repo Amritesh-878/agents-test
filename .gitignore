@@ -23,3 +23,6 @@ participants_*.csv
 
 # Orchestrator temp file
 orchestrator-temp.md
+
+# Throwaway spike scripts
+scratch/

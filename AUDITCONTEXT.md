@@ -1,5 +1,13 @@
 # Audit Context — Adira Academy Learning Assistant
 
+> **STATUS (2026-06-02): pre-fix snapshot.** This document is the original input given to
+> the auditor and describes the codebase **as it was before remediation**. All findings have
+> since been addressed (fix-plan steps 1–6 implemented, per-student login built, 263 tests
+> green). For current state see `PROGRESS.md` → "Security & Audit Remediation" and the status
+> banner in `AUDIT_AND_FIX_PLAN.md`. The text below is intentionally **not** rewritten — read
+> it as a historical record (e.g. "chromadb still pinned", "216 tests", "anyone can pass
+> `--student-id`" are all no longer true).
+
 **Purpose:** Full project context for a code/security auditor. Use this to perform a detailed analysis: bug finding, design flaws, security vulnerabilities, data-privacy issues, and production-readiness gaps.
 
 **Audit scope requested:** Security vulnerabilities • Code quality & correctness • Data privacy / PII • Production readiness.
