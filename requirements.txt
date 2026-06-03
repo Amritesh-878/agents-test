@@ -8,6 +8,7 @@ groq==0.9.0
 httpx==0.27.2
 mypy==1.10.0
 numpy==1.26.4
+pandas==2.3.3  # pinned: streamlit 1.36 constrains pandas <3
 pydantic==2.7.1
 pgvector>=0.2
 psycopg[binary]>=3.1
