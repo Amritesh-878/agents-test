@@ -7,7 +7,8 @@ from typing import Any
 import pytest
 
 from scripts.chat import ChatArgs, RetrievalBackend
-from scripts.retrieval import QueryEmbedder
+from scripts.models.pipeline import SearchResult
+from scripts.retrieval import QueryEmbedder, search_result_to_chunk
 
 
 class _FakeArray:
@@ -90,3 +91,29 @@ def test_retrieval_backend_does_not_close_injected_store() -> None:
     backend.close()
 
     assert store.closed is False  # caller owns an injected store
+
+
+def _result(chunk_type: str, speaker: str | None) -> SearchResult:
+    return SearchResult(
+        chunk_id="c1",
+        student_id="2302",
+        student_name="Bhagyashree",
+        class_name="Eco",
+        chunk_type=chunk_type,
+        text="...",
+        distance=0.1,
+        speaker=speaker,
+    )
+
+
+def test_class_context_speaker_not_attributed_to_student() -> None:
+    # class_context / missed have no stored speaker (teacher narration); it must NOT be
+    # labeled with the student's name, or the LLM quotes the teacher back as the student.
+    assert search_result_to_chunk(_result("class_context", None), 1).source_speaker == "teacher"
+    assert search_result_to_chunk(_result("missed", None), 1).source_speaker == "teacher"
+
+
+def test_spoken_speaker_preserved_else_student_name() -> None:
+    assert search_result_to_chunk(_result("spoken", "Bhagyashree"), 1).source_speaker == "Bhagyashree"
+    # spoken with no stored speaker still falls back to the student (their own words)
+    assert search_result_to_chunk(_result("spoken", None), 1).source_speaker == "Bhagyashree"

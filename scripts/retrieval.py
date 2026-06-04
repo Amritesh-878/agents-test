@@ -141,7 +141,8 @@ def search_result_to_chunk(result: SearchResult, rank: int) -> RetrievedChunk:
         end=result.end_time or 0.0,
         rank=rank,
         score=distance_to_score(result.distance),
-        source_speaker=result.speaker or result.student_name,
+        source_speaker=result.speaker
+        or (result.student_name if result.chunk_type == "spoken" else "teacher"),
         start=result.start_time or 0.0,
         student_email=meta.get("student_email"),
         student_id=result.student_id,
