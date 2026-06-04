@@ -607,3 +607,38 @@ Stage: pre-release alpha, local-only, real student PII. 314 tests, ruff/mypy cle
 1. Finish + verify language-gating fix; measure bilingual content retention.
 2. Re-transcribe 2 sample classes, audit garble drop, then run full-corpus backfill.
 3. Scope + start UI in parallel.
+
+---
+
+## Status — 2026-06-04
+
+Full-corpus backfill executed. Stage: pre-release alpha, local-only, real student PII. 319 tests, ruff/mypy clean.
+
+### Done
+- Backfilled all 8 on-disk classes end-to-end (5 Economics + 3 Math, teacher Nisha), no roster / no attendance (per-student M4As as ground truth). pgvector now holds **1021 chunks across 17 distinct students, all keyed by 4-digit roll**. Per-segment language selection is the committed default; transcription on `small`/CUDA.
+- Garble: `class_context` (teacher track) eliminated on every class (per-segment win). Global max nukta after backfill **66.7/1k** (genuine Hindi; hallucination loops were 200–429/1k). Retrieval spot-checks (8 students, all classes) returned coherent on-topic nukta=0 chunks at 0.59–0.76, including students' own spoken answers.
+- `spoken` chunks restored for active students (Economics 90/80/29/10/23; Math sparse 1/4/10 — students mostly listening, expected).
+- Four root-cause fixes during backfill, each gated green + own one-line commit:
+  - `709a18b` — no roster AND no attendance previously dropped every student to `unmatched` (student_id became raw filename, spoken lost). Now the filename 4-digit roll is trusted as identity.
+  - `63f9971` — distinct students sharing a 4-digit roll (no-roster path) now flag the collision (keep first, skip other) instead of aborting the class.
+  - `60e6cd8` — unmatched M4As no longer embedded under filename ids (unusable for login); counted + logged for review.
+  - `1406f64` — phrase-loop Devanagari hallucinations rejected by `is_quality_text` via nukta-density cap (>120 tokens/1k); drops garble without touching genuine Hindi (15–66/1k).
+- Environment: installed `imageio-ffmpeg`, exposed as `.venv/Scripts/ffmpeg.exe` (no system ffmpeg was present; needed for M4A→WAV on new classes). Pipeline code untouched for this.
+- Per-class verification appended to `output/transcription_ceiling_findings.md` (garble table, retention check, flags).
+
+### In flight
+- None blocking. Backfill complete and verified.
+
+### Open risks / limitations
+- Heavy code-switcher transcription ceiling is model-bound (residual genuine-Hindi noise on bilingual `spoken`); nukta cap removes hallucinations only.
+- `Determinants 13 April (1)` is a multi-meeting zip (2 Zoom meeting ids in one zip); one session used, same-name dedup kept one Bhagyashree id — flagged, content fine.
+- Math Part_04: `A_Kalyani` and `A_Nishkarsha` both parse to roll 2511 → Kalyani@2511, Nishkarsha@2518, colliding file flagged; `JagrutiJadhav` has no parseable roll → not embedded (flagged). 11/13 students embedded clean.
+- Local-only alpha, PII plaintext on disk; Groq egress disclosed.
+
+### Decisions needed
+- Stable `student_uid` reconciliation (stop trusting filename roll) — needed for collision-prone classes and a real roster.
+- Whether to ingest the multi-meeting zip as two separate sessions.
+
+### Next
+1. Spot-review the flagged classes (multi-meeting zip, 2511 collision) with a roster when available.
+2. Demo the backfilled data via `streamlit run app.py` for teacher evaluation.
