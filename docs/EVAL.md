@@ -24,26 +24,19 @@ pgvector for each student (queried live), so every question is answerable and ve
 against this real data. The "Expected grounding" line tells you what the transcript
 supports, so you can judge accuracy without re-watching the class.
 
-**Snapshot of embedded data at time of writing** (more classes get added later — the live
-DB is the source of truth):
-
-| Student | Roll | Class | Chunks | Chunk types present |
-|---------|------|-------|--------|---------------------|
-| Bhagyashree | 2302 | Economics.02 — Supply Function (16 Apr, 51 min) | 192 | spoken, class_context |
-| A_Disha | 2504 | Math.01 — Time & Work (08 Apr, 17 min) | 2 | class_context |
-| A_Jagruti | 2509 | Math.01 — Time & Work | 2 | class_context |
-| A_Kalyani | 2511 | Math.01 — Time & Work | 2 | class_context |
-| A_Saisha | 2521 | Math.01 — Time & Work | 2 | class_context |
-| A_Sanaya | 2522 | Math.01 — Time & Work | 2 | class_context |
-| A_Shravani | 2523 | Math.01 — Time & Work | 2 | class_context |
-| A_Sonakshi | 2526 | Math.01 — Time & Work | 2 | class_context |
+**Embedded data** (live DB / the app dropdown is the source of truth):
+After the full backfill: **17 students across 8 Math + Economics classes (~1020 chunks)**.
+- **Bhagyashree (2302)** — richest: **421 chunks across 6 Economics sessions** (spoken + class_context).
+- **Math.01 students** (2504, 2509, 2511, 2521, 2522, 2523, 2526) — **10–56 chunks each**, mostly
+  teacher `class_context` with a few `spoken`.
+- Plus the other Economics students across the additional sessions.
 
 ---
 
 ## Bhagyashree (roll 2302) — Economics.02, Supply Function
 
-Rich corpus (192 chunks): her own spoken answers plus the teacher's class context. Use all
-five question types.
+Rich corpus (421 chunks across 6 Economics sessions): her own spoken answers plus the
+teacher's class context. Use all five question types.
 
 1. **"What did we cover in class today?"** *(what did we cover)*
    *Expected grounding:* revising the supply concepts from last week, then graphing the
@@ -69,19 +62,29 @@ five question types.
    rises), which isn't realistic — you only start supplying once the price is high enough to
    make `qs` positive.
 
-**Rating — Bhagyashree (2302):**
+**Rating — Bhagyashree (2302):**  *(evaluated 2026-06-04, driven through `answer_for_student`)*
 
 | Metric | Score (1–5) |
 |--------|-------------|
-| Accuracy (answers match what was actually taught) | |
-| Grounded / no hallucination (answer is supported by the shown chunks) | |
-| Usefulness / personalization (genuinely helpful to this student) | |
+| Accuracy (answers match what was actually taught) | 4 |
+| Grounded / no hallucination (answer is supported by the shown chunks) | 5 |
+| Usefulness / personalization (genuinely helpful to this student) | 4 |
 
-**Give to students? YES / NO:**
+**Give to students? YES** (with caveats below)
 
 **Comments:**
 
-> _____________________________________________________________________
+> Strongest student by far — now 421 chunks across 6 Economics sessions (snapshot table
+> above is stale; live DB is the truth). Q2 supply-schedule-vs-curve was excellent: top
+> chunks 0.799/0.793/0.787, answer correctly said schedule = table, curve = graph, and her
+> OWN spoken answer was surfaced back ("Supply schedule is a table representation…"). Q3
+> determinants (0.823) and Q4 intercept (correctly answered **−15**, grounded in "that's the
+> negative 15 one") both good and personalized. No hallucination anywhere; off-topic
+> photosynthesis probe correctly refused. Two misses, both *over*-conservative not invented:
+> Q5 ("why can qs be negative") said "not enough evidence" even though the retrieved chunk
+> [3] actually explained it (left value on the table); Q1 "what did we cover *today*" is
+> ambiguous because 6 classes are merged under one id with no per-session scoping, so "today"
+> has no meaning — answer recovered but top chunks were filler ("tomorrow it's a holiday").
 
 ---
 
@@ -118,22 +121,65 @@ chunks to ground it, and a good chatbot should *say it has no evidence* rather t
 
 | Student (roll) | Accuracy (1–5) | Grounded (1–5) | Usefulness (1–5) | Give to students? (Y/N) | Comments |
 |----------------|----------------|----------------|------------------|-------------------------|----------|
-| A_Disha (2504) | | | | | |
-| A_Jagruti (2509) | | | | | |
-| A_Kalyani (2511) | | | | | |
-| A_Saisha (2521) | | | | | |
-| A_Sanaya (2522) | | | | | |
-| A_Shravani (2523) | | | | | |
-| A_Sonakshi (2526) | | | | | |
+| A_Disha (2504) | 4 | 3 | 3 | **N** | Class recap accurate (time & work scaffolding, warm-up worksheet, 5 min, independent). But "What did I personally say" attributed the **teacher's** words to the student ("You reminded students…") — see Finding A. Q3 Jagruti/Kalyani → honest "no evidence" (acceptable). |
+| A_Jagruti (2509) | | | | | not tested this pass |
+| A_Kalyani (2511) | | | | | not tested this pass (roll collides with A_Nishkarsha — see PROGRESS) |
+| A_Saisha (2521) | | | | | not tested this pass |
+| A_Sanaya (2522) | 4 | 2 | 3 | **N** | On-topic recap; found the day-1/day-2 Jagruti/Kalyani content. But worst instance of Finding A: "What did I personally say" returned a **wall of teacher dialogue as "things you said,"** while her one genuine spoken chunk ("the main concept was stuck in mind") was NOT retrieved for that question. |
+| A_Shravani (2523) | | | | | not tested this pass |
+| A_Sonakshi (2526) | | | | | not tested this pass |
+
+> **Snapshot note:** the table at the top of this doc is pre-backfill and stale. Live DB now
+> holds 17 students; Math students have 10–56 chunks each (teacher-track `class_context` +
+> a few `spoken`), not 2. Evaluation above driven through the real `answer_for_student` path.
 
 ---
 
 ## Overall sign-off
 
-**Reviewer name:** ________________________   **Date:** ____________
+**Reviewer name:** Claude (automated teacher-eval pass)   **Date:** 2026-06-04
 
-**Overall verdict (roll out to students? YES / NO):**
+**Overall verdict (roll out to students? NO — not yet)**
+
+Isolation and anti-hallucination are solid: every retrieval was row-scoped to the queried
+`student_id` (the cross-student "determinants/−15" probe against A_Disha returned only her
+Math chunks and a correct refusal), and every off-topic probe (photosynthesis, French
+Revolution) was correctly refused with "not enough evidence." Answer quality is genuinely
+good for the rich Economics student (Bhagyashree). But two data-layer defects block a
+student-facing rollout:
+
+**Finding A — teacher's words attributed to the student (every student).** `class_context`
+chunks are stored with `speaker = NULL`; `retrieval.search_result_to_chunk` falls back to
+`source_speaker = result.speaker or result.student_name`, so the teacher's transcript is
+labeled with the *student's own name*. When a student asks "what did I say today," the LLM
+treats those chunks as the student's speech and replies "you said / you reminded students…"
+— quoting the teacher back as if it were the student. Fix is one line in the frozen
+`retrieval.py` (don't fall back to `student_name` for `class_context`; label it "teacher"
+/ "class"), plus the prompt should distinguish own-speech vs class-context.
+
+**Finding B — peer voices inside a student's scope (Math merge-fallback classes).** Some
+`spoken` chunks are stored under a single student's partition with a multi-name speaker list
+(e.g. a chunk under A_Sanaya's id whose speaker is `"A_Disha, A_Kalyani, A_Jagruti, …"`),
+and the same chunk is duplicated across several students' partitions. Row-level isolation
+still holds (each row has one `student_id`), but the *content* mixes peers' words — which
+contradicts the "peers excluded" design claim and is a privacy concern for a per-student
+product. Requires a merge/re-ingest change (out of scope for this read-only pass).
+
+Neither was fixed here: both live in modules the task froze (`retrieval.py` / pipeline /
+re-ingest). Reported for the owner to action. Bhagyashree alone would be a YES; the cohort
+is a NO until A is fixed.
 
 **Top concern, if any:**
 
-> _____________________________________________________________________
+> Finding A (teacher speech mislabeled as the student's own). It directly undermines the
+> headline "personalized — your own answers surfaced back to you" promise, and it is a cheap
+> fix. Finding B is lower-frequency but higher-severity (peer-content co-mingling) and needs
+> a re-ingest.
+
+---
+
+**Owner update (2026-06-04):** Finding A is **FIXED** — `retrieval.py` now labels
+`class_context`/`missed` chunks as `teacher` instead of the student (commit `43915fe`, with
+tests). Finding B (peer co-mingling in Math `spoken`) is queued: a primary-speaker-only
+attribution fix in `build_student_context` + a `--skip-transcribe` re-ingest. Re-run this eval
+after B lands; expected to move the Math students from NO toward YES.
