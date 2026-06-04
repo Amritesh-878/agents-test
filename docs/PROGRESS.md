@@ -642,3 +642,31 @@ Full-corpus backfill executed. Stage: pre-release alpha, local-only, real studen
 ### Next
 1. Spot-review the remaining flag (Math Part_04 2511 Kalyani/Nishkarsha collision) with a roster when available.
 2. Demo the backfilled data via `streamlit run app.py` for teacher evaluation.
+
+---
+
+## Roadmap — demo → student-ready
+
+Both teacher-eval blockers (A teacher-attribution, B peer co-mingling) are fixed. Status: **demo-ready** (pending one live confirmation run). Order to reach **student-ready**:
+
+### 1. Teacher validation (gate — do first)
+- [ ] Live confirmation run: `streamlit run app.py` + the self-referential and "what did we cover" checks.
+- [ ] Teachers test via `docs/EVAL.md` and rate. Proceed only on their YES.
+
+### 2. Quality (while teachers review)
+- [ ] Per-session/date scoping in retrieval — "what did we cover today" is ambiguous (a student's 6 sessions are merged under one id).
+- [ ] Transcription upgrade (Lever #2: `medium` model / better ASR) — the Hinglish garble ceiling.
+- [ ] Roster — absent-student bots; fix no-bot students (JagrutiJadhav, no parseable roll); verify colliding rolls (Kalyani/Nishkarsha 2511).
+
+### 3. Security hardening (REQUIRED before any student logs in — see `AUDIT_AND_FIX_PLAN.md` §4)
+- [ ] Real auth — replace the local CSV login with hashed passwords, sessions, HTTPS, rate-limit/lockout.
+- [ ] Stable `student_uid` — stop using the filename roll as the credential/partition key.
+- [ ] Groq data-egress decision — consent/retention policy for sending student transcripts to a US LLM (owner decision; blocker).
+- [ ] PII at rest (encryption/access control); Postgres not network-exposed.
+
+### 4. Productionize
+- [ ] Real student-facing app with per-student login (the Streamlit dropdown is a demo, not a product) + hosting.
+- [ ] Stand up the Drive ingestion scheduler (local Task Scheduler) for automatic new-class ingest.
+- [ ] Broader coverage (all classes / subjects / teachers), monitoring, ongoing QA.
+
+**Bottom line:** Quality (#2) makes it good; Security (#3) makes it *allowed*. Lock teacher validation (#1) before hardening.
