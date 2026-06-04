@@ -631,7 +631,7 @@ Full-corpus backfill executed. Stage: pre-release alpha, local-only, real studen
 
 ### Open risks / limitations
 - Heavy code-switcher transcription ceiling is model-bound (residual genuine-Hindi noise on bilingual `spoken`); nukta cap removes hallucinations only.
-- `Determinants 13 April (1)` is a multi-meeting zip (2 Zoom meeting ids in one zip); one session used, same-name dedup kept one Bhagyashree id — flagged, content fine.
+- `Determinants 13 April (1)` was a multi-meeting zip (2 Zoom meeting ids merged against one session MP4). **Resolved**: split into two clean classes by meeting id — `…13 April_s1` (meeting 1865787005: Anshi 2301 + Bhagyashree 2302, 121 chunks) and `…13 April_s2` (meeting 1938202934, no video so Nisha's M4A used as the session: Bhagyashree 2302, 132 chunks). Muddled `(1)` class purged from pgvector (0 chunks); original zip moved to `Videos/_skipped_duplicates/`. Transcripts reused (no re-transcription).
 - Math Part_04: `A_Kalyani` and `A_Nishkarsha` both parse to roll 2511 → Kalyani@2511, Nishkarsha@2518, colliding file flagged; `JagrutiJadhav` has no parseable roll → not embedded (flagged). 11/13 students embedded clean.
 - Local-only alpha, PII plaintext on disk; Groq egress disclosed.
 
@@ -640,5 +640,5 @@ Full-corpus backfill executed. Stage: pre-release alpha, local-only, real studen
 - Whether to ingest the multi-meeting zip as two separate sessions.
 
 ### Next
-1. Spot-review the flagged classes (multi-meeting zip, 2511 collision) with a roster when available.
+1. Spot-review the remaining flag (Math Part_04 2511 Kalyani/Nishkarsha collision) with a roster when available.
 2. Demo the backfilled data via `streamlit run app.py` for teacher evaluation.
