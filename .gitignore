@@ -26,3 +26,6 @@ orchestrator-temp.md
 
 # Throwaway spike scripts
 scratch/
+
+# Transient loop / scheduled-task lock files
+.claude/*.lock
