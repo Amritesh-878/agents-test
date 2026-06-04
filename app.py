@@ -15,7 +15,12 @@ from __future__ import annotations
 import streamlit as st
 
 from scripts.chat import GROQ_EGRESS_NOTICE, ChatTurnRecord, GroqChatBackend, load_groq_api_key
-from scripts.demo_backend import answer_for_student, student_summary, top_score
+from scripts.demo_backend import (
+    answer_for_student,
+    session_display_label,
+    student_summary,
+    top_score,
+)
 from scripts.retrieval import QueryEmbedder
 from scripts.utils.db_url import resolve_db_url
 from scripts.utils.pg_store import PgVectorStore, connect_pg_store
@@ -71,6 +76,15 @@ def main() -> None:
     selected_label = st.selectbox("Student", list(labels.keys()))
     student_id, student_name = labels[selected_label]
 
+    # Per-session scope. "All sessions" = no class filter (current behavior). The dropdown
+    # SHOWS a cleaned label but FILTERS on the real class_name value.
+    all_sessions = "All sessions"
+    class_options: dict[str, str | None] = {all_sessions: None}
+    for class_name in store.list_student_classes(student_id):
+        class_options[session_display_label(class_name)] = class_name
+    selected_session_label = st.selectbox("Class / session", list(class_options.keys()))
+    selected_class_name = class_options[selected_session_label]
+
     summary = student_summary(store, student_id, student_name)
     history: dict[str, list[ChatTurnRecord]] = st.session_state.setdefault("history", {})
     turns = history.setdefault(student_id, [])
@@ -82,6 +96,7 @@ def main() -> None:
     col_c.metric("Last top score", "—" if last_score is None else f"{last_score:.3f}")
     if summary.class_names:
         st.caption("Classes: " + "; ".join(summary.class_names))
+    st.caption(f"Session scope: {selected_session_label}")
     st.caption(GROQ_EGRESS_NOTICE)
 
     for turn in turns:
@@ -105,6 +120,7 @@ def main() -> None:
                     embedder=get_embedder(),
                     chat_backend=get_chat_backend(),
                     db_url=resolve_db_url(None),
+                    class_name=selected_class_name,
                     history_turns=turns,
                 )
             st.write(turn.answer)

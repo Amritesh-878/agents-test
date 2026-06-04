@@ -45,6 +45,9 @@ class ChatArgs(BaseModel):
     student_name: str = ""
     credentials_path: Path = Path("data/credentials.csv")
     chunk_types: list[ChunkType] = Field(default_factory=list)
+    # Optional per-session scope: when set, retrieval is restricted to this class_name
+    # (one session) instead of all of the student's sessions. None = all sessions.
+    class_name: str | None = None
     embedding_model: str = DEFAULT_EMBEDDING_MODEL
     groq_model: str = DEFAULT_GROQ_MODEL
     max_history_turns: int = 3
@@ -122,6 +125,13 @@ def parse_args(argv: Sequence[str] | None = None) -> ChatArgs:
         choices=("spoken", "missed", "class_context"),
         dest="chunk_types",
     )
+    parser.add_argument(
+        "--class-name",
+        default=None,
+        dest="class_name",
+        help="Restrict retrieval to a single class/session (exact class_name). "
+        "Omit to search across all of the student's sessions.",
+    )
     parser.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL, dest="embedding_model")
     parser.add_argument("--groq-model", default=DEFAULT_GROQ_MODEL, dest="groq_model")
     parser.add_argument(
@@ -133,6 +143,7 @@ def parse_args(argv: Sequence[str] | None = None) -> ChatArgs:
         db_url=resolve_db_url(namespace.db_url),
         credentials_path=Path(namespace.credentials_path),
         chunk_types=list(namespace.chunk_types or []),
+        class_name=namespace.class_name,
         embedding_model=namespace.embedding_model,
         groq_model=namespace.groq_model,
         max_history_turns=namespace.max_history_turns,
@@ -426,6 +437,7 @@ class RetrievalBackend:
             query=question,
             top_k=args.top_k,
             chunk_types=select_retrieval_chunk_types(question, args.chunk_types),
+            class_name=args.class_name,
             db_url=args.db_url,
             embedding_model=args.embedding_model,
             store=self._store,

@@ -124,6 +124,50 @@ def test_search_without_chunk_types_uses_plain_sql() -> None:
     assert params == ([0.1], "2301", 5)
 
 
+def test_search_pushes_class_name_filter_into_sql() -> None:
+    store, mock_conn = make_store()
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = []
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    store.search([0.1, 0.2, 0.3], "2301", top_k=5, class_name="CS101")
+
+    sql, params = mock_cursor.execute.call_args.args
+    assert "class_name = %s" in sql
+    # class_name is bound as a parameter (between student_id and the LIMIT).
+    assert params == ([0.1, 0.2, 0.3], "2301", "CS101", 5)
+
+
+def test_search_combines_chunk_type_and_class_filters() -> None:
+    store, mock_conn = make_store()
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = []
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    store.search([0.1], "2301", top_k=5, chunk_types=["spoken"], class_name="CS101")
+
+    sql, params = mock_cursor.execute.call_args.args
+    assert "chunk_type = ANY(%s)" in sql
+    assert "class_name = %s" in sql
+    assert params == ([0.1], "2301", ["spoken"], "CS101", 5)
+
+
+def test_search_empty_class_name_is_not_a_filter() -> None:
+    store, mock_conn = make_store()
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = []
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    store.search([0.1], "2301", top_k=5, class_name=None)
+
+    sql, params = mock_cursor.execute.call_args.args
+    assert "class_name = %s" not in sql
+    assert params == ([0.1], "2301", 5)
+
+
 def test_search_empty_returns_empty_list() -> None:
     store, mock_conn = make_store()
     mock_cursor = MagicMock()
@@ -207,6 +251,34 @@ def test_list_students_empty_returns_empty_list() -> None:
     mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
 
     assert store.list_students() == []
+
+
+# --- list_student_classes ---
+
+
+def test_list_student_classes_returns_ordered_class_names() -> None:
+    store, mock_conn = make_store()
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = [("Economics.02_Supply",), ("Math.01_Time",)]
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    classes = store.list_student_classes("2302")
+
+    assert classes == ["Economics.02_Supply", "Math.01_Time"]
+    sql, params = mock_cursor.execute.call_args.args
+    assert "DISTINCT" in sql and "class_name" in sql
+    assert params == ("2302",)
+
+
+def test_list_student_classes_empty_returns_empty_list() -> None:
+    store, mock_conn = make_store()
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = []
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    assert store.list_student_classes("9999") == []
 
 
 # --- close ---

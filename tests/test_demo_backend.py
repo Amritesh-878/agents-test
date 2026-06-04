@@ -32,7 +32,7 @@ class FakeStore:
     ) -> None:
         self._search_results = search_results or []
         self._student_chunks = student_chunks or []
-        self.search_calls: list[tuple[str, int, list[str]]] = []
+        self.search_calls: list[tuple[str, int, list[str], str | None]] = []
 
     def search(
         self,
@@ -40,8 +40,9 @@ class FakeStore:
         student_id: str,
         top_k: int = 5,
         chunk_types: Sequence[str] | None = None,
+        class_name: str | None = None,
     ) -> list[SearchResult]:
-        self.search_calls.append((student_id, top_k, list(chunk_types or [])))
+        self.search_calls.append((student_id, top_k, list(chunk_types or []), class_name))
         return self._search_results
 
     def get_student_chunks(self, student_id: str) -> list[SearchResult]:
@@ -218,6 +219,59 @@ def test_answer_for_student_leaves_class_questions_unfiltered() -> None:
         db_url="postgresql://localhost/db",
     )
     assert store.search_calls[0][2] == []
+
+
+def test_answer_for_student_scopes_to_selected_class() -> None:
+    # Picking one session restricts retrieval to that class_name (per-session scoping).
+    store = FakeStore(search_results=[make_search_result()])
+    backend = FakeChatBackend()
+    answer_for_student(
+        student_id="2302",
+        student_name="Bhagyashree",
+        question="What did we cover?",
+        store=store,
+        embedder=make_embedder(),
+        chat_backend=backend,
+        db_url="postgresql://localhost/db",
+        class_name="Economics.02_AY2025-26_ Supply Function_16 April",
+    )
+    assert store.search_calls[0][3] == "Economics.02_AY2025-26_ Supply Function_16 April"
+
+
+def test_answer_for_student_all_sessions_is_unfiltered() -> None:
+    # No class_name (the "All sessions" default) leaves retrieval unscoped — current behavior.
+    store = FakeStore(search_results=[make_search_result()])
+    backend = FakeChatBackend()
+    answer_for_student(
+        student_id="2302",
+        student_name="Bhagyashree",
+        question="What did we cover?",
+        store=store,
+        embedder=make_embedder(),
+        chat_backend=backend,
+        db_url="postgresql://localhost/db",
+    )
+    assert store.search_calls[0][3] is None
+
+
+def test_session_display_label_parses_topic_and_date() -> None:
+    from scripts.demo_backend import session_display_label
+
+    assert (
+        session_display_label("Economics.02_AY2025-26_ Supply Function_16 April")
+        == "Supply Function — 16 April"
+    )
+    assert (
+        session_display_label(
+            "Economics.02_AY2025-26_Determinants of Supply Last Part_13 April_s1"
+        )
+        == "Determinants of Supply Last Part — 13 April (s1)"
+    )
+    assert session_display_label(
+        "Math.01_A _AY2025-26_Linear Equation Scaffolding Time and Work_05_08 Apr"
+    ).startswith("Linear Equation Scaffolding Time and Work")
+    # Unparseable input falls back to the raw value rather than raising.
+    assert session_display_label("freeform-name") == "freeform-name"
 
 
 def test_answer_for_student_turn_index_follows_history() -> None:

@@ -19,22 +19,15 @@ ON CONFLICT (id) DO UPDATE SET
     metadata = EXCLUDED.metadata
 """
 
-_SEARCH_SQL = """
+# Fixed SELECT/ORDER/LIMIT around a WHERE clause assembled from static fragments only
+# (never user text), so the query stays fully parameterized — values go through %s.
+_SEARCH_SQL_HEAD = """
 SELECT id, student_id, student_name, class_name, chunk_type, text,
        start_time, end_time, speaker, metadata,
        embedding <=> %s::vector AS distance
 FROM embeddings
-WHERE student_id = %s
-ORDER BY distance
-LIMIT %s
-"""
-
-_SEARCH_SQL_WITH_TYPES = """
-SELECT id, student_id, student_name, class_name, chunk_type, text,
-       start_time, end_time, speaker, metadata,
-       embedding <=> %s::vector AS distance
-FROM embeddings
-WHERE student_id = %s AND chunk_type = ANY(%s)
+WHERE """
+_SEARCH_SQL_TAIL = """
 ORDER BY distance
 LIMIT %s
 """
@@ -54,6 +47,13 @@ _LIST_STUDENTS_SQL = """
 SELECT DISTINCT student_id, student_name
 FROM embeddings
 ORDER BY student_name, student_id
+"""
+
+_LIST_STUDENT_CLASSES_SQL = """
+SELECT DISTINCT class_name
+FROM embeddings
+WHERE student_id = %s
+ORDER BY class_name
 """
 
 
@@ -99,14 +99,20 @@ class PgVectorStore:
         student_id: str,
         top_k: int = 5,
         chunk_types: Sequence[str] | None = None,
+        class_name: str | None = None,
     ) -> list[SearchResult]:
         types = list(chunk_types or [])
+        # Build the WHERE clause from static fragments; every value is bound via %s.
+        conditions = ["student_id = %s"]
+        filter_params: list[Any] = [student_id]
         if types:
-            sql = _SEARCH_SQL_WITH_TYPES
-            params: tuple[Any, ...] = (query_embedding, student_id, types, top_k)
-        else:
-            sql = _SEARCH_SQL
-            params = (query_embedding, student_id, top_k)
+            conditions.append("chunk_type = ANY(%s)")
+            filter_params.append(types)
+        if class_name:
+            conditions.append("class_name = %s")
+            filter_params.append(class_name)
+        sql = _SEARCH_SQL_HEAD + " AND ".join(conditions) + _SEARCH_SQL_TAIL
+        params: tuple[Any, ...] = (query_embedding, *filter_params, top_k)
 
         with self._conn.cursor() as cur:
             cur.execute(sql, params)
@@ -195,6 +201,17 @@ class PgVectorStore:
             cur.execute(_LIST_STUDENTS_SQL)
             rows = cur.fetchall()
         return [(str(sid), str(name)) for sid, name in rows]
+
+    def list_student_classes(self, student_id: str) -> list[str]:
+        """Return the distinct ``class_name`` (session) values for one student, ordered.
+
+        Used by the demo to populate the per-session picker so a student can scope a
+        question to a single class instead of all their sessions at once.
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(_LIST_STUDENT_CLASSES_SQL, (student_id,))
+            rows = cur.fetchall()
+        return [str(row[0]) for row in rows if row[0]]
 
     def close(self) -> None:
         self._conn.close()

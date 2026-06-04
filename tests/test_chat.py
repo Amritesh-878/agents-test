@@ -241,6 +241,7 @@ class _CapturingStore:
         student_id: str,
         top_k: int = 5,
         chunk_types: Sequence[str] | None = None,
+        class_name: str | None = None,
     ) -> list[object]:
         self.search_chunk_types = list(chunk_types or [])
         return []

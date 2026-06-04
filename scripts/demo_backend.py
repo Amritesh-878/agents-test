@@ -7,6 +7,7 @@ reimplementing any of it.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, Field
@@ -24,6 +25,49 @@ from scripts.chat import (
     utc_now,
 )
 from scripts.retrieval import QueryEmbedder, RetrievalResult, retrieve_from_pgvector
+
+
+_SESSION_SUFFIX_RE = re.compile(r"_s(\d+)$", re.IGNORECASE)
+_SUBJECT_TOKEN_RE = re.compile(r"^[A-Za-z]+\.\d+$")
+_AY_TOKEN_RE = re.compile(r"^AY\d{4}-\d{2}$", re.IGNORECASE)
+_DATE_RE = re.compile(
+    r"\d{1,2}\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*",
+    re.IGNORECASE,
+)
+
+
+def session_display_label(class_name: str) -> str:
+    """Best-effort human label for a ``class_name`` (topic + date) for the session picker.
+
+    Presentation only: the picker still FILTERS on the raw ``class_name``. Strips the
+    "Subject.NN", section, and "AY2025-26" tokens, pulls the trailing date out, and keeps
+    a trailing ``_s1``/``_s2`` meeting marker. Falls back to the raw value if unparseable.
+    """
+    raw = class_name
+    session_suffix = ""
+    suffix_match = _SESSION_SUFFIX_RE.search(raw)
+    if suffix_match:
+        session_suffix = f" (s{suffix_match.group(1)})"
+        raw = raw[: suffix_match.start()]
+
+    kept: list[str] = []
+    for token in (t.strip() for t in raw.split("_")):
+        if not token or _AY_TOKEN_RE.match(token) or _SUBJECT_TOKEN_RE.match(token):
+            continue
+        if len(token) == 1 and token.isalpha():  # stray section letter, e.g. Math "A"
+            continue
+        kept.append(token)
+
+    date = ""
+    if kept and _DATE_RE.search(kept[-1]):
+        date = kept.pop()
+    topic = re.sub(r"\s+", " ", " ".join(kept)).strip()
+
+    if topic and date:
+        return f"{topic} — {date}{session_suffix}"
+    if date:
+        return f"{date}{session_suffix}"
+    return f"{topic or class_name}{session_suffix}"
 
 
 class StudentSummary(BaseModel):
@@ -65,6 +109,7 @@ def answer_for_student(
     embedder: QueryEmbedder,
     chat_backend: SupportsGenerate,
     db_url: str,
+    class_name: str | None = None,
     history_turns: Sequence[ChatTurnRecord] = (),
     top_k: int = 5,
     groq_model: str = DEFAULT_GROQ_MODEL,
@@ -83,6 +128,7 @@ def answer_for_student(
         query=question,
         top_k=top_k,
         chunk_types=select_retrieval_chunk_types(question, ()),
+        class_name=class_name,
         db_url=db_url,
         store=store,
         embedder=embedder,

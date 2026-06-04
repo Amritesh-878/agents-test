@@ -212,6 +212,7 @@ def retrieve_from_pgvector(
     query: str,
     top_k: int = 5,
     chunk_types: Sequence[ChunkType] | None = None,
+    class_name: str | None = None,
     db_url: str,
     embedding_model: str = DEFAULT_EMBEDDING_MODEL,
     store: Any | None = None,
@@ -228,7 +229,9 @@ def retrieve_from_pgvector(
 
     try:
         query_embedding = active_embedder.encode(query)
-        raw_results = pg_store.search(query_embedding, student_id, top_k, resolved_chunk_types)
+        raw_results = pg_store.search(
+            query_embedding, student_id, top_k, resolved_chunk_types, class_name
+        )
     finally:
         if close_after:
             pg_store.close()
