@@ -188,6 +188,38 @@ def test_answer_for_student_fallback_skips_llm_when_no_context() -> None:
     assert "Bhagyashree" in turn.answer
 
 
+def test_answer_for_student_scopes_self_referential_to_spoken() -> None:
+    # "What did I say" must retrieve only the student's own spoken chunks, so the teacher's
+    # class_context can't outrank and get mis-attributed to the student (eval Finding A).
+    store = FakeStore(search_results=[make_search_result()])
+    backend = FakeChatBackend()
+    answer_for_student(
+        student_id="2302",
+        student_name="Bhagyashree",
+        question="What did I say about determinants today?",
+        store=store,
+        embedder=make_embedder(),
+        chat_backend=backend,
+        db_url="postgresql://localhost/db",
+    )
+    assert store.search_calls[0][2] == ["spoken"]
+
+
+def test_answer_for_student_leaves_class_questions_unfiltered() -> None:
+    store = FakeStore(search_results=[make_search_result()])
+    backend = FakeChatBackend()
+    answer_for_student(
+        student_id="2302",
+        student_name="Bhagyashree",
+        question="What did we cover in class today?",
+        store=store,
+        embedder=make_embedder(),
+        chat_backend=backend,
+        db_url="postgresql://localhost/db",
+    )
+    assert store.search_calls[0][2] == []
+
+
 def test_answer_for_student_turn_index_follows_history() -> None:
     store = FakeStore(search_results=[make_search_result()])
     backend = FakeChatBackend()

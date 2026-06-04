@@ -20,6 +20,7 @@ from scripts.chat import (
     build_prompt_messages,
     collect_trust_flags,
     iso_timestamp,
+    select_retrieval_chunk_types,
     utc_now,
 )
 from scripts.retrieval import QueryEmbedder, RetrievalResult, retrieve_from_pgvector
@@ -81,6 +82,7 @@ def answer_for_student(
         student_id=student_id,
         query=question,
         top_k=top_k,
+        chunk_types=select_retrieval_chunk_types(question, ()),
         db_url=db_url,
         store=store,
         embedder=embedder,

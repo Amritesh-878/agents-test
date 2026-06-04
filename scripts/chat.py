@@ -250,6 +250,48 @@ def build_history_messages(
     return history
 
 
+# Questions where the student asks what THEY personally said / asked / contributed.
+# The subject of the speech verb must be the first-person-singular student ("did I say",
+# "what I asked", "my answer") — passive "what was said" or "I missed ..." are deliberately
+# NOT matched, since those ask about the teacher's class content, not the student's own.
+_SELF_REFERENTIAL_SPEECH = re.compile(
+    r"\b(?:"
+    r"did i\b[^.?!]*\b(?:say|said|ask|asked|answer|answered|mention|mentioned|"
+    r"speak|spoke|contribute|contributed|tell|told)"
+    r"|i\s+(?:say|said|asked|answered|mentioned|spoke|told|contributed)"
+    r"|what i\s+(?:say|said|asked|answered|mentioned|spoke|told|contributed)"
+    r"|my\s+(?:answer|question|contribution|point|response|comment|remark|words|input)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def is_self_referential_question(question: str) -> bool:
+    """True when the student is asking what THEY personally said/asked/contributed.
+
+    Such questions must be answered from the student's own ``spoken`` chunks, not the
+    teacher's class context — see ``select_retrieval_chunk_types``.
+    """
+    return bool(_SELF_REFERENTIAL_SPEECH.search(question))
+
+
+def select_retrieval_chunk_types(
+    question: str, base_chunk_types: Sequence[ChunkType]
+) -> list[ChunkType]:
+    """Pick the chunk-type filter for a question.
+
+    An explicit caller-provided filter always wins. Otherwise a self-referential
+    "what did I say" question is scoped to ``spoken`` (the student's own words) so the
+    teacher's ``class_context`` cannot outrank and get mis-attributed to the student;
+    every other question stays unfiltered (full class context remains available).
+    """
+    if base_chunk_types:
+        return list(base_chunk_types)
+    if is_self_referential_question(question):
+        return ["spoken"]
+    return []
+
+
 def build_prompt_messages(
     *,
     student_id: str,
@@ -268,6 +310,15 @@ def build_prompt_messages(
                 "You are a student-support chatbot for a recorded class session.",
                 "Answer only from the retrieved transcript context you are given.",
                 "Never invent details that do not appear in the retrieved chunks.",
+                "Each retrieved chunk is labeled with `type=` and `speaker=`. A chunk with "
+                "speaker=teacher (type=class_context or missed) is what the TEACHER said: it "
+                "is class context, NOT the student's own words — never attribute it to the student.",
+                "Only chunks whose speaker is the student's own name (type=spoken) are the "
+                "student's own words or contributions.",
+                "For questions about what the student personally said, asked, or contributed, "
+                "use ONLY the student's own spoken chunks; if none support it, say you do not "
+                "have enough evidence rather than quoting the teacher's class context back as "
+                "if the student had said it.",
                 "If the retrieved context is estimated, low-confidence, sparse, or incomplete, say that clearly.",
                 "If the retrieved context does not support the question, say you do not have enough evidence.",
                 "Keep the answer concise and personalized to the student when the evidence supports it.",
@@ -374,7 +425,7 @@ class RetrievalBackend:
             student_id=args.student_id,
             query=question,
             top_k=args.top_k,
-            chunk_types=args.chunk_types,
+            chunk_types=select_retrieval_chunk_types(question, args.chunk_types),
             db_url=args.db_url,
             embedding_model=args.embedding_model,
             store=self._store,
