@@ -225,34 +225,6 @@ def build_absent_summary(
     )
 
 
-def build_unmatched_context(
-    entry: IdentityMapEntry,
-    transcript: MergedTranscriptDocument,
-    topics: list[str],
-    teacher_segments: list[ContextSegment] | None = None,
-) -> StudentContext:
-    all_segs = [merged_seg_to_context(s) for s in transcript.segments]
-    name = entry.audio_file
-    spoken = [s for s in all_segs if name in s.speakers]
-    if teacher_segments is not None:
-        present = sorted(teacher_segments + spoken, key=lambda s: s.start)
-    else:
-        present = all_segs
-    return StudentContext(
-        name=name,
-        roll_no=None,
-        email=None,
-        status="present",
-        spoken_segments=spoken,
-        present_segments=present,
-        missed_segments=[],
-        topics_discussed=topics,
-        class_duration_seconds=transcript.duration_seconds,
-        teacher_name=transcript.teacher_name,
-        tags=["unmatched"],
-    )
-
-
 def build_context_document(
     transcript: MergedTranscriptDocument,
     identity_map: IdentityMap,
@@ -312,14 +284,17 @@ def build_context_document(
             synthetic, entry, transcript, attendance_by_roll, topics, teacher_segments
         )
 
-    # Unmatched M4A entries (not in roster and not matched by roll/attendance)
-    unmatched_count = 0
+    # Unmatched M4A entries (no roster, and no roll/attendance match — e.g. a filename
+    # with no parseable roll, or a roll-collision casualty) have no usable student_id, so
+    # they are NOT embedded (a filename-keyed chatbot can't be logged into). They are
+    # counted and logged so the omission is visible for manual review, not silent.
+    unmatched_count = len(identity_map.unmatched_entries)
     for entry in identity_map.unmatched_entries:
-        key = entry.audio_file
-        present_students[key] = build_unmatched_context(
-            entry, transcript, topics, teacher_segments
+        logger.warning(
+            "Unmatched audio not embedded (no usable roll): %s tags=%s",
+            entry.audio_file,
+            entry.tags,
         )
-        unmatched_count += 1
 
     all_enrolled = [s.roll_no or s.name for s in roster]
     metadata = BuildContextMetadata(

@@ -4,7 +4,6 @@ from scripts.build_student_context import (
     build_absent_summary,
     build_context_document,
     build_present_context,
-    build_unmatched_context,
     class_context_text,
     full_transcript_text,
     merged_seg_to_context,
@@ -224,17 +223,25 @@ def test_absent_summary_no_segments() -> None:
     assert not hasattr(summary, "spoken_segments")
 
 
-# --- build_unmatched_context ---
-
-
-def test_build_unmatched_context_tagged() -> None:
-    transcript = make_transcript([(0, 5, "hello", ["UNKNOWN"])], duration=10.0)
-    entry = make_entry(audio_file="audioUnknown_99991234.m4a")
-    ctx = build_unmatched_context(entry, transcript, [])
-    assert "unmatched" in ctx.tags
-
-
 # --- build_context_document ---
+
+
+def test_unmatched_entries_are_not_embedded() -> None:
+    # An unmatched M4A (no usable roll) must NOT become a present student, because its
+    # student_id would be the raw filename — unusable for login and noise in the demo.
+    transcript = make_transcript([(0, 5, "hello", ["UNKNOWN"])], duration=10.0)
+    unmatched = IdentityMapEntry(
+        audio_file="audioUnknown_99991234.m4a",
+        roll_no_4digit=None,
+        match_method="none",
+        match_confidence=0.0,
+        is_unmatched=True,
+        tags=["unmatched"],
+    )
+    imap = IdentityMap(teacher_name="Dr Smith", unmatched_entries=[unmatched])
+    doc = build_context_document(transcript, imap, [], [], [])
+    assert len(doc.present_students) == 0
+    assert doc.metadata.unmatched_count == 1
 
 
 def test_roster_driven_all_get_context() -> None:
@@ -378,24 +385,6 @@ def test_build_present_fallback_parity_without_teacher() -> None:
 
 
 # --- build_unmatched_context with teacher segments ---
-
-
-def test_build_unmatched_context_teacher_plus_own() -> None:
-    transcript = make_transcript(
-        [
-            (0, 5, "unknown speaks", ["audioUnknown_99991234.m4a"]),
-            (5, 10, "peer noise", ["UNKNOWN"]),
-        ],
-        duration=10.0,
-    )
-    entry = make_entry(audio_file="audioUnknown_99991234.m4a")
-    teacher_segs = [cseg(0, 10, "teacher content")]
-    ctx = build_unmatched_context(entry, transcript, [], teacher_segs)
-    present_texts = [s.text for s in ctx.present_segments]
-    assert "teacher content" in present_texts
-    assert "unknown speaks" in present_texts
-    assert "peer noise" not in present_texts
-    assert "unmatched" in ctx.tags
 
 
 # --- build_context_document: teacher-primary end-to-end ---
