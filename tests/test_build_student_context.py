@@ -169,6 +169,26 @@ def test_build_present_spoken_segments() -> None:
     assert ctx.spoken_segments[0].text == "spoken by anshi"
 
 
+def test_build_present_spoken_excludes_non_primary_overlap() -> None:
+    # An overlapping cluster lists EVERY overlapping speaker in `speakers`, but the
+    # segment TEXT is only the primary (speakers[0], longest overlap) speaker's words.
+    # A student who merely overlaps (non-primary) must NOT be credited with the primary's
+    # words — that was the peer-content co-mingling bug (eval Finding B).
+    transcript = make_transcript(
+        [
+            (0, 5, "anshi is primary here", ["Anshi", "Bob"]),
+            (5, 10, "bob is primary here", ["Bob", "Anshi"]),
+        ],
+        duration=10.0,
+    )
+    entry = make_entry(matched_name="Anshi", matched_roll_no="2301")
+    student = make_roster()
+    ctx = build_present_context(student, entry, transcript, {}, [])
+    spoken_texts = [s.text for s in ctx.spoken_segments]
+    assert spoken_texts == ["anshi is primary here"]  # only the segment Anshi leads
+    assert "bob is primary here" not in spoken_texts  # peer-led overlap excluded
+
+
 def test_build_present_no_speech() -> None:
     transcript = make_transcript(
         [(0, 10, "bob speaks", ["Bob"]), (10, 20, "also bob", ["Bob"])], duration=20.0
@@ -350,7 +370,7 @@ def test_build_present_teacher_plus_own_only() -> None:
     assert "anshi own answer" in present_texts  # student's own contribution kept
     assert "peer bob speaks" not in present_texts  # peer excluded
     assert "noisy mp4 fallback" not in present_texts  # session fallback excluded
-    # spoken is unaffected — still derived from the merged timeline by speaker name
+    # spoken is unaffected — still derived from the merged timeline by primary speaker
     assert [s.text for s in ctx.spoken_segments] == ["anshi own answer"]
 
 

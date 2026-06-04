@@ -178,7 +178,13 @@ def build_present_context(
     all_segs = [merged_seg_to_context(s) for s in transcript.segments]
     spoken_name = entry.matched_name or student.name
 
-    spoken_segments = [s for s in all_segs if spoken_name in s.speakers]
+    # Attribute a spoken segment to a student ONLY when they are the PRIMARY speaker
+    # (speakers[0]). Overlapping clusters carry every overlapping speaker in `speakers`,
+    # but the segment's TEXT is only the primary (longest-overlap) speaker's words — see
+    # merge_transcripts._cluster_to_merged. Matching on mere membership credited a student
+    # with a peer's words on any overlap and duplicated the segment under every speaker.
+    # Solo/non-overlapping speech is unaffected (the sole speaker is primary).
+    spoken_segments = [s for s in all_segs if s.speakers and s.speakers[0] == spoken_name]
     if teacher_segments is not None:
         class_timeline = sorted(teacher_segments + spoken_segments, key=lambda s: s.start)
     else:
