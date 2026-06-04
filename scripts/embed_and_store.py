@@ -69,6 +69,7 @@ def is_quality_text(text: str, min_chars: int = 20) -> bool:
     Catches:
     - Single-word or phrase repetitions (Whisper hallucination on silence)
     - Replacement-character-dense output (model failure on noisy audio)
+    - Nukta-dense Devanagari (the Hindi pass hallucinating garbled transliterations)
     - Chunks too short to contain useful information
     """
     from collections import Counter
@@ -90,6 +91,14 @@ def is_quality_text(text: str, min_chars: int = 20) -> bool:
     # Unicode replacement chars → garbled audio segment
     replacement_ratio = stripped.count("�") / max(len(stripped), 1)
     if replacement_ratio > 0.02:
+        return False
+
+    # Nukta-dense Devanagari → the Hindi pass hallucinating on bilingual speech
+    # (e.g. "तो आड़़ क्वान्टी अप गुड़"). Genuine Hindi runs ~15-40 nukta tokens per
+    # 1k words; these loops run 200-400+, so a generous cap drops the garble without
+    # touching real Hindi (a Devanagari-ratio cap would wrongly delete genuine Hindi).
+    nukta_per_1k = (stripped.count("़") / len(words)) * 1000
+    if nukta_per_1k > 120:
         return False
 
     return True

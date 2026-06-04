@@ -222,6 +222,20 @@ def test_quality_text_phrase_repetition() -> None:
     assert is_quality_text(phrase) is False
 
 
+def test_quality_text_nukta_dense_garble_rejected() -> None:
+    from scripts.embed_and_store import is_quality_text
+    # Hindi-pass hallucination on bilingual speech: nukta-dense garbled Devanagari.
+    text = "ःखा क्या वसुद आई भागास्ँन्से श्याईदुँग़ा रव्दिश्या कर्क्बित्त्प्या और देश्ड़ी कचादाशाना रव्दिश्याईगच़ोग़ा"
+    assert is_quality_text(text) is False
+
+
+def test_quality_text_genuine_hindi_kept() -> None:
+    from scripts.embed_and_store import is_quality_text
+    # Real Hinglish answer with a few legitimate nukta letters must NOT be rejected.
+    text = "market supply ka matlab hai total quantity jo sab producers बेचते हैं different price पर"
+    assert is_quality_text(text) is True
+
+
 def test_quality_text_too_short() -> None:
     from scripts.embed_and_store import is_quality_text
     assert is_quality_text("yes") is False
