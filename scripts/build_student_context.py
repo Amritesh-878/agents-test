@@ -50,6 +50,7 @@ class ContextArgs(BaseModel):
     review_md_path: Path | None = None
     review_csv_path: Path | None = None
     top_topics: int = 10
+    skip_absent_summaries: bool = False
 
 
 def parse_args(argv: Sequence[str] | None = None) -> ContextArgs:
@@ -80,6 +81,13 @@ def parse_args(argv: Sequence[str] | None = None) -> ContextArgs:
     parser.add_argument("--review-md", type=Path, dest="review_md_path", default=None)
     parser.add_argument("--review-csv", type=Path, dest="review_csv_path", default=None)
     parser.add_argument("--top-topics", type=int, default=10, dest="top_topics")
+    parser.add_argument(
+        "--no-absent-summaries",
+        action="store_true",
+        dest="skip_absent_summaries",
+        help="Do not generate topic-only bots for pure-absent students (no audio AND no "
+        "chat). Present and chat-only students are unaffected.",
+    )
     namespace = parser.parse_args(argv)
     return ContextArgs.model_validate(vars(namespace))
 
@@ -314,6 +322,7 @@ def build_context_document(
     topics: list[str],
     teacher_doc: PerStudentTranscript | None = None,
     chat_messages: list[ChatMessage] | None = None,
+    skip_absent_summaries: bool = False,
 ) -> StudentContextDocument:
     class_name = transcript.class_name
     # Clean class-context source: the teacher's isolated mic when available, else None
@@ -357,7 +366,11 @@ def build_context_document(
             present_students[key] = build_chat_only_context(
                 student, student_chat, transcript, topics, teacher_segments
             )
-        else:
+        elif not skip_absent_summaries:
+            # Pure-absent (no audio AND no chat). Cohort rosters span A/B sections, so these
+            # over-generate topic-only bots for students not in this class — suppressible
+            # via the flag until per-section roster data is available. PRESENT students
+            # (audio or chat-only, handled above) are never affected.
             absent_students[key] = build_absent_summary(student, transcript, topics)
 
     # Students matched via attendance (or other means) but absent from the roster CSV.
@@ -504,7 +517,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     topics = extract_topics(text, top_n=args.top_topics)
 
     doc = build_context_document(
-        transcript, identity_map, roster, attendance, topics, teacher_doc, chat_messages
+        transcript, identity_map, roster, attendance, topics, teacher_doc, chat_messages,
+        skip_absent_summaries=args.skip_absent_summaries,
     )
 
     args.output_path.parent.mkdir(parents=True, exist_ok=True)

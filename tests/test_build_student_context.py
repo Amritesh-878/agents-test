@@ -385,6 +385,31 @@ def test_student_without_chat_stays_absent() -> None:
     assert "2360" in doc.absent_students
 
 
+def test_skip_absent_summaries_drops_only_pure_absent_students() -> None:
+    # Roster: one audio student, one chat-only student, one pure-absent student.
+    transcript = make_transcript([(0, 5, "spoken by anshi", ["Anshi"])], duration=10.0)
+    roster = [
+        make_roster("Anshi Kumar", "2301"),  # has audio -> present
+        make_roster("Bhavna Rao", "2350"),  # chat only -> present
+        make_roster("Silent Sam", "2360"),  # no audio, no chat -> pure absent
+    ]
+    entry = make_entry(matched_name="Anshi", matched_roll_no="2301")
+    imap = IdentityMap(teacher_name="Dr Smith", entries=[entry])
+    messages = [
+        ChatMessage(time_str="00:00:04", timestamp_seconds=4.0, sender="Bhavna_2350", text="a question I typed here")
+    ]
+    doc = build_context_document(
+        transcript, imap, roster, [], ["topic"], None, messages, skip_absent_summaries=True
+    )
+
+    # Pure-absent student is suppressed; present + chat-only students are unaffected.
+    assert doc.absent_students == {}
+    assert "2301" in doc.present_students  # audio student
+    assert "2350" in doc.present_students  # chat-only student (not dropped)
+    assert "chat_only_no_audio" in doc.present_students["2350"].tags
+    assert "2360" not in doc.present_students  # pure-absent, not promoted anywhere
+
+
 # --- teacher_segments_from_transcript ---
 
 

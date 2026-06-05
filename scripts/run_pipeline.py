@@ -30,6 +30,7 @@ class RunArgs(BaseModel):
     allow_cpu: bool = False
     skip_transcribe: bool = False
     skip_embed: bool = False
+    skip_absent_summaries: bool = False
 
 
 def parse_args(argv: Sequence[str] | None = None) -> RunArgs:
@@ -52,6 +53,13 @@ def parse_args(argv: Sequence[str] | None = None) -> RunArgs:
     parser.add_argument("--allow-cpu", action="store_true", dest="allow_cpu")
     parser.add_argument("--skip-transcribe", action="store_true", dest="skip_transcribe")
     parser.add_argument("--skip-embed", action="store_true", dest="skip_embed")
+    parser.add_argument(
+        "--no-absent-summaries",
+        action="store_true",
+        dest="skip_absent_summaries",
+        help="Do not generate topic-only bots for pure-absent students (no audio AND no "
+        "chat). Avoids cohort rosters over-generating absent bots across A/B sections.",
+    )
     namespace = parser.parse_args(argv)
     data = vars(namespace)
     data["db_url"] = resolve_db_url(data.get("db_url"))
@@ -229,7 +237,7 @@ def process_single_class(zip_path: Path, config: RunArgs) -> ClassSessionReport:
         topics = extract_topics(text)
         doc = build_context_document(
             merged_transcript, identity_map, roster, attendance, topics,
-            teacher_doc, chat_messages,
+            teacher_doc, chat_messages, skip_absent_summaries=config.skip_absent_summaries,
         )
         p = output_dir / "student_contexts.json"
         p.write_text(doc.model_dump_json(indent=2), encoding="utf-8")
