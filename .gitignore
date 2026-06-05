@@ -24,6 +24,7 @@ participants_*.csv
 # Student rosters (PII — names + ids); the .example file stays tracked
 data/*Badge Tracker*.csv
 data/C1.csv
+data/subjectMap.csv
 
 # Orchestrator temp file
 orchestrator-temp.md
