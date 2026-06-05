@@ -140,6 +140,18 @@ def test_classify_files_standard_layout(tmp_path: Path) -> None:
     assert len(manifest.per_student_m4as) == 2
 
 
+def test_classify_files_finds_chat(tmp_path: Path) -> None:
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    (raw_dir / "session.mp4").write_bytes(b"")
+    (raw_dir / "chat.txt").write_text("00:00:00\t From X : hi everyone", encoding="utf-8")
+
+    manifest = classify_files(raw_dir, "CS101")
+
+    assert manifest.chat_file is not None
+    assert manifest.chat_file.name == "chat.txt"
+
+
 def test_classify_files_nested_top_level(tmp_path: Path) -> None:
     raw_dir = tmp_path / "raw"
     nested = raw_dir / "GMT20240101_Recording"

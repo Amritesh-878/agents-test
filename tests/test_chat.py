@@ -196,10 +196,12 @@ def test_is_self_referential_question_ignores_class_and_passive_questions() -> N
     assert not is_self_referential_question("I joined late — what was the plan for today's class?")
 
 
-def test_select_retrieval_chunk_types_scopes_self_referential_to_spoken() -> None:
+def test_select_retrieval_chunk_types_scopes_self_referential_to_own_contributions() -> None:
     from scripts.chat import select_retrieval_chunk_types
 
-    assert select_retrieval_chunk_types("What did I say today?", ()) == ["spoken"]
+    # Both spoken AND chat are the student's own words — a quiet student who only typed
+    # must still surface for "what did I say".
+    assert select_retrieval_chunk_types("What did I say today?", ()) == ["spoken", "chat"]
     # Non-self-referential questions stay unfiltered (full class context available).
     assert select_retrieval_chunk_types("What did we cover today?", ()) == []
     # An explicit caller filter always wins, even for a self-referential question.
@@ -258,7 +260,7 @@ def test_retrieval_backend_scopes_self_referential_to_spoken(tmp_path: Path) -> 
     args = make_args(tmp_path)
 
     backend.retrieve(args, "What did I say during class today?")
-    assert store.search_chunk_types == ["spoken"]
+    assert store.search_chunk_types == ["spoken", "chat"]
 
     backend.retrieve(args, "What did we cover in class today?")
     assert store.search_chunk_types == []

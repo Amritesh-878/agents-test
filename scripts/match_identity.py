@@ -266,6 +266,26 @@ def _roster_name_match(
     return ("ambiguous", None)
 
 
+def resolve_chat_sender(
+    sender: str,
+    roster: list[RosterEntry],
+    roster_by_roll: dict[str, RosterEntry],
+) -> str | None:
+    """Resolve a Zoom chat sender display name to a roster roll, or None.
+
+    Reuses the same roster matching as audio files: parse any embedded ``_DDDD`` roll
+    from the display name, then roll-validate / name-fallback against the roster. Returns
+    None for the teacher, non-roster senders, or ambiguous names — those chats are dropped
+    rather than guessed, so a message is only ever attributed to a confidently-identified
+    student.
+    """
+    clean_name, roll = parse_attendance_name(sender)
+    kind, entry = _resolve_roster_identity(roll, clean_name, roster, roster_by_roll)
+    if kind in ("roll", "name") and entry is not None:
+        return entry.roll_no
+    return None
+
+
 def _resolve_roster_identity(
     roll_no_4digit: str | None,
     display_name: str,

@@ -55,6 +55,7 @@ class ZoomFileManifest(BaseModel):
     session_mp4: Path | None = None
     mixed_m4a: Path | None = None
     per_student_m4as: list[PerStudentAudioFile] = Field(default_factory=list)
+    chat_file: Path | None = None
     recording_conf: dict[str, str] | None = None
     zoomver_tag: str | None = None
 

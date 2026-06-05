@@ -122,7 +122,7 @@ def parse_args(argv: Sequence[str] | None = None) -> ChatArgs:
     parser.add_argument(
         "--chunk-type",
         action="append",
-        choices=("spoken", "missed", "class_context"),
+        choices=("spoken", "missed", "class_context", "chat"),
         dest="chunk_types",
     )
     parser.add_argument(
@@ -299,7 +299,9 @@ def select_retrieval_chunk_types(
     if base_chunk_types:
         return list(base_chunk_types)
     if is_self_referential_question(question):
-        return ["spoken"]
+        # Both the student's spoken words AND their typed chat are their own contributions;
+        # a quiet student who only typed must still surface here.
+        return ["spoken", "chat"]
     return []
 
 

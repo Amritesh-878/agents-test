@@ -27,6 +27,7 @@ class StudentContext(BaseModel):
     status: Literal["present", "absent"]
     attendance_duration_minutes: float | None = None
     spoken_segments: list[ContextSegment] = Field(default_factory=list)
+    chat_segments: list[ContextSegment] = Field(default_factory=list)
     present_segments: list[ContextSegment] = Field(default_factory=list)
     missed_segments: list[ContextSegment] = Field(default_factory=list)
     topics_discussed: list[str] = Field(default_factory=list)

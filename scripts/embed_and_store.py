@@ -150,6 +150,26 @@ def chunk_student_context(
                 )
             )
 
+    for seg in ctx.chat_segments:
+        # The student's own PUBLIC chat messages (typed contributions). Same student_id
+        # scope and quality filter as spoken; a lower min_chars keeps short-but-real typed
+        # answers ("answer is 20/3 days") while is_quality_text still drops junk/links.
+        if seg.text.strip() and is_quality_text(seg.text, min_chars=8):
+            records.append(
+                EmbeddingRecord(
+                    id=stable_chunk_id(student_id, "chat", seg.text),
+                    student_id=student_id,
+                    student_name=ctx.name,
+                    class_name=class_name,
+                    chunk_type="chat",
+                    text=seg.text,
+                    start_time=seg.start,
+                    end_time=seg.end,
+                    speaker=", ".join(seg.speakers),
+                    metadata={"status": ctx.status, "tags": ctx.tags},
+                )
+            )
+
     for seg in ctx.missed_segments:
         if seg.text.strip() and is_quality_text(seg.text):
             records.append(

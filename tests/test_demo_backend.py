@@ -203,7 +203,7 @@ def test_answer_for_student_scopes_self_referential_to_spoken() -> None:
         chat_backend=backend,
         db_url="postgresql://localhost/db",
     )
-    assert store.search_calls[0][2] == ["spoken"]
+    assert store.search_calls[0][2] == ["spoken", "chat"]
 
 
 def test_answer_for_student_leaves_class_questions_unfiltered() -> None:

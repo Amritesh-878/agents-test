@@ -98,7 +98,7 @@ def parse_args(argv: Sequence[str] | None = None) -> RetrievalArgs:
     parser.add_argument(
         "--chunk-type",
         action="append",
-        choices=("spoken", "missed", "class_context"),
+        choices=("spoken", "missed", "class_context", "chat"),
         dest="chunk_types",
     )
     parser.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL, dest="embedding_model")

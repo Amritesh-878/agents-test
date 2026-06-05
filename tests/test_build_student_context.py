@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from scripts.build_student_context import (
+    attribute_chat_to_students,
     build_absent_summary,
     build_context_document,
     build_present_context,
@@ -9,6 +10,7 @@ from scripts.build_student_context import (
     merged_seg_to_context,
     teacher_segments_from_transcript,
 )
+from scripts.parse_chat import ChatMessage
 from scripts.models.context import ContextSegment
 from scripts.models.identity import (
     AttendanceRecord,
@@ -308,6 +310,79 @@ def test_context_document_round_trip() -> None:
 
     restored = StudentContextDocument.model_validate(data)
     assert restored.class_name == doc.class_name
+
+
+# --- chat attribution + isolation ---
+
+
+def _chat_roster() -> list[RosterEntry]:
+    return [
+        RosterEntry(name="Anshi Kumar", roll_no="2301", email=""),
+        RosterEntry(name="Bhagyashree", roll_no="2302", email=""),
+    ]
+
+
+def test_attribute_chat_routes_to_each_sender_only() -> None:
+    roster = _chat_roster()
+    by_roll = {r.roll_no: r for r in roster}
+    messages = [
+        ChatMessage(time_str="00:00:00", timestamp_seconds=0.0, sender="Anshi_2301", text="anshi typed this"),
+        ChatMessage(time_str="00:00:05", timestamp_seconds=5.0, sender="Bhagyashree_2302", text="bhagya typed this"),
+        ChatMessage(time_str="00:00:09", timestamp_seconds=9.0, sender="Nisha", text="teacher msg dropped"),
+    ]
+    chat_by_roll = attribute_chat_to_students(messages, roster, by_roll)
+
+    assert [s.text for s in chat_by_roll["2301"]] == ["anshi typed this"]
+    assert [s.text for s in chat_by_roll["2302"]] == ["bhagya typed this"]
+    # Teacher / unknown senders are not attributed to anyone.
+    assert "teacher msg dropped" not in {s.text for segs in chat_by_roll.values() for s in segs}
+    # Isolation: Anshi's chat is never in Bhagyashree's bucket.
+    assert "anshi typed this" not in {s.text for s in chat_by_roll["2302"]}
+
+
+def test_present_student_gets_own_chat_segment() -> None:
+    transcript = make_transcript([(0, 5, "spoken by anshi", ["Anshi"])], duration=10.0)
+    roster = [make_roster("Anshi Kumar", "2301")]
+    entry = make_entry(matched_name="Anshi", matched_roll_no="2301")
+    imap = IdentityMap(teacher_name="Dr Smith", entries=[entry])
+    messages = [
+        ChatMessage(time_str="00:00:03", timestamp_seconds=3.0, sender="Anshi_2301", text="a question I typed in chat")
+    ]
+    doc = build_context_document(transcript, imap, roster, [], ["recursion"], None, messages)
+
+    ctx = doc.present_students["2301"]
+    assert [s.text for s in ctx.chat_segments] == ["a question I typed in chat"]
+    assert ctx.chat_segments[0].source == "chat"
+
+
+def test_chat_only_student_becomes_present_not_absent() -> None:
+    # A roster student with NO audio but who typed in chat must get a bot (the whole point).
+    transcript = make_transcript([(0, 5, "teacher talk", ["Dr Smith"])], duration=10.0)
+    roster = [make_roster("Bhavna Rao", "2350")]
+    imap = IdentityMap(teacher_name="Dr Smith")  # no audio entries at all
+    teacher_doc = make_teacher_doc([(0, 10, "today we cover supply and demand")])
+    messages = [
+        ChatMessage(time_str="00:00:04", timestamp_seconds=4.0, sender="Bhavna_2350", text="is supply upward sloping?")
+    ]
+    doc = build_context_document(transcript, imap, roster, [], ["supply"], teacher_doc, messages)
+
+    assert "2350" in doc.present_students
+    assert "2350" not in doc.absent_students
+    ctx = doc.present_students["2350"]
+    assert ctx.status == "present"
+    assert "chat_only_no_audio" in ctx.tags
+    assert [s.text for s in ctx.chat_segments] == ["is supply upward sloping?"]
+    # They still get the teacher's class context (what was taught).
+    assert any("supply and demand" in s.text for s in ctx.present_segments)
+    assert ctx.spoken_segments == []
+
+
+def test_student_without_chat_stays_absent() -> None:
+    transcript = make_transcript([(0, 5, "teacher talk", ["Dr Smith"])], duration=10.0)
+    roster = [make_roster("Silent Sam", "2360")]
+    imap = IdentityMap(teacher_name="Dr Smith")
+    doc = build_context_document(transcript, imap, roster, [], [], None, [])
+    assert "2360" in doc.absent_students
 
 
 # --- teacher_segments_from_transcript ---

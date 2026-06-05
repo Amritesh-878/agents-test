@@ -114,6 +114,7 @@ def classify_files(raw_dir: Path, class_name: str) -> ZoomFileManifest:
     session_mp4: Path | None = None
     mixed_m4a: Path | None = None
     per_student_m4as: list[PerStudentAudioFile] = []
+    chat_file: Path | None = None
     recording_conf: dict[str, str] | None = None
     zoomver_tag: str | None = None
 
@@ -148,6 +149,13 @@ def classify_files(raw_dir: Path, class_name: str) -> ZoomFileManifest:
                     mixed_m4a = file_path
                 else:
                     logger.warning("Multiple non-audio M4A files found; using first: %s", mixed_m4a)
+        elif suffix == ".txt" and "chat" in name.lower():
+            # Zoom saved chat ("chat.txt" / "meeting_saved_chat.txt"). Parsed later;
+            # private direct messages are dropped at parse time (privacy).
+            if chat_file is None:
+                chat_file = file_path
+            else:
+                logger.warning("Multiple chat files found; using first: %s", chat_file)
         elif name == "recording.conf":
             parsed = parse_recording_conf(file_path)
             recording_conf = parsed if parsed else None
@@ -170,6 +178,7 @@ def classify_files(raw_dir: Path, class_name: str) -> ZoomFileManifest:
         session_mp4=session_mp4,
         mixed_m4a=mixed_m4a,
         per_student_m4as=per_student_m4as,
+        chat_file=chat_file,
         recording_conf=recording_conf,
         zoomver_tag=zoomver_tag,
     )

@@ -101,6 +101,38 @@ def test_chunk_context_spoken_type() -> None:
     assert spoken[0].text == text
 
 
+def test_chunk_context_chat_type_isolated_to_student() -> None:
+    ctx = make_context(name="Anshi", roll_no="2301")
+    ctx.chat_segments = [
+        ContextSegment(
+            start=3.0, end=3.0,
+            text="is the supply curve always upward sloping in this case",
+            speakers=["Anshi_2301"], source="chat",
+        )
+    ]
+    records = chunk_student_context(ctx, "CS101")
+    chat_records = [r for r in records if r.chunk_type == "chat"]
+    assert len(chat_records) == 1
+    assert chat_records[0].student_id == "2301"  # scoped to this student only
+    assert "supply curve always upward" in chat_records[0].text
+    assert chat_records[0].speaker == "Anshi_2301"
+
+
+def test_chunk_context_chat_quality_filter_drops_junk() -> None:
+    ctx = make_context(name="Anshi", roll_no="2301")
+    ctx.chat_segments = [
+        ContextSegment(start=1.0, end=1.0, text="20/3", speakers=["Anshi_2301"], source="chat"),
+        ContextSegment(
+            start=2.0, end=2.0,
+            text="https://docs.google.com/spreadsheets/d/1pnxFhabcdefg",
+            speakers=["Anshi_2301"], source="chat",
+        ),
+    ]
+    records = chunk_student_context(ctx, "CS101")
+    # Short one-word answer and a bare link are dropped by is_quality_text.
+    assert [r for r in records if r.chunk_type == "chat"] == []
+
+
 def test_chunk_context_missed_type() -> None:
     text = "teacher explained the concept of elastic and inelastic demand"
     ctx = make_context(missed_text=text)

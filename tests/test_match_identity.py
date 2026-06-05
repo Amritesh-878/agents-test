@@ -11,6 +11,7 @@ from scripts.match_identity import (
     load_roster,
     match_files,
     parse_attendance_name,
+    resolve_chat_sender,
     validate_inputs,
 )
 from scripts.models.identity import (
@@ -305,6 +306,48 @@ def test_name_fallback_does_not_steal_teacher(tmp_path: Path) -> None:
 
     assert identity_map.teacher_audio_file == "audioNisha11556604479.m4a"
     assert len(identity_map.entries) == 0
+
+
+# --- resolve_chat_sender (chat attribution reuses the roster matcher) ---
+
+
+def _c3() -> list[RosterEntry]:
+    return [
+        RosterEntry(name="Kalyani Surendra Ghodke", roll_no="2511", email=""),
+        RosterEntry(name="Jagruti Pramod Jadhav", roll_no="2509", email=""),
+        RosterEntry(name="Bhagyashree", roll_no="2302", email=""),
+    ]
+
+
+def _by_roll(roster: list[RosterEntry]) -> dict[str, RosterEntry]:
+    return {r.roll_no: r for r in roster}
+
+
+def test_resolve_chat_sender_embedded_roll() -> None:
+    roster = _c3()
+    assert resolve_chat_sender("A_Kalyani_2511", roster, _by_roll(roster)) == "2511"
+    assert resolve_chat_sender("Bhagyashree_ 2302", roster, _by_roll(roster)) == "2302"
+
+
+def test_resolve_chat_sender_name_only_via_fallback() -> None:
+    roster = _c3()
+    # No roll in the display name -> resolved by name through the roster fallback.
+    assert resolve_chat_sender("Jagruti Jadhav", roster, _by_roll(roster)) == "2509"
+
+
+def test_resolve_chat_sender_teacher_and_unknown_drop() -> None:
+    roster = _c3()
+    assert resolve_chat_sender("Nisha", roster, _by_roll(roster)) is None
+    assert resolve_chat_sender("Some Visitor", roster, _by_roll(roster)) is None
+
+
+def test_resolve_chat_sender_ambiguous_drops() -> None:
+    roster = [
+        RosterEntry(name="Disha", roll_no="2504", email=""),
+        RosterEntry(name="Disha Roy", roll_no="2540", email=""),
+    ]
+    # Two "Disha"s and no usable roll in the sender -> don't guess, drop.
+    assert resolve_chat_sender("Disha", roster, _by_roll(roster)) is None
 
 
 # --- Teacher matching ---

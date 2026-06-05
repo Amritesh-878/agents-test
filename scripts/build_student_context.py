@@ -8,7 +8,7 @@ from typing import Sequence
 
 from pydantic import BaseModel
 
-from scripts.match_identity import load_attendance, load_roster
+from scripts.match_identity import load_attendance, load_roster, resolve_chat_sender
 from scripts.models.context import (
     AbsentStudentSummary,
     BuildContextMetadata,
@@ -16,6 +16,7 @@ from scripts.models.context import (
     StudentContext,
     StudentContextDocument,
 )
+from scripts.parse_chat import ChatMessage, parse_chat_file
 from scripts.models.identity import (
     AttendanceRecord,
     IdentityMap,
@@ -44,6 +45,7 @@ class ContextArgs(BaseModel):
     teacher_transcript_path: Path | None = None
     roster_path: Path | None = None
     attendance_path: Path | None = None
+    chat_path: Path | None = None
     output_path: Path
     review_md_path: Path | None = None
     review_csv_path: Path | None = None
@@ -66,6 +68,14 @@ def parse_args(argv: Sequence[str] | None = None) -> ContextArgs:
     )
     parser.add_argument("--roster", type=Path, dest="roster_path", default=None)
     parser.add_argument("--attendance", type=Path, dest="attendance_path", default=None)
+    parser.add_argument(
+        "--chat-file",
+        type=Path,
+        dest="chat_path",
+        default=None,
+        help="Zoom saved-chat file. PUBLIC messages are attributed to senders via the "
+        "roster; private direct messages are dropped. Requires --roster.",
+    )
     parser.add_argument("--output", required=True, type=Path, dest="output_path")
     parser.add_argument("--review-md", type=Path, dest="review_md_path", default=None)
     parser.add_argument("--review-csv", type=Path, dest="review_csv_path", default=None)
@@ -85,6 +95,8 @@ def validate_inputs(args: ContextArgs) -> None:
         raise ValueError(f"Roster not found: {args.roster_path}")
     if args.attendance_path is not None and not args.attendance_path.exists():
         raise ValueError(f"Attendance not found: {args.attendance_path}")
+    if args.chat_path is not None and not args.chat_path.exists():
+        raise ValueError(f"Chat file not found: {args.chat_path}")
 
 
 def merged_seg_to_context(seg: MergedSegment) -> ContextSegment:
@@ -142,6 +154,67 @@ def class_context_text(
     return full_transcript_text(transcript)
 
 
+def chat_message_to_segment(message: ChatMessage) -> ContextSegment:
+    """A student's own public chat message as a context segment (source ``chat``)."""
+    return ContextSegment(
+        start=message.timestamp_seconds,
+        end=message.timestamp_seconds,
+        text=message.text,
+        speakers=[message.sender],
+        source="chat",
+    )
+
+
+def attribute_chat_to_students(
+    messages: list[ChatMessage],
+    roster: list[RosterEntry],
+    roster_by_roll: dict[str, RosterEntry],
+) -> dict[str, list[ContextSegment]]:
+    """Group PUBLIC chat messages by the roster roll of their sender.
+
+    Each message is attributed to exactly one student (or dropped if the sender can't be
+    confidently/uniquely matched), so a student's chat only ever lands in their own
+    bucket — never another student's. Requires a roster; without one, returns empty.
+    """
+    by_roll: dict[str, list[ContextSegment]] = {}
+    for message in messages:
+        roll = resolve_chat_sender(message.sender, roster, roster_by_roll)
+        if roll is None:
+            continue
+        by_roll.setdefault(roll, []).append(chat_message_to_segment(message))
+    return by_roll
+
+
+def build_chat_only_context(
+    student: RosterEntry,
+    chat_segments: list[ContextSegment],
+    transcript: MergedTranscriptDocument,
+    topics: list[str],
+    teacher_segments: list[ContextSegment] | None,
+) -> StudentContext:
+    """Context for a student who participated only by typing (no audio = never unmuted).
+
+    They still get the teacher's class context (what was taught) plus their OWN chat. This
+    is the point of chat ingestion: quiet students get a personal bot from their typed
+    contributions instead of being treated as fully absent.
+    """
+    present_segments = list(teacher_segments) if teacher_segments is not None else []
+    return StudentContext(
+        name=student.name,
+        roll_no=student.roll_no,
+        email=student.email,
+        status="present",
+        spoken_segments=[],
+        chat_segments=chat_segments,
+        present_segments=present_segments,
+        missed_segments=[],
+        topics_discussed=topics,
+        class_duration_seconds=transcript.duration_seconds,
+        teacher_name=transcript.teacher_name,
+        tags=["chat_only_no_audio"],
+    )
+
+
 def build_present_context(
     student: RosterEntry,
     entry: IdentityMapEntry,
@@ -149,6 +222,7 @@ def build_present_context(
     attendance_by_roll: dict[str, AttendanceRecord],
     topics: list[str],
     teacher_segments: list[ContextSegment] | None = None,
+    chat_segments: list[ContextSegment] | None = None,
 ) -> StudentContext:
     """Build a present student's context.
 
@@ -207,6 +281,7 @@ def build_present_context(
         status="present",
         attendance_duration_minutes=att.duration_minutes if att else None,
         spoken_segments=spoken_segments,
+        chat_segments=chat_segments or [],
         present_segments=present_segments,
         missed_segments=missed_segments,
         topics_discussed=topics,
@@ -238,6 +313,7 @@ def build_context_document(
     attendance: list[AttendanceRecord],
     topics: list[str],
     teacher_doc: PerStudentTranscript | None = None,
+    chat_messages: list[ChatMessage] | None = None,
 ) -> StudentContextDocument:
     class_name = transcript.class_name
     # Clean class-context source: the teacher's isolated mic when available, else None
@@ -255,6 +331,10 @@ def build_context_document(
     attendance_by_roll: dict[str, AttendanceRecord] = {
         a.roll_no: a for a in attendance if a.roll_no
     }
+    # PUBLIC chat attributed to each student's own roll (direct messages were dropped at
+    # parse time; attribution is roster-gated, so this is empty without a roster).
+    roster_by_roll: dict[str, RosterEntry] = {r.roll_no: r for r in roster}
+    chat_by_roll = attribute_chat_to_students(chat_messages or [], roster, roster_by_roll)
 
     present_students: dict[str, StudentContext] = {}
     absent_students: dict[str, AbsentStudentSummary] = {}
@@ -262,11 +342,20 @@ def build_context_document(
 
     for student in roster:
         key = student.roll_no or student.name
-        entry = identity_by_roll.get(student.roll_no or "")
+        roll = student.roll_no or ""
+        entry = identity_by_roll.get(roll)
+        student_chat = chat_by_roll.get(roll, [])
         if entry is not None:
-            covered_roll_nos.add(student.roll_no or "")
+            covered_roll_nos.add(roll)
             present_students[key] = build_present_context(
-                student, entry, transcript, attendance_by_roll, topics, teacher_segments
+                student, entry, transcript, attendance_by_roll, topics,
+                teacher_segments, student_chat,
+            )
+        elif student_chat:
+            # Typed but never unmuted: a chat-only present student, not absent.
+            covered_roll_nos.add(roll)
+            present_students[key] = build_chat_only_context(
+                student, student_chat, transcript, topics, teacher_segments
             )
         else:
             absent_students[key] = build_absent_summary(student, transcript, topics)
@@ -287,7 +376,8 @@ def build_context_document(
         )
         covered_roll_nos.add(roll)
         present_students[key] = build_present_context(
-            synthetic, entry, transcript, attendance_by_roll, topics, teacher_segments
+            synthetic, entry, transcript, attendance_by_roll, topics,
+            teacher_segments, chat_by_roll.get(roll, []),
         )
 
     # Unmatched M4A entries (no roster, and no roll/attendance match — e.g. a filename
@@ -408,11 +498,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             args.teacher_transcript_path.read_text(encoding="utf-8")
         )
 
+    chat_messages = parse_chat_file(args.chat_path) if args.chat_path else []
+
     text = class_context_text(transcript, teacher_doc)
     topics = extract_topics(text, top_n=args.top_topics)
 
     doc = build_context_document(
-        transcript, identity_map, roster, attendance, topics, teacher_doc
+        transcript, identity_map, roster, attendance, topics, teacher_doc, chat_messages
     )
 
     args.output_path.parent.mkdir(parents=True, exist_ok=True)

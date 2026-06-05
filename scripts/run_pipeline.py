@@ -98,6 +98,7 @@ def process_single_class(zip_path: Path, config: RunArgs) -> ClassSessionReport:
     from scripts.merge_transcripts import format_review_md, merge_all
     from scripts.models.identity import IdentityMap
     from scripts.models.transcript import MergedTranscriptDocument, PerStudentTranscript
+    from scripts.parse_chat import parse_chat_file
     from scripts.utils.topics import extract_topics
 
     class_name = zip_path.stem
@@ -219,10 +220,16 @@ def process_single_class(zip_path: Path, config: RunArgs) -> ClassSessionReport:
                     "Teacher transcript not found: %s - class context falls back to session MP4",
                     teacher_tf.name,
                 )
+        # Public Zoom chat (private DMs dropped at parse time). Attributed to students via
+        # the roster, so quiet students who only typed still get a personal bot.
+        chat_messages = (
+            parse_chat_file(manifest.chat_file) if manifest.chat_file is not None else []
+        )
         text = class_context_text(merged_transcript, teacher_doc)
         topics = extract_topics(text)
         doc = build_context_document(
-            merged_transcript, identity_map, roster, attendance, topics, teacher_doc
+            merged_transcript, identity_map, roster, attendance, topics,
+            teacher_doc, chat_messages,
         )
         p = output_dir / "student_contexts.json"
         p.write_text(doc.model_dump_json(indent=2), encoding="utf-8")

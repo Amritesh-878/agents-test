@@ -4,7 +4,7 @@ from typing import Literal, Sequence
 
 from pydantic import BaseModel, Field, model_validator
 
-ChunkType = Literal["class_context", "missed", "spoken"]
+ChunkType = Literal["class_context", "missed", "spoken", "chat"]
 
 
 class ChunkerConfig(BaseModel):
