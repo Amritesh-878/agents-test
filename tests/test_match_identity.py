@@ -131,6 +131,24 @@ def test_load_roster_empty(tmp_path: Path) -> None:
     assert load_roster(path) == []
 
 
+def test_load_roster_cohort_headers_and_blank_rows(tmp_path: Path) -> None:
+    # Real cohort rosters use "STUDENT NAME,STUDENT ID", have a blank separator row, and a
+    # stray trailing empty column. load_roster must resolve headers fuzzily and skip blanks.
+    path = tmp_path / "cohort.csv"
+    path.write_text(
+        "STUDENT NAME,STUDENT ID,\n"
+        ",,\n"
+        "Bhagyashree,2302,\n"
+        "Nishkarsha Sachin Ramteke,2515,\n",
+        encoding="utf-8",
+    )
+    roster = load_roster(path)
+    assert [(r.name, r.roll_no) for r in roster] == [
+        ("Bhagyashree", "2302"),
+        ("Nishkarsha Sachin Ramteke", "2515"),
+    ]
+
+
 # --- load_attendance ---
 
 
@@ -192,15 +210,101 @@ def test_match_roll_no_success(tmp_path: Path) -> None:
     assert identity_map.entries[0].match_confidence == 1.0
 
 
-def test_match_roll_no_no_match(tmp_path: Path) -> None:
+def test_match_roll_not_in_roster_recovers_by_name(tmp_path: Path) -> None:
+    # The parsed roll (9999) isn't in the roster, but the display name uniquely matches a
+    # roster student — the NAME fallback recovers the correct roll instead of dropping her.
     audio = make_audio(tmp_path, "audioAnshi_99991234567890.m4a", "Anshi", "9999")
     manifest = make_manifest(tmp_path, [audio])
     roster = [RosterEntry(name="Anshi Kumar", roll_no="2301", email="anshi@example.com")]
 
     identity_map = match_files(manifest, roster, [], ["Amritesh Praveen"])
 
+    assert len(identity_map.unmatched_entries) == 0
+    assert len(identity_map.entries) == 1
+    assert identity_map.entries[0].matched_roll_no == "2301"
+    assert identity_map.entries[0].match_method == "fuzzy_name"
+    assert identity_map.entries[0].match_confidence < 1.0
+
+
+# --- Roster NAME fallback (mis-parsed / roll-less / ambiguous) ---
+
+
+def test_name_fallback_recovers_misparsed_roll_to_correct_student(tmp_path: Path) -> None:
+    # Nishkarsha's file mis-parsed to 2511 (Kalyani's roll). Her name uniquely matches the
+    # roster's Nishkarsha (2515), so identity is corrected to 2515 — not stolen by Kalyani.
+    audio = make_audio(tmp_path, "audioA_Nishkarsha_251151556604479.m4a", "A_Nishkarsha", "2511")
+    manifest = make_manifest(tmp_path, [audio])
+    roster = [
+        RosterEntry(name="Kalyani Surendra Ghodke", roll_no="2511", email=""),
+        RosterEntry(name="Nishkarsha Sachin Ramteke", roll_no="2515", email=""),
+    ]
+
+    identity_map = match_files(manifest, roster, [], ["Nisha"])
+
+    assert len(identity_map.entries) == 1
+    entry = identity_map.entries[0]
+    assert entry.matched_roll_no == "2515"
+    assert entry.matched_name == "Nishkarsha Sachin Ramteke"
+    assert entry.match_method == "fuzzy_name"
+
+
+def test_name_fallback_matches_roll_less_student(tmp_path: Path) -> None:
+    # JagrutiJadhav has no parseable roll; her camelCase name matches the roster uniquely.
+    audio = make_audio(tmp_path, "audioJagrutiJadhav31556604479.m4a", "JagrutiJadhav", None)
+    manifest = make_manifest(tmp_path, [audio])
+    roster = [RosterEntry(name="Jagruti Pramod Jadhav", roll_no="2509", email="")]
+
+    identity_map = match_files(manifest, roster, [], ["Nisha"])
+
+    assert len(identity_map.entries) == 1
+    assert identity_map.entries[0].matched_roll_no == "2509"
+    assert identity_map.entries[0].match_method == "fuzzy_name"
+
+
+def test_name_fallback_ambiguous_is_left_unmatched(tmp_path: Path) -> None:
+    # Two roster "Disha"s and no usable roll: refuse to guess — flag name_ambiguous.
+    audio = make_audio(tmp_path, "audioA_Disha_no_roll.m4a", "A_Disha", None)
+    manifest = make_manifest(tmp_path, [audio])
+    roster = [
+        RosterEntry(name="Disha", roll_no="2504", email=""),
+        RosterEntry(name="Disha Roy", roll_no="2540", email=""),
+    ]
+
+    identity_map = match_files(manifest, roster, [], ["Nisha"])
+
     assert len(identity_map.entries) == 0
     assert len(identity_map.unmatched_entries) == 1
+    assert "name_ambiguous" in identity_map.unmatched_entries[0].tags
+
+
+def test_exact_roll_still_wins_over_name_fallback(tmp_path: Path) -> None:
+    # When the parsed roll's roster name agrees with the file, it's a roll_no match (conf 1.0).
+    audio = make_audio(tmp_path, "audioA_Kalyani_2511101556604479.m4a", "A_Kalyani", "2511")
+    manifest = make_manifest(tmp_path, [audio])
+    roster = [
+        RosterEntry(name="Kalyani Surendra Ghodke", roll_no="2511", email=""),
+        RosterEntry(name="Nishkarsha Sachin Ramteke", roll_no="2515", email=""),
+    ]
+
+    identity_map = match_files(manifest, roster, [], ["Nisha"])
+
+    assert len(identity_map.entries) == 1
+    assert identity_map.entries[0].matched_roll_no == "2511"
+    assert identity_map.entries[0].match_method == "roll_no"
+    assert identity_map.entries[0].match_confidence == 1.0
+
+
+def test_name_fallback_does_not_steal_teacher(tmp_path: Path) -> None:
+    # "Nisha" must not fuzzy-match the student "Disha" (classic isha-collision) — she stays
+    # the teacher, not a roster student.
+    audio = make_audio(tmp_path, "audioNisha11556604479.m4a", "Nisha", None)
+    manifest = make_manifest(tmp_path, [audio])
+    roster = [RosterEntry(name="Disha", roll_no="2504", email="")]
+
+    identity_map = match_files(manifest, roster, [], ["Nisha"])
+
+    assert identity_map.teacher_audio_file == "audioNisha11556604479.m4a"
+    assert len(identity_map.entries) == 0
 
 
 # --- Teacher matching ---
@@ -376,6 +480,21 @@ def test_match_colliding_audio_roll_attendance_only_raises(tmp_path: Path) -> No
     attendance = [AttendanceRecord(name="Anshi", roll_no="2301", duration_minutes=30.0)]
     with pytest.raises(ValueError, match="same roll 2301"):
         match_files(manifest, [], attendance, ["Teacher"])
+
+
+def test_roster_same_student_rejoin_same_roll_is_ignored_not_raised(tmp_path: Path) -> None:
+    # The same student recorded twice in one class (two A_Saisha files, same roll) must NOT
+    # trip the distinct-student collision guard — keep the first, ignore the rejoin.
+    a1 = make_audio(tmp_path, "audioA_Saisha_2521101184327090.m4a", "A_Saisha", "2521")
+    a2 = make_audio(tmp_path, "audioA_Saisha_252121184327090.m4a", "A_Saisha", "2521")
+    manifest = make_manifest(tmp_path, [a1, a2])
+    roster = [RosterEntry(name="Saisha Khan", roll_no="2521", email="")]
+
+    identity_map = match_files(manifest, roster, [], ["Nisha"])
+
+    assert len(identity_map.entries) == 1
+    assert identity_map.entries[0].matched_roll_no == "2521"
+    assert identity_map.entries[0].audio_file == "audioA_Saisha_2521101184327090.m4a"
 
 
 def test_match_distinct_rolls_two_students_ok(tmp_path: Path) -> None:
