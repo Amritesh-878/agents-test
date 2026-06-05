@@ -654,9 +654,10 @@ Both teacher-eval blockers (A teacher-attribution, B peer co-mingling) are fixed
 - [ ] Teachers test via `docs/EVAL.md` and rate. Proceed only on their YES.
 
 ### 2. Quality (while teachers review)
-- [ ] Per-session/date scoping in retrieval — "what did we cover today" is ambiguous (a student's 6 sessions are merged under one id).
-- [ ] Transcription upgrade (Lever #2: `medium` model / better ASR) — the Hinglish garble ceiling.
-- [ ] Roster — absent-student bots; fix no-bot students (JagrutiJadhav, no parseable roll); verify colliding rolls (Kalyani/Nishkarsha 2511).
+- [x] Per-session/date scoping in retrieval (`347fe68`) — session picker in the demo; "what did we cover today" ambiguity resolved.
+- [~] Transcription upgrade (Lever #2: `medium`) — **IN PROGRESS**: re-transcribing the current classes on an 8GB-VRAM GPU off-machine (see `START_HERE_run_transcription.md`), then re-embed.
+- [x] Roster — mis-parsed / roll-less ids corrected via roster name-fallback (`2217e4d`): Nishkarsha→2515, Jagruti→2509, no raw-filename ids. Absent-student bots **suppressed for now** (`84e66a8`, `--no-absent-summaries`) — cohort rosters over-generate across A/B sections; revisit with per-section data.
+- [x] Chat ingestion (`71937fa`) — public Zoom chat ingested as a per-student `chat` chunk type, **private DMs dropped**; quiet / non-unmuting students now get real chat-backed bots, and "what did I say" scopes to spoken+chat.
 
 ### 3. Security hardening (REQUIRED before any student logs in — see `AUDIT_AND_FIX_PLAN.md` §4)
 - [ ] Real auth — replace the local CSV login with hashed passwords, sessions, HTTPS, rate-limit/lockout.
