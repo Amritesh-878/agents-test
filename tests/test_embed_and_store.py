@@ -254,6 +254,14 @@ def test_quality_text_phrase_repetition() -> None:
     assert is_quality_text(phrase) is False
 
 
+def test_quality_text_short_loop_rejected() -> None:
+    from scripts.embed_and_store import is_quality_text
+    # Short loop: a 4-word phrase repeated 3× (12 words, 4 unique). Ducks the
+    # trigram-≥4 rule and has no nukta, but the distinct-token ratio (0.33) catches it.
+    phrase = "माज्यारा पास्ता वेन्द सप्लाइट्रू "
+    assert is_quality_text(phrase * 3) is False
+
+
 def test_quality_text_nukta_dense_garble_rejected() -> None:
     from scripts.embed_and_store import is_quality_text
     # Hindi-pass hallucination on bilingual speech: nukta-dense garbled Devanagari.

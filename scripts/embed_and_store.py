@@ -88,6 +88,13 @@ def is_quality_text(text: str, min_chars: int = 20) -> bool:
         if Counter(trigrams).most_common(1)[0][1] >= 4:
             return False
 
+    # Distinct-token ratio: short loops (a 3-5 word phrase repeated 2-3 times)
+    # duck the trigram rule but collapse to very few unique tokens.
+    # e.g. "A B C D A B C D A B C D" → 4 unique / 12 total = 0.33. Genuine answers
+    # of 8+ words run well above 0.5, so this drops loops without touching real speech.
+    if len(words) >= 8 and len(set(words)) / len(words) < 0.5:
+        return False
+
     # Unicode replacement chars → garbled audio segment
     replacement_ratio = stripped.count("�") / max(len(stripped), 1)
     if replacement_ratio > 0.02:
