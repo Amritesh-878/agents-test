@@ -95,6 +95,14 @@ def is_quality_text(text: str, min_chars: int = 20) -> bool:
     if len(words) >= 8 and len(set(words)) / len(words) < 0.5:
         return False
 
+    # No-space loop hallucination: the Hindi pass sometimes emits one unbroken run
+    # with no spaces (e.g. "पाइपाइपाइ…"×100). That reads as a single very long token,
+    # so the word-based checks above miss it. Real words are short; flag an over-long
+    # token only when it is mostly non-ASCII (don't touch long ASCII like URLs).
+    longest = max(words, key=len)
+    if len(longest) > 40 and sum(c > "\x7f" for c in longest) > len(longest) / 2:
+        return False
+
     # Unicode replacement chars → garbled audio segment
     replacement_ratio = stripped.count("�") / max(len(stripped), 1)
     if replacement_ratio > 0.02:

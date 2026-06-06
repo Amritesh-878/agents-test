@@ -262,6 +262,22 @@ def test_quality_text_short_loop_rejected() -> None:
     assert is_quality_text(phrase * 3) is False
 
 
+def test_quality_text_no_space_loop_rejected() -> None:
+    from scripts.embed_and_store import is_quality_text
+    # No-space loop: the Hindi pass emits one unbroken run with no spaces, which reads
+    # as a single very long Devanagari token and ducks the word-based repetition checks.
+    text = "अच्छा " + "पाइ" * 60 + " अच्छा"
+    assert is_quality_text(text) is False
+
+
+def test_quality_text_long_ascii_token_kept() -> None:
+    from scripts.embed_and_store import is_quality_text
+    # A genuine answer containing one long ASCII token (e.g. a URL) must NOT be rejected
+    # by the no-space-loop guard, which only targets non-ASCII runs.
+    text = "see the worksheet at https://adira.example.com/math/time-and-work/unit-four-problems today"
+    assert is_quality_text(text) is True
+
+
 def test_quality_text_nukta_dense_garble_rejected() -> None:
     from scripts.embed_and_store import is_quality_text
     # Hindi-pass hallucination on bilingual speech: nukta-dense garbled Devanagari.
