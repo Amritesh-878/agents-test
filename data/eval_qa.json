@@ -1,131 +1,67 @@
 {
-  "description": "Golden QA set for TASK-010 RAG evaluation, grounded in the real class transcript, student context review output, chunk review artifacts, and the saved TASK-009 chat trace.",
+  "description": "Golden QA set for RAG evaluation, grounded in the CURRENT pgvector store after the 2026-06-07 medium-model re-embed. student_id values are the roll numbers used as the store key. Cases were verified end-to-end (retrieval + Groq) against the live DB.",
   "generated_from": [
-    "../verify-main-clean/output/student_context_review.md",
-    "../verify-main-clean/output/student_contexts.json",
-    "../task-007-chunk-embed/output/rag_chunk_review.md",
-    "../task-007-chunk-embed/output/rag_chunks.jsonl",
-    "../task-009-chat/output/chat_sessions/20260520T151934Z-a-disha-2504.json"
+    "pgvector store after medium re-embed (docs/TRANSCRIPTION_COMPARISON_RESULTS.md)",
+    "scripts/run_pipeline.py --skip-transcribe --model medium with rosters C1 (Economics) / C3 (Math)"
   ],
   "cases": [
     {
-      "case_id": "a-disha-insufficient-missed",
-      "student_id": "a-disha-2504",
-      "student_name": "A Disha",
-      "question": "What did I miss in class?",
+      "case_id": "saisha-self-referential-chat",
+      "student_id": "2521",
+      "student_name": "Saisha Shashikant Kadam",
+      "question": "What did I say or ask during class?",
+      "expected_answer_mode": "grounded_answer",
+      "chunk_types": ["spoken", "chat"],
+      "expected_chunk_types": ["chat"],
+      "required_concept_groups": [
+        ["20/11", "25", "20"]
+      ],
+      "evidence_quotes": [
+        "First I was getting 25 but now I am getting 20/11",
+        "Nisha , do we have to send our answers ?"
+      ],
+      "notes": "Self-referential phrasing scopes retrieval to the student's own spoken+chat chunks. Saisha mostly typed in chat; this confirms quiet-but-typing students still surface their own contributions."
+    },
+    {
+      "case_id": "saisha-wrong-subject-refusal",
+      "student_id": "2521",
+      "student_name": "Saisha Shashikant Kadam",
+      "question": "What did I say about the Balance of Payments?",
       "expected_answer_mode": "insufficient_evidence",
-      "expected_trust_flags": [
-        "attendance_estimated",
-        "approximate_context",
-        "source_mapping_confidence=low"
-      ],
-      "require_trust_acknowledgement": true,
-      "evidence_quotes": [
-        "The saved TASK-009 session for this question answered that there was not enough evidence and flagged estimated, approximate, low-confidence provenance.",
-        "The student context review shows A_Disha_2504 as estimated full-class attendance with no auto-mapped speaker and manual review required."
-      ],
-      "source_artifacts": [
-        "../task-009-chat/output/chat_sessions/20260520T151934Z-a-disha-2504.json",
-        "../verify-main-clean/output/student_context_review.md"
-      ],
-      "notes": "This case validates safe refusal when the available evidence is approximate class context rather than a trustworthy personalized missed-content slice."
+      "notes": "Balance of Payments is an Economics topic; Saisha is in Math. The bot must decline rather than borrow another class's content. Validates safe refusal + per-student isolation. (No trust-ack required: a clean wrong-subject refusal has no low-confidence flags to cite.)"
     },
     {
-      "case_id": "a-disha-deadlines-and-quizzes",
-      "student_id": "a-disha-2504",
-      "student_name": "A Disha",
-      "question": "What deadlines and quizzes were announced in class?",
+      "case_id": "bhagyashree-intercept",
+      "student_id": "2302",
+      "student_name": "Bhagyashree",
+      "question": "What did I say about the intercept in the supply function?",
       "expected_answer_mode": "grounded_answer",
-      "chunk_types": ["class_context"],
-      "expected_source_segment_ids": [
-        "seg-0189",
-        "seg-0190",
-        "seg-0191",
-        "seg-0192"
-      ],
-      "expected_chunk_types": ["class_context"],
-      "expected_trust_flags": ["attendance_estimated", "approximate_context"],
-      "required_concept_groups": [
-        ["slack"],
-        ["night today", "tonight", "by night today"],
-        ["seven to twelve quizzes", "7 to 12 quizzes"],
-        ["no extensions"],
-        ["unit four", "unit 4"],
-        ["five concepts"]
-      ],
-      "require_trust_acknowledgement": true,
-      "evidence_quotes": [
-        "So I will give you question on slack you have to give me the answer by night today.",
-        "I want one more you all complete seven to twelve quizzes this week no extensions.",
-        "You have this your unit four that's for sure just five concepts."
-      ],
-      "source_artifacts": [
-        "../task-007-chunk-embed/output/rag_chunks.jsonl",
-        "../task-007-chunk-embed/output/rag_chunk_review.md"
-      ],
-      "notes": "This case checks whether retrieval surfaces the concrete deadline chunk rather than generic class chatter."
-    },
-    {
-      "case_id": "bhagyashree-spoken-anaya",
-      "student_id": "bhagyashree-2302",
-      "student_name": "Bhagyashree_ 2302",
-      "question": "What did I say about Anaya?",
-      "expected_answer_mode": "grounded_answer",
-      "chunk_types": ["spoken"],
-      "expected_source_segment_ids": ["seg-0015"],
+      "chunk_types": ["spoken", "chat"],
       "expected_chunk_types": ["spoken"],
-      "expected_trust_flags": [
-        "attendance_estimated",
-        "source_mapping_confidence=low",
-        "student_mapping_confidence=low"
+      "required_concept_groups": [
+        ["intercept"],
+        ["negative"]
       ],
-      "required_concept_groups": [["anaya"], ["it's right", "it is right"]],
-      "require_trust_acknowledgement": true,
-      "evidence_quotes": ["Yes Anaya, it's right."],
-      "source_artifacts": [
-        "../verify-main-clean/output/student_context_review.md",
-        "../task-007-chunk-embed/output/rag_chunks.jsonl"
+      "evidence_quotes": [
+        "Yeah, the intercept is it should be negative."
       ],
-      "notes": "This case forces the evaluator onto the student's spoken chunks instead of generic class_context chunks."
+      "notes": "Bhagyashree's own spoken contribution on the supply-function intercept (medium transcript). Exercises a rich-content student's spoken chunks."
     },
     {
-      "case_id": "user-missed-opening-work",
-      "student_id": "user",
-      "student_name": "User",
-      "question": "What did I miss at the start of class?",
+      "case_id": "bhagyashree-negative-quantity",
+      "student_id": "2302",
+      "student_name": "Bhagyashree",
+      "question": "What did I say about quantity supplied being negative at low prices?",
       "expected_answer_mode": "grounded_answer",
-      "chunk_types": ["missed"],
-      "expected_source_segment_ids": [
-        "seg-0000",
-        "seg-0001",
-        "seg-0002",
-        "seg-0003",
-        "seg-0004",
-        "seg-0005"
-      ],
-      "expected_chunk_types": ["missed"],
-      "expected_trust_flags": [
-        "attendance_estimated",
-        "approximate_context",
-        "source_mapping_confidence=low"
-      ],
+      "chunk_types": ["spoken", "chat"],
+      "expected_chunk_types": ["spoken"],
       "required_concept_groups": [
-        ["foundation of time and work", "time and work"],
-        ["second question", "worksheet"],
-        ["thread"],
-        ["five minutes"]
+        ["negative"]
       ],
-      "require_trust_acknowledgement": true,
       "evidence_quotes": [
-        "Today we will be going forward with the scaffolding, we will build our foundation of time and work.",
-        "I will give you second question on the worksheet to be done independently.",
-        "You will give me the answers as a thread... it will not take you more than five minutes."
+        "quantity supply is negative 12 when the price is one, negative 9 when the price is two"
       ],
-      "source_artifacts": [
-        "../task-007-chunk-embed/output/rag_chunks.jsonl",
-        "../task-007-chunk-embed/output/rag_chunk_review.md"
-      ],
-      "notes": "This case exercises the true missed-content path rather than the fallback class_context path."
+      "notes": "Confirms the medium transcript captured Bhagyashree's worked example of the supply schedule at low prices."
     }
   ]
 }
