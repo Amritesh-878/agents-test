@@ -20,11 +20,19 @@ from scripts.chat import (
     build_empty_context_answer,
     build_prompt_messages,
     collect_trust_flags,
+    is_self_referential_question,
     iso_timestamp,
     select_retrieval_chunk_types,
     utc_now,
 )
 from scripts.retrieval import QueryEmbedder, RetrievalResult, retrieve_from_pgvector
+
+# General "what did the class cover / what did the teacher ask" questions answer from
+# class_context, where the specific instruction or topic chunk can rank just outside a
+# tight top-5 (observed: the topic chunk at rank 6). Widen the net for those so the
+# grounding chunk is retrieved. Self-referential questions stay tight: a student's own
+# spoken+chat chunks are few, so a wider net only adds unrelated noise.
+GENERAL_QUESTION_TOP_K = 8
 
 
 _SESSION_SUFFIX_RE = re.compile(r"_s(\d+)$", re.IGNORECASE)
@@ -123,10 +131,13 @@ def answer_for_student(
     returned ``ChatTurnRecord`` carries the retrieval result so the UI can show
     the grounding chunks.
     """
+    effective_top_k = (
+        top_k if is_self_referential_question(question) else max(top_k, GENERAL_QUESTION_TOP_K)
+    )
     retrieval_result = retrieve_from_pgvector(
         student_id=student_id,
         query=question,
-        top_k=top_k,
+        top_k=effective_top_k,
         chunk_types=select_retrieval_chunk_types(question, ()),
         class_name=class_name,
         db_url=db_url,
