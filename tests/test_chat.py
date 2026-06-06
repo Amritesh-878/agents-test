@@ -178,6 +178,12 @@ def test_is_self_referential_question_matches_own_speech() -> None:
     assert is_self_referential_question("What did I ask the teacher?")
     assert is_self_referential_question("Did I contribute anything today?")
     assert is_self_referential_question("What was my answer to the supply question?")
+    # Broadened contribution phrasings beyond the canonical "what did I say".
+    assert is_self_referential_question("What numbers did I work out in class?")
+    assert is_self_referential_question("What answer did I get for the worksheet?")
+    assert is_self_referential_question("Did I submit anything in the chat?")
+    assert is_self_referential_question("What did I type during class?")
+    assert is_self_referential_question("How did I solve the second question?")
 
 
 def test_is_self_referential_question_ignores_class_and_passive_questions() -> None:
@@ -194,6 +200,9 @@ def test_is_self_referential_question_ignores_class_and_passive_questions() -> N
         "I missed the part about why quantity supplied can be negative — what was said?"
     )
     assert not is_self_referential_question("I joined late — what was the plan for today's class?")
+    # Neutral first-person verbs ask about class content, not the student's contribution.
+    assert not is_self_referential_question("What did I learn in class today?")
+    assert not is_self_referential_question("What did I do in class today?")
 
 
 def test_select_retrieval_chunk_types_scopes_self_referential_to_own_contributions() -> None:

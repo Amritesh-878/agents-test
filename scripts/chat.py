@@ -261,18 +261,32 @@ def build_history_messages(
     return history
 
 
+# First-person contribution verbs: the student asking what THEY personally said,
+# asked, answered, worked out, got, contributed, submitted, solved, wrote, or typed.
+# Multi-word forms ("work out") and tense variants are included so natural phrasings
+# like "what numbers did I work out" scope to the student's own chunks too. Deliberately
+# excludes neutral verbs ("learn", "do", "miss", "join") that signal a question about the
+# class content rather than the student's own contribution.
+_OWN_CONTRIBUTION_VERB = (
+    r"(?:say|said|saying|ask|asked|asking|answer|answered|answering|"
+    r"mention|mentioned|speak|spoke|speaking|contribute|contributed|contributing|"
+    r"tell|told|telling|work(?:ed|ing)?\s+out|get|got|getting|"
+    r"submit|submitted|submitting|type|typed|typing|solve|solved|solving|"
+    r"write|wrote|writing)"
+)
+
 # Questions where the student asks what THEY personally said / asked / contributed.
-# The subject of the speech verb must be the first-person-singular student ("did I say",
-# "what I asked", "my answer") — passive "what was said" or "I missed ..." are deliberately
-# NOT matched, since those ask about the teacher's class content, not the student's own.
+# The subject of the contribution verb must be the first-person-singular student
+# ("did I say", "what I worked out", "my answer") — passive "what was said" or
+# "I missed ..." are deliberately NOT matched, since those ask about the teacher's
+# class content, not the student's own.
 _SELF_REFERENTIAL_SPEECH = re.compile(
     r"\b(?:"
-    r"did i\b[^.?!]*\b(?:say|said|ask|asked|answer|answered|mention|mentioned|"
-    r"speak|spoke|contribute|contributed|tell|told)"
-    r"|i\s+(?:say|said|asked|answered|mentioned|spoke|told|contributed)"
-    r"|what i\s+(?:say|said|asked|answered|mentioned|spoke|told|contributed)"
-    r"|my\s+(?:answer|question|contribution|point|response|comment|remark|words|input)"
-    r")\b",
+    r"did i\b[^.?!]*\b" + _OWN_CONTRIBUTION_VERB
+    + r"|i\s+" + _OWN_CONTRIBUTION_VERB
+    + r"|what i\s+" + _OWN_CONTRIBUTION_VERB
+    + r"|my\s+(?:answer|question|contribution|point|response|comment|remark|words|input)"
+    + r")\b",
     re.IGNORECASE,
 )
 
@@ -332,8 +346,23 @@ def build_prompt_messages(
                 "use ONLY the student's own spoken chunks; if none support it, say you do not "
                 "have enough evidence rather than quoting the teacher's class context back as "
                 "if the student had said it.",
+                "For general questions about what the class covered or what the teacher said, "
+                "asked, or instructed: the retrieved class_context and teacher chunks ARE the "
+                "record of this class. If they describe the relevant topic, activity, or "
+                "instruction — even partially, indirectly, or in different words — synthesize a "
+                "direct, confident answer from them. Do NOT reply 'not enough evidence' merely "
+                "because no single chunk restates the question's exact wording or because some "
+                "details are missing; answer with what the chunks do show. Only decline when the "
+                "question names a topic or concept that does not appear in any retrieved chunk.",
+                "A question phrased with 'we', 'us', or 'the teacher' (e.g. 'what did the teacher "
+                "ask us to do') is about the shared class, not this individual student — answer it "
+                "from the class_context/teacher chunks; do not refuse just because a chunk does not "
+                "single out this student by name.",
+                "When the chunks support a partial but grounded answer, give that answer plainly; "
+                "do not append a disclaimer that second-guesses an answer you just grounded.",
                 "If the retrieved context is estimated, low-confidence, sparse, or incomplete, say that clearly.",
-                "If the retrieved context does not support the question, say you do not have enough evidence.",
+                "If none of the retrieved chunks address the question's topic at all, say you do "
+                "not have enough evidence rather than guessing.",
                 "Keep the answer concise and personalized to the student when the evidence supports it.",
             ]
         ),
@@ -350,8 +379,13 @@ def build_prompt_messages(
                 retrieval_result.context_string,
                 "Answer requirements:",
                 "- Use only the retrieved context above.",
-                "- Acknowledge trust limitations when they matter.",
-                "- If the context is not enough, say so instead of guessing.",
+                "- Answer directly from it; if it covers the question even partially, give the "
+                "grounded answer it supports instead of refusing.",
+                "- Treat 'we'/'us'/'the teacher' questions as about the shared class, answerable "
+                "from class_context.",
+                "- Acknowledge trust limitations only when they actually affect the answer.",
+                "- Refuse ('not enough evidence') only when the question's topic is absent from "
+                "every retrieved chunk; do not undercut a grounded answer with a disclaimer.",
             ]
         ),
     )
