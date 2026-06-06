@@ -58,9 +58,12 @@ prices, which isn't realistic until price rises enough.
 
 ## Students 2–4 — Math (test any 2–3 of these)
 
-Pick from: **A_Disha (2504), A_Jagruti (2509), A_Kalyani (2511), A_Saisha (2521),
-A_Sanaya (2522), A_Shravani (2523), A_Sonakshi (2526)**. The same questions work for every Math
-student — their data is kept separate even though the class is shared.
+Pick from: **Saisha Shashikant Kadam (2521), Swarnima Avinash Shinde (2527),
+Manswi Jyotiba Khandare (2513), Kalyani Surendra Ghodke (2511), Sanaya Sachin Mate (2522),
+Shravani Hatwar (2523), Disha (2504)**. The same questions work for every Math student — their data
+is kept separate even though the class is shared. *(Most Math contributions are typed chat, so the
+strongest answers come from "what did I say/ask in class" — e.g. Saisha's "20/11", Swarnima's
+"12 → 18 girls".)*
 
 **Ask:**
 1. What topic did we start working on in class?
@@ -137,5 +140,11 @@ confirm before the teacher session:
   segments are attributed to the primary speaker only, and the store was re-ingested (`f8e687d`).
 
 Isolation (each student sees only their own data) and refusal-on-no-evidence both passed and were
-unaffected. Known limitation (not a bug): some Math students' own speech is sparse/garbled due to
-the small transcription model — the transcription-quality upgrade is tracked separately.
+unaffected.
+
+**Update 2026-06-07 — transcription upgrade applied.** Every class was re-transcribed with the
+larger `medium` model and re-embedded, and hallucinated/garbled chunks were removed (filter fix
+`7418b9d` + a cleanup pass). Economics answers (esp. Bhagyashree) are noticeably cleaner and more
+complete. Math students' own speech is still **sparse** — many barely spoke on mic and mostly typed
+in chat — so a "what did I say" question may return little or a safe refusal; that's expected, not a
+bug. The small-vs-medium evidence is in `docs/TRANSCRIPTION_COMPARISON_RESULTS.md`.
