@@ -70,8 +70,12 @@ strongest answers come from "what did I say/ask in class" — e.g. Saisha's "20/
 2. What did the teacher ask us to do on the worksheet?
 3. What were Jagruti and Kalyani being asked about?
 4. I joined late — what was the plan for class?
-5. What did I personally say during class?  *(Many Math students barely spoke — if the bot says
-   "not enough evidence," that's the correct answer, not a failure.)*
+5. What did I say or ask in class?  *(Many Math students barely spoke — if the bot says
+   "not enough evidence," that's the correct answer, not a failure. Contribution phrasings such
+   as "what numbers did I work out" work too.)*
+6. What did I say about the Balance of Payments?  *(Safety check: Balance of Payments is an
+   **Economics** topic, not Math — the bot should **decline** ("not enough evidence"), not borrow
+   another class's content. A refusal here is the **correct** answer.)*
 
 *Answer key:* started the **time-and-work scaffolding**; do the **2nd worksheet question
 independently** (~5 min, submit as a thread); Jagruti & Kalyani were asked about **day 1 / day 2**
@@ -150,8 +154,10 @@ in chat — so a "what did I say" question may return little or a safe refusal; 
 bug. The small-vs-medium evidence is in `docs/TRANSCRIPTION_COMPARISON_RESULTS.md`.
 
 The automated golden set (`data/eval_qa.json`) was refreshed against the current store and **re-run
-2026-06-07: 4/4 cases pass** (`python -m scripts.evaluate`) — covering a self-referential chat recall
-(Saisha), a wrong-subject safe refusal, and two of Bhagyashree's spoken Economics contributions.
-Reliability note for the teacher session: phrase student-contribution questions as **"What did I
-say/ask in class?"** — that scoping reliably surfaces a student's own spoken **and** typed-chat
-words; indirect phrasings ("what numbers did I work out") may miss chat-only students.
+2026-06-07: 5/5 cases pass** (`python -m scripts.evaluate`) — covering a self-referential chat recall
+(Saisha), a natural contribution phrasing for a chat-only student (Swarnima, "what numbers did I
+work out"), a wrong-subject safe refusal, and two of Bhagyashree's spoken Economics contributions.
+Reliability note for the teacher session: **"What did I say/ask in class?"** remains the most robust
+phrasing, but self-referential detection was broadened so contribution phrasings ("what numbers did I
+work out", "what did I type/submit/solve") now also scope to the student's own spoken **and**
+typed-chat words — chat-only students like Swarnima surface correctly.
