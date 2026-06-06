@@ -62,6 +62,22 @@
         "quantity supply is negative 12 when the price is one, negative 9 when the price is two"
       ],
       "notes": "Confirms the medium transcript captured Bhagyashree's worked example of the supply schedule at low prices."
+    },
+    {
+      "case_id": "swarnima-self-referential-worked-out",
+      "student_id": "2527",
+      "student_name": "Swarnima Avinash Shinde",
+      "question": "What numbers did I work out in class?",
+      "expected_answer_mode": "grounded_answer",
+      "chunk_types": ["spoken", "chat"],
+      "expected_chunk_types": ["chat"],
+      "required_concept_groups": [
+        ["12", "18"]
+      ],
+      "evidence_quotes": [
+        "Initial Number of girls- 12 new no. of girls- 18"
+      ],
+      "notes": "Natural contribution phrasing ('what numbers did I work out') beyond the canonical 'what did I say'. Exercises the broadened self-referential matcher: Swarnima only typed in chat, so this must scope to spoken+chat and surface her numbers (12 -> 18)."
     }
   ]
 }
