@@ -61,7 +61,7 @@ takes hours and the computer must stay awake. Keep it **plugged in**.
 ### Step 6 — Start the transcription
 Paste this **one** command and press Enter:
 ```
-python -m scripts.run_pipeline --input Videos --output-dir output --teacher "Nisha" --model medium
+python -m scripts.run_pipeline --input Videos --output-dir output --teacher "Nisha" --model medium --skip-embed
 ```
 - The **first time**, it downloads the AI model (~1.5 GB) — needs internet, just wait.
 - Then it processes every class. This takes **several hours** (maybe overnight). Leave it running.
@@ -75,8 +75,14 @@ python -m scripts.run_pipeline --input Videos --output-dir output --teacher "Nis
 
 ## Part 3 — Send it back
 
-1. In the project folder, find the folder named **`output`**.
-2. **Right-click** it → **Send to** → **Compressed (zipped) folder**.
+1. Open the folder named **`output`**. Inside, each class has its own folder, and inside *those*
+   is a folder called **`raw`**. **Delete every `raw` folder** — they're just copies of the videos
+   I already have, and they make the zip huge. Everything else stays.
+   > Quick way: paste this in the same PowerShell window to delete them all at once:
+   > ```
+   > Get-ChildItem output -Recurse -Directory -Filter raw | Remove-Item -Recurse -Force
+   > ```
+2. Go back up, **right-click** the **`output`** folder → **Send to** → **Compressed (zipped) folder**.
 3. Send me that **`output.zip`**. 🎉 That's it — thank you so much!!
 
 ---
