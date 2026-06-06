@@ -148,3 +148,10 @@ larger `medium` model and re-embedded, and hallucinated/garbled chunks were remo
 complete. Math students' own speech is still **sparse** — many barely spoke on mic and mostly typed
 in chat — so a "what did I say" question may return little or a safe refusal; that's expected, not a
 bug. The small-vs-medium evidence is in `docs/TRANSCRIPTION_COMPARISON_RESULTS.md`.
+
+The automated golden set (`data/eval_qa.json`) was refreshed against the current store and **re-run
+2026-06-07: 4/4 cases pass** (`python -m scripts.evaluate`) — covering a self-referential chat recall
+(Saisha), a wrong-subject safe refusal, and two of Bhagyashree's spoken Economics contributions.
+Reliability note for the teacher session: phrase student-contribution questions as **"What did I
+say/ask in class?"** — that scoping reliably surfaces a student's own spoken **and** typed-chat
+words; indirect phrasings ("what numbers did I work out") may miss chat-only students.
