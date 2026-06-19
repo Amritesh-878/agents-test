@@ -645,17 +645,63 @@ Full-corpus backfill executed. Stage: pre-release alpha, local-only, real studen
 
 ---
 
+## Status — 2026-06-05/06
+
+Demo-quality prep ahead of the transcription upgrade. ruff/mypy clean.
+
+### Done
+- `347fe68` — optional per-session (`class_name`) scoping in student retrieval; session picker in the demo resolves "what did we cover today" ambiguity.
+- `2217e4d` — roster name-fallback corrects mis-parsed / roll-less student ids (Nishkarsha→2515, Jagruti→2509); no raw-filename ids reach the store. PII roster CSVs gitignored (`eb6c5c8`, `b3a3b29`).
+- `71937fa` — public Zoom **chat** ingested as a per-student `chat` chunk type (private DMs dropped); quiet/non-unmuting students now get chat-backed bots and "what did I say" scopes to spoken+chat.
+- `84e66a8` — `--no-absent-summaries` flag suppresses pure-absent bots (cohort rosters over-generate across A/B sections; revisit with per-section data).
+- `ed5e225` / `8b885f4` — off-machine transcription handoff: non-technical run guide `START_HERE_run_transcription.md` for the GPU box (`--skip-embed`, drop `raw/` before zipping back).
+
+---
+
+## Status — 2026-06-07
+
+Transcription quality upgrade (Lever #2) shipped end-to-end, plus a RAG retrieval/answer quality pass. Stage: pre-release alpha, local-only, real student PII. **367 tests, ruff/mypy clean.** All work on `main`.
+
+### Done — medium transcription adopted + re-embedded
+- Re-transcribed all 9 classes with the **`medium`** WhisperX model off-machine (8 GB-VRAM GPU, ~9 h), then re-embedded on the local box via `--skip-transcribe` with per-subject rosters (**Economics→`data/C1.csv`, Math→`data/C3 Badge Tracker`**) and `--no-absent-summaries`. pgvector now serves **medium-quality transcripts: 1013 chunks, 9 classes, 17 students** (delete-by-class + upsert; student structure preserved, parity with the prior `small` store).
+- `5d9250f` — evidence-based adoption decision (`docs/TRANSCRIPTION_COMPARISON_RESULTS.md`): small vs medium compared on Devanagari-garble ratio, loop-hallucination survival past the embed filter, and teacher-track cleanliness. Medium is leaner and cleaner (teacher tracks cleaner in **7/9** classes; ~30% fewer garble chunks survive). Honest caveats recorded: model diff (not isolated GPU), proxies not WER.
+- Confirmed the "more Devanagari on student mics" was **hallucination on near-silent mics**, not lost Hindi; bilingual students (Bhagyashree) gained coherent English where `small` mis-rendered speech as Devanagari garble.
+
+### Done — hallucination filter hardening (`is_quality_text`)
+- `7418b9d` — reject **short-loop** hallucinations (a 4-word phrase ×3) via a distinct-token-ratio check (<0.5 unique on ≥8-word chunks); these ducked the trigram-≥4 rule.
+- `5823919` — reject **no-space-loop** hallucinations (`पाइपाइपाइ…` = one long non-ASCII token) that ducked every word-based check; long ASCII (URLs) explicitly preserved.
+- One-time DB cleanup: scrubbed 20 residual no-space-loop chunks from the demo store; the filter now prevents recurrence on any future re-embed.
+
+### Done — RAG retrieval / answer quality
+- `548895b` — **broadened self-referential detection**: contribution phrasings ("what numbers did I work out / type / submit / solve") now scope to the student's own `spoken`+`chat`, so chat-only students (e.g. Swarnima 2527) surface their typed answers instead of a false "no evidence." Neutral verbs (learn/do/miss/join) deliberately excluded.
+- `548895b` — **reduced LLM over-hedging**: prompt tuned so the bot answers confidently from `class_context` on partial/indirect matches, without weakening trust-first refusal or the teacher-attribution guard.
+- `8edf5ad` — **widened `top_k` to 8 for general questions** (the instruction chunk ranked #6, outside the old top-5); self-referential questions stay tight.
+
+### Done — eval + teacher docs
+- `d93a91e` / `7e0e815` — refreshed `data/eval_qa.json` golden set against the current store (roll-number ids, real evidence quotes) + a chat-only contribution case. **`python -m scripts.evaluate`: 5/5 pass** against live DB + Groq.
+- `7424264` / `34c78fe` / `fe82603` — `docs/EVAL.md` updated for medium data: clean roster names, wrong-subject refusal demo, reliable-phrasing note, eval re-run record.
+
+### Verified (independent pass)
+- ruff clean, mypy clean (50 files), **pytest 367 passed**, eval **5/5** live, and an end-to-end demo-path smoke test: previously-hedgy worksheet/topic/"what did we cover" questions now answer confidently; self-referential chat recall and wrong-subject refusal both unregressed.
+
+### Open / next
+- Eval harness runs at `top_k=5` while the demo path uses `top_k=8` for general questions → the golden set does **not** regression-cover the demo's general-question behavior (validated by live smoke only). Aligning the harness's per-question `top_k` to `demo_backend` would close it.
+- Security hardening (#3) still required before any student login; Groq egress / retention-consent decision still pending (owner).
+- Teacher validation (#1) remains the gate to student-ready.
+
+---
+
 ## Roadmap — demo → student-ready
 
 Both teacher-eval blockers (A teacher-attribution, B peer co-mingling) are fixed. Status: **demo-ready** (pending one live confirmation run). Order to reach **student-ready**:
 
 ### 1. Teacher validation (gate — do first)
-- [ ] Live confirmation run: `streamlit run app.py` + the self-referential and "what did we cover" checks.
+- [~] Live confirmation run — verified end-to-end via the demo backend (`answer_for_student`, same code path as the UI) on medium data: self-referential chat recall, "what did we cover", worksheet/topic, and wrong-subject refusal all correct (2026-06-07). Streamlit UI click-through still recommended before the teacher sits down.
 - [ ] Teachers test via `docs/EVAL.md` and rate. Proceed only on their YES.
 
 ### 2. Quality (while teachers review)
 - [x] Per-session/date scoping in retrieval (`347fe68`) — session picker in the demo; "what did we cover today" ambiguity resolved.
-- [~] Transcription upgrade (Lever #2: `medium`) — **IN PROGRESS**: re-transcribing the current classes on an 8GB-VRAM GPU off-machine (see `START_HERE_run_transcription.md`), then re-embed.
+- [x] Transcription upgrade (Lever #2: `medium`) — **DONE (2026-06-07)**: re-transcribed off-machine on an 8GB-VRAM GPU, re-embedded via `--skip-transcribe` with rosters C1/C3; pgvector now medium-quality (1013 chunks). Filter hardened + RAG retrieval/answer quality pass landed. Evidence: `docs/TRANSCRIPTION_COMPARISON_RESULTS.md`.
 - [x] Roster — mis-parsed / roll-less ids corrected via roster name-fallback (`2217e4d`): Nishkarsha→2515, Jagruti→2509, no raw-filename ids. Absent-student bots **suppressed for now** (`84e66a8`, `--no-absent-summaries`) — cohort rosters over-generate across A/B sections; revisit with per-section data.
 - [x] Chat ingestion (`71937fa`) — public Zoom chat ingested as a per-student `chat` chunk type, **private DMs dropped**; quiet / non-unmuting students now get real chat-backed bots, and "what did I say" scopes to spoken+chat.
 
