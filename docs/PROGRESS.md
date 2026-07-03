@@ -705,8 +705,27 @@ Groq deprecated the chatbot's LLM; migrated the generation model and hardened an
 - This also fixed a latent eval bug: a curly apostrophe in "don't" broke the refusal matcher's straight-apostrophe check, scoring a correct refusal as a failure.
 
 ### Open / next
-- **[PRIORITY] Eval-coverage gap** (carried from 2026-06-07, now elevated): the golden set runs at `top_k=5` while the demo serves general questions at `top_k=8`, so the automated **5/5 does not regression-cover what users actually hit**. Aligning the harness's per-question `top_k` to `demo_backend` is the real trust risk — above stale-doc or cosmetic cleanup.
+- Eval-coverage gap **closed for retrieval breadth** (see 2026-07-03 retrieval-top_k entry below): the harness/CLI now widen general questions via the shared `effective_top_k` helper, so `scripts.evaluate` exercises the same top_k the demo/users hit. Residual: the golden set itself still contains no general (non-self-referential) case, so the k=8 path is covered by tests but not yet by a live golden artifact — Phase 2 (A/B comparison) expands the golden set to close that.
 - When Groq later deprecates `gpt-oss-20b`, the swap is one line in `chat.py`; re-run `python -m scripts.evaluate` (via venv `./.venv/Scripts/python.exe`, needs `GROQ_API_KEY` + local Postgres).
+
+---
+
+## Status — 2026-07-03 (retrieval top_k unification)
+
+Closed the eval-coverage gap's retrieval half ahead of the A/B model-comparison work. Stage: pre-release alpha, local-only, real student PII. **372 tests, ruff/mypy clean.** All work on `main`.
+
+### Done — unified per-question retrieval breadth
+- The demo widened general (non-self-referential) questions to `top_k=8` while the eval harness and interactive CLI used a flat `top_k=5`, so `scripts.evaluate` passing did **not** cover the breadth real users hit. Introduced `effective_top_k(question, base_top_k)` in `scripts/chat.py` as the single source of truth (`GENERAL_QUESTION_TOP_K = 8` lives there too); it **only widens** — self-referential questions return `base_top_k` unchanged (no implicit cap, so `--top-k` still scales everything for experiments).
+- Applied at both retrieval call sites so CLI + eval + demo converge: `RetrievalBackend.retrieve` and `demo_backend.answer_for_student` now both call the helper exactly once (the demo still retrieves directly, not via `RetrievalBackend`, so no double-widening). Deleted the demo's local `GENERAL_QUESTION_TOP_K` constant and inline expression.
+- **Intentional behavior change:** the interactive CLI now also widens general questions (was flat 5) — one consistent retrieval behavior everywhere.
+
+### Tests
+- Unit `effective_top_k`: self-ref → base unchanged; general @ base 5 → 8; general @ base 10 → 10.
+- Gap-closing: `RetrievalBackend.retrieve` passes the widened top_k to the store for a general question and the base top_k for a self-referential one (captured via a mock store).
+
+### Verified
+- ruff clean, mypy clean (50 files), **pytest 372 passed**.
+- Live: `python -m scripts.evaluate --output-dir output/eval_topk_fix` still **5/5** against live DB + Groq (no regression). All 5 golden cases are self-referential/refusals, so they legitimately stay at base 5 — the k=8 path is not yet in the golden set. Proved end-to-end live via a read-only retrieval: "What did we cover in class today?" → `top_k=8` (8 chunks), "What did I say about the intercept?" → `top_k=5` (5 chunks).
 
 ---
 

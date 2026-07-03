@@ -224,7 +224,7 @@ def test_answer_for_student_leaves_class_questions_unfiltered() -> None:
 def test_answer_for_student_widens_top_k_for_general_questions() -> None:
     # The specific topic/instruction chunk can rank just outside a tight top-5, so general
     # questions widen the retrieval net (GENERAL_QUESTION_TOP_K) to surface it.
-    from scripts.demo_backend import GENERAL_QUESTION_TOP_K
+    from scripts.chat import GENERAL_QUESTION_TOP_K
 
     store = FakeStore(search_results=[make_search_result()])
     backend = FakeChatBackend()

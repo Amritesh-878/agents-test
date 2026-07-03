@@ -229,6 +229,19 @@ def test_is_self_referential_question_ignores_class_and_passive_questions() -> N
     assert not is_self_referential_question("What did I do in class today?")
 
 
+def test_effective_top_k_widens_general_and_leaves_self_referential() -> None:
+    from scripts.chat import GENERAL_QUESTION_TOP_K, effective_top_k
+
+    # General questions widen to at least GENERAL_QUESTION_TOP_K so a grounding chunk
+    # ranked just outside a tight top-5 is still retrieved.
+    assert effective_top_k("What did we cover in class today?", 5) == GENERAL_QUESTION_TOP_K
+    # A larger base still scales up uniformly (helper only widens, never caps).
+    assert effective_top_k("What did we cover in class today?", 10) == 10
+    # Self-referential questions stay at the base (their own chunks are few).
+    assert effective_top_k("What did I say about determinants today?", 5) == 5
+    assert effective_top_k("What did I say about determinants today?", 10) == 10
+
+
 def test_select_retrieval_chunk_types_scopes_self_referential_to_own_contributions() -> None:
     from scripts.chat import select_retrieval_chunk_types
 
@@ -269,6 +282,7 @@ def test_build_prompt_messages_teaches_speaker_attribution() -> None:
 class _CapturingStore:
     def __init__(self) -> None:
         self.search_chunk_types: list[str] | None = None
+        self.search_top_k: int | None = None
 
     def search(
         self,
@@ -279,6 +293,7 @@ class _CapturingStore:
         class_name: str | None = None,
     ) -> list[object]:
         self.search_chunk_types = list(chunk_types or [])
+        self.search_top_k = top_k
         return []
 
 
@@ -297,3 +312,20 @@ def test_retrieval_backend_scopes_self_referential_to_spoken(tmp_path: Path) -> 
 
     backend.retrieve(args, "What did we cover in class today?")
     assert store.search_chunk_types == []
+
+
+def test_retrieval_backend_widens_top_k_for_general_questions(tmp_path: Path) -> None:
+    # Gap-closing: the CLI/eval path (RetrievalBackend) must widen general questions to
+    # GENERAL_QUESTION_TOP_K the same way the demo does, and keep self-referential ones
+    # at the base top_k — so scripts.evaluate now covers the breadth real users hit.
+    from scripts.chat import GENERAL_QUESTION_TOP_K
+
+    store = _CapturingStore()
+    backend = RetrievalBackend(store=store, embedder=_FixedEmbedder())  # type: ignore[arg-type]
+    args = make_args(tmp_path)  # base top_k defaults to 5
+
+    backend.retrieve(args, "What did we cover in class today?")
+    assert store.search_top_k == GENERAL_QUESTION_TOP_K
+
+    backend.retrieve(args, "What did I say during class today?")
+    assert store.search_top_k == args.top_k
