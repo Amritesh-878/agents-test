@@ -26,7 +26,7 @@ from scripts.retrieval import (
 from scripts.utils.chunker import ChunkType
 from scripts.utils.db_url import resolve_db_url
 
-DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant"
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
 GROQ_EGRESS_NOTICE = (
     "Notice: your questions and the retrieved transcript excerpts are sent to Groq "
     "(an external US LLM API) to generate answers."
@@ -364,6 +364,10 @@ def build_prompt_messages(
                 "If none of the retrieved chunks address the question's topic at all, say you do "
                 "not have enough evidence rather than guessing.",
                 "Keep the answer concise and personalized to the student when the evidence supports it.",
+                "Write in plain, direct language a student would use. Do not use em-dashes or "
+                "en-dashes; use commas, periods, or separate sentences instead. Do not open with "
+                "preamble or filler ('Great question', 'Based on the context'); answer directly. "
+                "Avoid stock AI phrasing and needless hedging.",
             ]
         ),
     )
