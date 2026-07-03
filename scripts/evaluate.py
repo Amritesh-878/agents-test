@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from pathlib import Path
-from typing import Literal, Sequence
+from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, Field
 
@@ -263,6 +263,19 @@ def load_eval_dataset(path: Path) -> EvalDataset:
     return EvalDataset.model_validate_json(path.read_text(encoding="utf-8"))
 
 
+def load_indexed_chunks(store: Any, case: EvalCase) -> list[RetrievedChunk]:
+    """Load a case's full indexed chunk universe from the store (the model-independent
+    "is the expected evidence even in the DB" check), scoped to ``case.chunk_types`` if set.
+
+    Shared by the evaluation harness and the A/B model comparison so both apply the same
+    indexed-evidence check.
+    """
+    raw_results = store.get_student_chunks(case.student_id)
+    if case.chunk_types:
+        raw_results = [r for r in raw_results if r.chunk_type in case.chunk_types]
+    return [search_result_to_chunk(r, i + 1) for i, r in enumerate(raw_results)]
+
+
 def select_cases(dataset: EvalDataset, case_ids: Sequence[str]) -> list[EvalCase]:
     if not case_ids:
         return list(dataset.cases)
@@ -505,10 +518,7 @@ class EvaluationService:
         self.store: PgVectorStore = store or connect_pg_store(args.db_url)
 
     def load_indexed_chunks(self, case: EvalCase) -> list[RetrievedChunk]:
-        raw_results = self.store.get_student_chunks(case.student_id)
-        if case.chunk_types:
-            raw_results = [r for r in raw_results if r.chunk_type in case.chunk_types]
-        return [search_result_to_chunk(r, i + 1) for i, r in enumerate(raw_results)]
+        return load_indexed_chunks(self.store, case)
 
     def run_case(self, case: EvalCase) -> CaseEvaluationResult:
         chat_args = ChatArgs(

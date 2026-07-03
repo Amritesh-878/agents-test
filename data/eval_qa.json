@@ -1,8 +1,9 @@
 {
-  "description": "Golden QA set for RAG evaluation, grounded in the CURRENT pgvector store after the 2026-06-07 medium-model re-embed. student_id values are the roll numbers used as the store key. Cases were verified end-to-end (retrieval + Groq) against the live DB.",
+  "description": "Golden QA set for RAG evaluation, grounded in the CURRENT pgvector store after the 2026-06-07 medium-model re-embed. student_id values are the roll numbers used as the store key. Cases were verified end-to-end (retrieval + Groq) against the live DB. Mix of self-referential (own spoken/chat, tight top_k), wrong-subject refusal, and GENERAL class-content questions (non-self-referential, widened to GENERAL_QUESTION_TOP_K=8 via scripts.chat.effective_top_k) so the harness covers the retrieval breadth real users/the demo hit.",
   "generated_from": [
     "pgvector store after medium re-embed (docs/TRANSCRIPTION_COMPARISON_RESULTS.md)",
-    "scripts/run_pipeline.py --skip-transcribe --model medium with rosters C1 (Economics) / C3 (Math)"
+    "scripts/run_pipeline.py --skip-transcribe --model medium with rosters C1 (Economics) / C3 (Math)",
+    "general-question expected concepts derived from live retrieved class_context (2026-07-03), not invented"
   ],
   "cases": [
     {
@@ -78,6 +79,54 @@
         "Initial Number of girls- 12 new no. of girls- 18"
       ],
       "notes": "Natural contribution phrasing ('what numbers did I work out') beyond the canonical 'what did I say'. Exercises the broadened self-referential matcher: Swarnima only typed in chat, so this must scope to spoken+chat and surface her numbers (12 -> 18)."
+    },
+    {
+      "case_id": "saisha-general-what-covered",
+      "student_id": "2521",
+      "student_name": "Saisha Shashikant Kadam",
+      "question": "What did we cover in class today?",
+      "expected_answer_mode": "grounded_answer",
+      "required_concept_groups": [
+        ["worksheet", "problem", "problems"],
+        ["linear equation", "linear equations", "ratio", "time and work"]
+      ],
+      "evidence_quotes": [
+        "I am not going to solve all the 25 problems on the worksheet",
+        "one or two problems on time and work also which would help you to figure out the linear equation coverage"
+      ],
+      "notes": "GENERAL 'what did we cover' phrasing (uses 'we', not self-referential), so it stays unfiltered and widens to top_k=8. Grounded in Saisha's Math class_context (worksheet + linear-equation/time-and-work problems). Concepts taken from the live retrieved class_context, not invented."
+    },
+    {
+      "case_id": "saisha-general-teacher-instruction",
+      "student_id": "2521",
+      "student_name": "Saisha Shashikant Kadam",
+      "question": "What did the teacher ask us to do in class?",
+      "expected_answer_mode": "grounded_answer",
+      "required_concept_groups": [
+        ["solve", "answer", "answers"],
+        ["ratio", "worksheet", "equation", "warm"]
+      ],
+      "evidence_quotes": [
+        "your three minutes to go okay so what you need to do is based you base your logic here you correct your logic",
+        "i'm giving you ample time to solve seven minutes is enough time then when I say post the answer then only you post"
+      ],
+      "notes": "GENERAL 'what did the teacher ask us to do' instruction phrasing ('the teacher', 'us' -> not self-referential), widens to top_k=8. Grounded in the teacher's class_context instructions (solve the worksheet problems, post answers when told). Concepts from live retrieved class_context."
+    },
+    {
+      "case_id": "bhagyashree-general-determinants",
+      "student_id": "2302",
+      "student_name": "Bhagyashree",
+      "question": "What determinants of supply did the class talk about?",
+      "expected_answer_mode": "grounded_answer",
+      "required_concept_groups": [
+        ["tax", "taxes"],
+        ["technology"],
+        ["price of related goods", "related goods", "substitute", "complement"]
+      ],
+      "evidence_quotes": [
+        "taxes, then technology, price of related goods, it can be substitute goods, or like, what is the other name, the other one, complementary goods, determinant"
+      ],
+      "notes": "GENERAL topic question about class content ('the class' -> not self-referential), widens to top_k=8. Grounded in Bhagyashree's Economics class_context on the determinants of supply (taxes, technology, price of related goods / substitutes / complements). Concepts from live retrieved class_context."
     }
   ]
 }
