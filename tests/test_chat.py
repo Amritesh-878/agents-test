@@ -11,6 +11,7 @@ from scripts.chat import (
     ChatError,
     ChatService,
     RetrievalBackend,
+    normalize_answer_text,
     parse_args,
     resolve_display_name,
     run_login,
@@ -152,6 +153,29 @@ def test_resolve_display_name_falls_back_to_id() -> None:
 def test_retrieval_backend_close_is_safe_without_store() -> None:
     backend = RetrievalBackend()
     backend.close()  # should not raise even though no store was ever opened
+
+
+def test_normalize_answer_text_strips_typographic_dashes() -> None:
+    # en-dash used as a minus sign (the gpt-oss-20b habit) becomes a plain hyphen
+    assert normalize_answer_text("quantity is –12 at price one") == "quantity is -12 at price one"
+    # minus sign (U+2212) is also normalized to a hyphen
+    assert normalize_answer_text("value −5") == "value -5"
+    # em-dash clause separator becomes a comma, no double spaces or space-before-comma
+    assert normalize_answer_text("the intercept is negative — about minus three") == (
+        "the intercept is negative, about minus three"
+    )
+
+
+def test_normalize_answer_text_straightens_curly_quotes() -> None:
+    # curly apostrophe in a contraction becomes straight ASCII (keeps refusal matchers robust)
+    assert normalize_answer_text("I don’t have enough evidence.") == "I don't have enough evidence."
+    # curly double quotes are straightened too
+    assert normalize_answer_text("she said “yes”") == 'she said "yes"'
+
+
+def test_normalize_answer_text_leaves_plain_text_unchanged() -> None:
+    plain = "You said the intercept should be negative. For example, minus three."
+    assert normalize_answer_text(plain) == plain
 
 
 # --- #5: Groq egress disclosure surfaced in the banner ---

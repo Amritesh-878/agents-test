@@ -434,6 +434,25 @@ def write_session_record(record: ChatSessionRecord, path: Path) -> None:
     path.write_text(record.model_dump_json(indent=2), encoding="utf-8")
 
 
+def normalize_answer_text(text: str) -> str:
+    """Normalize typographic characters the prompt asks the model to avoid.
+
+    Even with a plain-language instruction, some models reach for em/en-dashes
+    (e.g. writing negative numbers as ``-12`` with an en-dash) and curly quotes.
+    This deterministic pass guarantees answers never carry the tell: em-dashes
+    become commas (their usual clause-separator role), en-dashes / minus signs
+    become plain hyphens (their usual minus/range role), and curly quotes become
+    straight ASCII quotes. Runs on every generated answer.
+    """
+    text = text.replace(" — ", ", ").replace("—", ", ")
+    text = text.replace("–", "-").replace("−", "-")
+    text = text.replace("’", "'").replace("‘", "'")
+    text = text.replace("“", '"').replace("”", '"')
+    text = re.sub(r"\s+,", ",", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    return text.strip()
+
+
 class GroqChatBackend:
     def __init__(self, api_key: str) -> None:
         try:
@@ -456,7 +475,7 @@ class GroqChatBackend:
         content = getattr(getattr(choices[0], "message", None), "content", None)
         if not isinstance(content, str) or not content.strip():
             raise ChatError("Groq returned an empty completion.")
-        return content.strip()
+        return normalize_answer_text(content.strip())
 
 
 class RetrievalBackend:
