@@ -64,13 +64,13 @@ Zoom .zip export
 
 | Layer | Technology |
 |-------|-----------|
-| Transcription | WhisperX + faster-whisper (CUDA), small model, no alignment models |
+| Transcription | WhisperX + faster-whisper (CUDA), medium model, no alignment models |
 | Dual-language | Hindi + English word-level probability merge |
 | Embeddings | sentence-transformers `all-MiniLM-L6-v2` (384-dim) |
 | Vector DB | PostgreSQL 17 + pgvector (HNSW index, cosine distance) |
-| LLM | Groq `llama-3.1-8b-instant` |
+| LLM | Groq `openai/gpt-oss-20b` (migrated from `llama-3.1-8b-instant`, deprecated 2026-08-16) |
 | Data models | Pydantic v2 |
-| Code quality | ruff, mypy, pytest — 0 errors, 263 tests passing |
+| Code quality | ruff, mypy, pytest — 0 errors, 370 tests passing |
 | Python | 3.11, CUDA 11.8, RTX 3050 4GB |
 
 ---
@@ -191,7 +191,7 @@ This confirms the dual-language pipeline is capturing the actual math class cont
 
 | Component | Status |
 |-----------|--------|
-| Pipeline code (TASK-011–018) | Complete, 263 tests |
+| Pipeline code (TASK-011–018) | Complete, 370 tests |
 | Database schema (pgvector) | Deployed on local PostgreSQL 17 |
 | First real class run | Complete — Math Apr8, 14 chunks in pgvector |
 | Chatbot (chat.py) | Ready, pending first successful embed |
@@ -564,7 +564,7 @@ Real domain terms: **supply, price, beta, function** (intercept was called beta 
 
 **GitHub:** https://github.com/Amritesh-878/agents-test  
 **Branch:** main  
-**Commits:** 17 commits since pipeline rebuild started (2026-05-27)
+**Commits:** 104 commits since pipeline rebuild started (2026-05-27); 115 total (as of 2026-07-03)
 
 ---
 
@@ -688,6 +688,25 @@ Transcription quality upgrade (Lever #2) shipped end-to-end, plus a RAG retrieva
 - Eval harness runs at `top_k=5` while the demo path uses `top_k=8` for general questions → the golden set does **not** regression-cover the demo's general-question behavior (validated by live smoke only). Aligning the harness's per-question `top_k` to `demo_backend` would close it.
 - Security hardening (#3) still required before any student login; Groq egress / retention-consent decision still pending (owner).
 - Teacher validation (#1) remains the gate to student-ready.
+
+---
+
+## Status — 2026-07-03
+
+Groq deprecated the chatbot's LLM; migrated the generation model and hardened answer formatting. Stage: pre-release alpha, local-only, real student PII. **370 tests, ruff/mypy clean.** All work on `main`.
+
+### Done — Groq model migration (forced by deprecation)
+- Groq is decommissioning both `llama-3.3-70b-versatile` and the chatbot's live `llama-3.1-8b-instant` on **2026-08-16**. Switched `DEFAULT_GROQ_MODEL` → **`openai/gpt-oss-20b`** (`12b4193`) — a single constant every module imports (`chat.py`, `demo_backend.py`, `evaluate.py`, the `--groq-model` flag), so one edit moves the whole system.
+- A/B eval on the live DB: **both old and new models pass the golden set 5/5** (stable across repeated runs); gpt-oss-20b matches or beats `llama-3.1-8b-instant` on answer detail and naturalness.
+- Retrieval, embeddings, per-student isolation, and refusal logic are unchanged — the model only phrases the grounded answer, so hallucination protection stays architectural, not model-dependent. The old model is still callable until 2026-08-16 via `--groq-model llama-3.1-8b-instant`.
+
+### Done — answer formatting guard
+- Added `normalize_answer_text()` in `chat.py`, run on every generated answer (`8478ec3`): em/en-dashes → commas/hyphens, curly quotes → straight ASCII, alongside a plain-language prompt instruction (no dashes / no preamble). Removes the "AI-tell" typography gpt-oss-20b reaches for (e.g. writing negatives as `–12`).
+- This also fixed a latent eval bug: a curly apostrophe in "don't" broke the refusal matcher's straight-apostrophe check, scoring a correct refusal as a failure.
+
+### Open / next
+- **[PRIORITY] Eval-coverage gap** (carried from 2026-06-07, now elevated): the golden set runs at `top_k=5` while the demo serves general questions at `top_k=8`, so the automated **5/5 does not regression-cover what users actually hit**. Aligning the harness's per-question `top_k` to `demo_backend` is the real trust risk — above stale-doc or cosmetic cleanup.
+- When Groq later deprecates `gpt-oss-20b`, the swap is one line in `chat.py`; re-run `python -m scripts.evaluate` (via venv `./.venv/Scripts/python.exe`, needs `GROQ_API_KEY` + local Postgres).
 
 ---
 
