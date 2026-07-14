@@ -3,7 +3,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from scripts.models.pipeline import EmbeddingRecord
-from scripts.utils.pg_store import PgVectorStore, build_or_tsquery
+from scripts.utils.pg_store import PgVectorStore
 
 
 def make_store() -> tuple[PgVectorStore, MagicMock]:
@@ -216,8 +216,7 @@ def test_search_lexical_returns_results_with_no_distance() -> None:
     assert results[0].chunk_id == "id1"
     assert results[0].distance is None
     sql = mock_cursor.execute.call_args.args[0]
-    assert "websearch_to_tsquery" not in sql
-    assert "to_tsquery('simple', %s)" in sql
+    assert "websearch_to_tsquery" in sql
     assert "ts_rank_cd" in sql
 
 
@@ -262,41 +261,6 @@ def test_search_lexical_pushes_class_name_filter() -> None:
     sql, params = mock_cursor.execute.call_args.args
     assert "class_name = %s" in sql
     assert params == ("2301", "CS101", "worksheet", "worksheet", 5)
-
-
-def test_build_or_tsquery_drops_stopwords_and_dedups() -> None:
-    assert build_or_tsquery("What did we cover in class today?") == "cover | class | today"
-    assert build_or_tsquery("COVER Cover cover") == "cover"
-
-
-def test_build_or_tsquery_stopword_or_empty_input_yields_empty() -> None:
-    assert build_or_tsquery("what did we do") == ""
-    assert build_or_tsquery("???") == ""
-    assert build_or_tsquery("") == ""
-
-
-def test_search_lexical_conversational_query_uses_or_semantics() -> None:
-    store, mock_conn = make_store()
-    mock_cursor = MagicMock()
-    mock_cursor.fetchall.return_value = []
-    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
-    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
-
-    store.search_lexical("What did we cover in class today?", student_id="2301", limit=5)
-
-    sql, params = mock_cursor.execute.call_args.args
-    assert "to_tsquery('simple', %s)" in sql
-    assert "websearch_to_tsquery" not in sql
-    assert params == ("2301", "cover | class | today", "cover | class | today", 5)
-
-
-def test_search_lexical_stopword_only_query_returns_no_hits() -> None:
-    store, mock_conn = make_store()
-
-    results = store.search_lexical("what did we do", student_id="2301")
-
-    assert results == []
-    mock_conn.cursor.assert_not_called()
 
 
 # --- get_student_chunks ---

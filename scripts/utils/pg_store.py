@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from typing import Any, Sequence
 
 from scripts.models.pipeline import EmbeddingRecord, SearchResult
@@ -39,34 +38,9 @@ SELECT id, student_id, student_name, class_name, chunk_type, text,
 FROM embeddings
 WHERE """
 _LEXICAL_SEARCH_TAIL = """
-ORDER BY ts_rank_cd(to_tsvector('simple', text), to_tsquery('simple', %s)) DESC
+ORDER BY ts_rank_cd(to_tsvector('simple', text), websearch_to_tsquery('simple', %s)) DESC
 LIMIT %s
 """
-
-_LEXICAL_WORD = re.compile(r"\w+")
-_LEXICAL_STOPWORDS = frozenset(
-    {
-        "a", "about", "am", "an", "and", "are", "as", "at", "be", "been", "being", "but",
-        "by", "can", "could", "did", "do", "does", "done", "for", "from", "had", "has",
-        "have", "he", "her", "here", "him", "how", "i", "if", "in", "into", "is", "it",
-        "may", "me", "might", "must", "my", "no", "not", "of", "on", "or", "our", "shall",
-        "she", "should", "so", "than", "that", "the", "their", "them", "then", "there",
-        "these", "they", "this", "those", "to", "us", "was", "we", "were", "what", "when",
-        "where", "which", "while", "who", "whom", "why", "will", "with", "would", "you",
-        "your",
-    }
-)
-
-
-def build_or_tsquery(query_text: str) -> str:
-    terms: list[str] = []
-    seen: set[str] = set()
-    for token in _LEXICAL_WORD.findall(query_text.casefold()):
-        if token in _LEXICAL_STOPWORDS or token in seen:
-            continue
-        seen.add(token)
-        terms.append(token)
-    return " | ".join(terms)
 
 _DELETE_CLASS_SQL = "DELETE FROM embeddings WHERE class_name = %s"
 
@@ -211,9 +185,6 @@ class PgVectorStore:
         limit: int = 25,
         class_name: str | None = None,
     ) -> list[SearchResult]:
-        or_query = build_or_tsquery(query_text)
-        if not or_query:
-            return []
         types = list(chunk_types or [])
         conditions = ["student_id = %s"]
         filter_params: list[Any] = [student_id]
@@ -223,10 +194,10 @@ class PgVectorStore:
         if class_name:
             conditions.append("class_name = %s")
             filter_params.append(class_name)
-        conditions.append("to_tsvector('simple', text) @@ to_tsquery('simple', %s)")
-        filter_params.append(or_query)
+        conditions.append("to_tsvector('simple', text) @@ websearch_to_tsquery('simple', %s)")
+        filter_params.append(query_text)
         sql = _LEXICAL_SEARCH_HEAD + " AND ".join(conditions) + _LEXICAL_SEARCH_TAIL
-        params: tuple[Any, ...] = (*filter_params, or_query, limit)
+        params: tuple[Any, ...] = (*filter_params, query_text, limit)
 
         with self._conn.cursor() as cur:
             cur.execute(sql, params)
