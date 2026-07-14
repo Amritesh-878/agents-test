@@ -299,6 +299,7 @@ def embed_records(
     embeddings = model.encode(texts, show_progress_bar=True)
     for rec, emb in zip(records, embeddings):
         rec.embedding = emb.tolist()
+        rec.metadata["embedding_model"] = model_name
     return records
 
 
@@ -320,6 +321,7 @@ def embed_records_deduped(
     vector_by_text = {text: emb.tolist() for text, emb in zip(unique_texts, embeddings)}
     for record in records:
         record.embedding = vector_by_text[record.text]
+        record.metadata["embedding_model"] = model_name
     return records
 
 

@@ -8,6 +8,7 @@ from typing import Sequence
 import pytest
 
 from scripts.chat import RetrievalBackend
+from scripts.embed_and_store import DEFAULT_EMBEDDING_MODEL
 from scripts.evaluate import BaselineService, EvalCase, EvalDataset, EvaluationArgs, load_eval_dataset
 from scripts.models.pipeline import SearchResult
 from scripts.retrieval import QueryEmbedder
@@ -116,7 +117,7 @@ class _FakeArray:
 
 
 def make_embedder() -> QueryEmbedder:
-    embedder = QueryEmbedder("dummy-model")
+    embedder = QueryEmbedder(DEFAULT_EMBEDDING_MODEL)
     embedder._model = SimpleNamespace(encode=lambda query: _FakeArray([0.1, 0.2]))
     return embedder
 

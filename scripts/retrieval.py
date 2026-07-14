@@ -270,6 +270,15 @@ def retrieve_from_pgvector(
         warnings.append("No stored chunks found for this student scope.")
 
     fused_results = fuse_search_results(dense_results, lexical_results, top_k)
+    query_model = getattr(active_embedder, "model_name", None) or embedding_model
+    for result in fused_results:
+        stored_model = result.metadata.get("embedding_model", DEFAULT_EMBEDDING_MODEL)
+        if stored_model != query_model:
+            raise RetrievalError(
+                f"Embedding-model mismatch: query embedder is {query_model!r} but a retrieved "
+                f"chunk was embedded with {stored_model!r}. Re-embed the store (transcripts AND "
+                f"materials) with a single model before querying."
+            )
     chunks = [search_result_to_chunk(r, i + 1) for i, r in enumerate(fused_results)]
     for chunk in chunks:
         if chunk.student_id != student_id:

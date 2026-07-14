@@ -5,6 +5,7 @@ from typing import Any, Sequence
 
 from scripts.chat import PromptMessage
 from scripts.demo_backend import answer_for_student, student_summary, top_score
+from scripts.embed_and_store import DEFAULT_EMBEDDING_MODEL
 from scripts.models.pipeline import SearchResult
 from scripts.retrieval import QueryEmbedder, RetrievalResult, RetrievedChunk
 
@@ -18,7 +19,7 @@ class _FakeArray:
 
 
 def make_embedder() -> QueryEmbedder:
-    embedder = QueryEmbedder("dummy-model")
+    embedder = QueryEmbedder(DEFAULT_EMBEDDING_MODEL)
     embedder._model = SimpleNamespace(encode=lambda query: _FakeArray([0.1, 0.2]))
     return embedder
 

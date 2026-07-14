@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from scripts.migrate_db import get_ddl_statements
+from unittest.mock import MagicMock
+
+from scripts.migrate_db import (
+    build_dimension_migration_ddl,
+    build_ddl,
+    get_ddl_statements,
+    run_migration,
+)
 from scripts.models.pipeline import MigrationResult
 
 
@@ -87,3 +94,45 @@ def test_validate_inputs_empty_url() -> None:
 
     with pytest.raises(ValueError, match="Database URL"):
         validate_inputs(MigrateArgs(db_url=""))
+
+
+def test_build_ddl_defaults_to_384() -> None:
+    table_sql = next(s for k, _, s in build_ddl() if k == "table" and "embedding vector" in s)
+    assert "vector(384)" in table_sql
+
+
+def test_build_ddl_uses_requested_dimension() -> None:
+    table_sql = next(s for k, _, s in build_ddl(768) if k == "table" and "embedding vector" in s)
+    assert "vector(768)" in table_sql
+    assert "vector(384)" not in table_sql
+
+
+def test_dimension_migration_alters_column_and_rebuilds_index() -> None:
+    sqls = [s for _, _, s in build_dimension_migration_ddl(768)]
+    assert any("DROP INDEX IF EXISTS idx_embeddings_hnsw" in s for s in sqls)
+    assert any("ALTER TABLE embeddings ALTER COLUMN embedding TYPE vector(768)" in s for s in sqls)
+    assert any("CREATE INDEX IF NOT EXISTS idx_embeddings_hnsw" in s for s in sqls)
+
+
+def _mock_conn() -> tuple[MagicMock, MagicMock]:
+    conn = MagicMock()
+    cur = MagicMock()
+    conn.cursor.return_value.__enter__ = MagicMock(return_value=cur)
+    conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+    return conn, cur
+
+
+def test_run_migration_applies_dimension_migration_when_dim_differs() -> None:
+    conn, cur = _mock_conn()
+    run_migration(conn, embedding_dim=768)
+    executed = " ".join(str(call.args[0]) for call in cur.execute.call_args_list)
+    assert "vector(768)" in executed
+    assert "ALTER COLUMN embedding TYPE vector(768)" in executed
+
+
+def test_run_migration_default_dim_has_no_column_alter() -> None:
+    conn, cur = _mock_conn()
+    run_migration(conn)
+    executed = " ".join(str(call.args[0]) for call in cur.execute.call_args_list)
+    assert "vector(384)" in executed
+    assert "ALTER COLUMN" not in executed

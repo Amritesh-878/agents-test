@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from scripts.embed_and_store import (
     chunk_absent_summary,
     chunk_student_context,
@@ -302,3 +304,70 @@ def test_quality_text_replacement_chars() -> None:
     from scripts.embed_and_store import is_quality_text
     text = "good content but has ��� garbled here and everywhere indeed"
     assert is_quality_text(text) is False
+
+
+def _install_fake_sentence_transformer(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    import types as pytypes
+
+    class _Vec:
+        def __init__(self, data: list[float]) -> None:
+            self._data = data
+
+        def tolist(self) -> list[float]:
+            return self._data
+
+    class FakeModel:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def encode(self, texts: list[str], show_progress_bar: bool = False) -> list[_Vec]:
+            return [_Vec([0.1, 0.2]) for _ in texts]
+
+    module = pytypes.ModuleType("sentence_transformers")
+    module.SentenceTransformer = FakeModel  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+
+
+def test_embed_records_stamps_embedding_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_fake_sentence_transformer(monkeypatch)
+    from scripts.embed_and_store import embed_records
+    from scripts.models.pipeline import EmbeddingRecord
+
+    records = [
+        EmbeddingRecord(
+            id="a",
+            student_id="2301",
+            student_name="Anshi",
+            class_name="CS101",
+            chunk_type="spoken",
+            text="hello world",
+        )
+    ]
+    embed_records(records, "some/model-v2")
+
+    assert records[0].embedding == [0.1, 0.2]
+    assert records[0].metadata["embedding_model"] == "some/model-v2"
+
+
+def test_embed_records_deduped_stamps_every_record(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_fake_sentence_transformer(monkeypatch)
+    from scripts.embed_and_store import embed_records_deduped
+    from scripts.models.pipeline import EmbeddingRecord
+
+    records = [
+        EmbeddingRecord(
+            id="a", student_id="2301", student_name="Anshi", class_name="CS101",
+            chunk_type="material", text="shared material text",
+        ),
+        EmbeddingRecord(
+            id="b", student_id="2302", student_name="Bhagya", class_name="CS101",
+            chunk_type="material", text="shared material text",
+        ),
+    ]
+    embed_records_deduped(records, "paraphrase-multilingual-MiniLM-L12-v2")
+
+    assert all(
+        record.metadata["embedding_model"] == "paraphrase-multilingual-MiniLM-L12-v2"
+        for record in records
+    )

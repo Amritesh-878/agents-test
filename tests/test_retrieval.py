@@ -10,6 +10,7 @@ from scripts.chat import ChatArgs, RetrievalBackend
 from scripts.models.pipeline import SearchResult
 from scripts.retrieval import (
     QueryEmbedder,
+    RetrievalError,
     RetrievalResult,
     format_retrieved_chunk,
     retrieve_from_pgvector,
@@ -247,3 +248,46 @@ def test_hybrid_scopes_both_arms_to_same_chunk_types() -> None:
     _retrieve(store, chunk_types=["spoken", "chat"])
     assert store.dense_chunk_types == ["spoken", "chat"]
     assert store.lexical_chunk_types == ["spoken", "chat"]
+
+
+def _hit_with_model(chunk_id: str, model: str) -> SearchResult:
+    return SearchResult(
+        chunk_id=chunk_id,
+        student_id="2302",
+        student_name="Bhagyashree",
+        class_name="Eco",
+        chunk_type="spoken",
+        text="...",
+        distance=0.2,
+        metadata={"embedding_model": model},
+    )
+
+
+def test_retrieve_raises_on_embedding_model_mismatch() -> None:
+    store = _HybridStore([_hit_with_model("d1", "paraphrase-multilingual-MiniLM-L12-v2")], [])
+    with pytest.raises(RetrievalError, match="Embedding-model mismatch"):
+        _retrieve(store)
+
+
+def test_retrieve_passes_when_stored_model_matches_query() -> None:
+    from scripts.embed_and_store import DEFAULT_EMBEDDING_MODEL
+
+    store = _HybridStore([_hit_with_model("d1", DEFAULT_EMBEDDING_MODEL)], [])
+    result = _retrieve(store)
+    assert [chunk.chunk_id for chunk in result.retrieved_chunks] == ["d1"]
+
+
+def test_retrieve_treats_unstamped_chunk_as_default_model() -> None:
+    dense = [
+        SearchResult(
+            chunk_id="legacy",
+            student_id="2302",
+            student_name="Bhagyashree",
+            class_name="Eco",
+            chunk_type="spoken",
+            text="...",
+            distance=0.2,
+        )
+    ]
+    result = _retrieve(_HybridStore(dense, []))
+    assert [chunk.chunk_id for chunk in result.retrieved_chunks] == ["legacy"]

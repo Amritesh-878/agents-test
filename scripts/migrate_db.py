@@ -14,65 +14,80 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_DDL = [
-    ("extension", "vector", "CREATE EXTENSION IF NOT EXISTS vector"),
-    (
-        "table",
-        "embeddings",
-        """CREATE TABLE IF NOT EXISTS embeddings (
+DEFAULT_EMBEDDING_DIM = 384
+
+_HNSW_INDEX_SQL = """CREATE INDEX IF NOT EXISTS idx_embeddings_hnsw
+    ON embeddings USING hnsw (embedding vector_cosine_ops)
+    WITH (m = 16, ef_construction = 64)"""
+
+
+def build_ddl(embedding_dim: int = DEFAULT_EMBEDDING_DIM) -> list[tuple[str, str, str]]:
+    return [
+        ("extension", "vector", "CREATE EXTENSION IF NOT EXISTS vector"),
+        (
+            "table",
+            "embeddings",
+            f"""CREATE TABLE IF NOT EXISTS embeddings (
     id TEXT PRIMARY KEY,
     student_id TEXT NOT NULL,
     student_name TEXT NOT NULL,
     class_name TEXT NOT NULL,
     chunk_type TEXT NOT NULL,
     text TEXT NOT NULL,
-    embedding vector(384),
+    embedding vector({embedding_dim}),
     start_time FLOAT,
     end_time FLOAT,
     speaker TEXT,
     metadata JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW()
 )""",
-    ),
-    (
-        "index",
-        "idx_embeddings_student_class",
-        "CREATE INDEX IF NOT EXISTS idx_embeddings_student_class ON embeddings (student_id, class_name)",
-    ),
-    (
-        "table",
-        "processed_files",
-        """CREATE TABLE IF NOT EXISTS processed_files (
+        ),
+        (
+            "index",
+            "idx_embeddings_student_class",
+            "CREATE INDEX IF NOT EXISTS idx_embeddings_student_class ON embeddings (student_id, class_name)",
+        ),
+        (
+            "table",
+            "processed_files",
+            """CREATE TABLE IF NOT EXISTS processed_files (
     drive_file_id TEXT PRIMARY KEY,
     class_name TEXT NOT NULL,
     processed_at TIMESTAMPTZ DEFAULT NOW()
 )""",
-    ),
-    (
-        "index",
-        "idx_embeddings_hnsw",
-        """CREATE INDEX IF NOT EXISTS idx_embeddings_hnsw
-    ON embeddings USING hnsw (embedding vector_cosine_ops)
-    WITH (m = 16, ef_construction = 64)""",
-    ),
-    (
-        "index",
-        "idx_embeddings_text_fts",
-        "CREATE INDEX IF NOT EXISTS idx_embeddings_text_fts "
-        "ON embeddings USING gin (to_tsvector('simple', text))",
-    ),
-    ("extension", "pg_trgm", "CREATE EXTENSION IF NOT EXISTS pg_trgm"),
-    (
-        "index",
-        "idx_embeddings_text_trgm",
-        "CREATE INDEX IF NOT EXISTS idx_embeddings_text_trgm "
-        "ON embeddings USING gin (text gin_trgm_ops)",
-    ),
-]
+        ),
+        ("index", "idx_embeddings_hnsw", _HNSW_INDEX_SQL),
+        (
+            "index",
+            "idx_embeddings_text_fts",
+            "CREATE INDEX IF NOT EXISTS idx_embeddings_text_fts "
+            "ON embeddings USING gin (to_tsvector('simple', text))",
+        ),
+        ("extension", "pg_trgm", "CREATE EXTENSION IF NOT EXISTS pg_trgm"),
+        (
+            "index",
+            "idx_embeddings_text_trgm",
+            "CREATE INDEX IF NOT EXISTS idx_embeddings_text_trgm "
+            "ON embeddings USING gin (text gin_trgm_ops)",
+        ),
+    ]
+
+
+def build_dimension_migration_ddl(embedding_dim: int) -> list[tuple[str, str, str]]:
+    return [
+        ("index", "idx_embeddings_hnsw", "DROP INDEX IF EXISTS idx_embeddings_hnsw"),
+        (
+            "column",
+            "embedding",
+            f"ALTER TABLE embeddings ALTER COLUMN embedding TYPE vector({embedding_dim})",
+        ),
+        ("index", "idx_embeddings_hnsw", _HNSW_INDEX_SQL),
+    ]
 
 
 class MigrateArgs(BaseModel):
     db_url: str
+    embedding_dim: int = DEFAULT_EMBEDDING_DIM
 
 
 def parse_args(argv: Sequence[str] | None = None) -> MigrateArgs:
@@ -85,8 +100,19 @@ def parse_args(argv: Sequence[str] | None = None) -> MigrateArgs:
         default=None,
         help="PostgreSQL connection URL. Falls back to DATABASE_URL env var.",
     )
+    parser.add_argument(
+        "--embedding-dim",
+        dest="embedding_dim",
+        type=int,
+        default=DEFAULT_EMBEDDING_DIM,
+        help="pgvector column dimension. Set to the candidate model's dim (e.g. 768) to "
+        "migrate the existing column; the store must be cleared and re-embedded at that dim.",
+    )
     namespace = parser.parse_args(argv)
-    return MigrateArgs(db_url=resolve_db_url(namespace.db_url))
+    return MigrateArgs(
+        db_url=resolve_db_url(namespace.db_url),
+        embedding_dim=namespace.embedding_dim,
+    )
 
 
 def validate_inputs(args: MigrateArgs) -> None:
@@ -96,13 +122,19 @@ def validate_inputs(args: MigrateArgs) -> None:
         )
 
 
-def run_migration(conn: psycopg.Connection[Any]) -> MigrationResult:
+def run_migration(
+    conn: psycopg.Connection[Any], embedding_dim: int = DEFAULT_EMBEDDING_DIM
+) -> MigrationResult:
     extensions_created: list[str] = []
     tables_created: list[str] = []
     indexes_created: list[str] = []
 
+    statements = list(build_ddl(embedding_dim))
+    if embedding_dim != DEFAULT_EMBEDDING_DIM:
+        statements.extend(build_dimension_migration_ddl(embedding_dim))
+
     with conn.cursor() as cur:
-        for kind, name, sql in _DDL:
+        for kind, name, sql in statements:
             logger.info("Running: %s %s", kind, name)
             cur.execute(sql)
             if kind == "extension":
@@ -121,8 +153,8 @@ def run_migration(conn: psycopg.Connection[Any]) -> MigrationResult:
     )
 
 
-def get_ddl_statements() -> list[tuple[str, str, str]]:
-    return list(_DDL)
+def get_ddl_statements(embedding_dim: int = DEFAULT_EMBEDDING_DIM) -> list[tuple[str, str, str]]:
+    return build_ddl(embedding_dim)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -144,7 +176,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         logger.error("Database connection failed: %s", exc)
         raise SystemExit(1) from exc
 
-    result = run_migration(conn)
+    result = run_migration(conn, args.embedding_dim)
     conn.close()
 
     print(f"Migration complete: extensions={result.extensions_created} "
