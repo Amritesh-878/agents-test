@@ -53,6 +53,7 @@ class RetrievedChunk(BaseModel):
     source_segment_ids: list[str] = Field(default_factory=list)
     source_segment_indices: list[int] = Field(default_factory=list)
     source_segment_refs: list[SourceSegmentReference] = Field(default_factory=list)
+    source_file: str | None = None
     source_speaker: str = ""
     start: float = 0.0
     student_email: str | None = None
@@ -141,6 +142,7 @@ def search_result_to_chunk(result: SearchResult, rank: int) -> RetrievedChunk:
         end=result.end_time or 0.0,
         rank=rank,
         score=distance_to_score(result.distance),
+        source_file=meta.get("source_file"),
         source_speaker=result.speaker
         or (result.student_name if result.chunk_type == "spoken" else "teacher"),
         start=result.start_time or 0.0,
@@ -157,10 +159,11 @@ def search_result_to_chunk(result: SearchResult, rank: int) -> RetrievedChunk:
 
 def format_retrieved_chunk(chunk: RetrievedChunk) -> str:
     score_text = "n/a" if chunk.score is None else f"{chunk.score:.6f}"
+    source_text = f" source={chunk.source_file}" if chunk.source_file else ""
     return (
         f"[{chunk.rank}] id={chunk.chunk_id[:12]} type={chunk.chunk_type} "
         f"span={chunk.start:.1f}-{chunk.end:.1f}s score={score_text}\n"
-        f"speaker={chunk.source_speaker} student={chunk.student_name}\n"
+        f"speaker={chunk.source_speaker} student={chunk.student_name}{source_text}\n"
         f"text={chunk.text}"
     )
 

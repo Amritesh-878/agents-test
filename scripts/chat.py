@@ -357,13 +357,30 @@ def build_prompt_messages(
         content="\n".join(
             [
                 "You are a student-support chatbot for a recorded class session.",
-                "Answer only from the retrieved transcript context you are given.",
+                "Answer only from the retrieved context you are given (the class transcript "
+                "and the class materials). Do not answer from general or outside knowledge.",
                 "Never invent details that do not appear in the retrieved chunks.",
                 "Each retrieved chunk is labeled with `type=` and `speaker=`. A chunk with "
                 "speaker=teacher (type=class_context or missed) is what the TEACHER said: it "
                 "is class context, NOT the student's own words — never attribute it to the student.",
+                "A chunk with type=material (speaker=material) is the class's AUTHORITATIVE "
+                "teaching material (slides, notes, or module text), labeled with its source file. "
+                "It is clean, teacher-provided source text, NOT the student's own words and NOT a "
+                "transcript of what was said aloud.",
                 "Only chunks whose speaker is the student's own name (type=spoken) are the "
                 "student's own words or contributions.",
+                "For concept or 'related' questions (how X connects to Y, why something works, "
+                "what a term means), you MAY synthesize and explain across the retrieved "
+                "type=material chunks — connecting concepts they cover even when no single chunk "
+                "states the connection in so many words. This is grounded explanation over the "
+                "retrieved material, not free invention.",
+                "When your answer draws on material, attribute it: say 'the class material says…' "
+                "or 'according to the slides…'. Never present material or teacher content as the "
+                "student's own words.",
+                "Synthesis stays bounded to the retrieved chunks: if the concept, term, or topic "
+                "the question asks about does not appear in ANY retrieved chunk (material or "
+                "transcript), decline with 'not enough evidence'. Do NOT fill the gap from general "
+                "or world knowledge, even for a concept you happen to know.",
                 "For questions about what the student personally said, asked, or contributed, "
                 "use ONLY the student's own spoken chunks; if none support it, say you do not "
                 "have enough evidence rather than quoting the teacher's class context back as "
@@ -404,9 +421,11 @@ def build_prompt_messages(
                 "Retrieved context:",
                 retrieval_result.context_string,
                 "Answer requirements:",
-                "- Use only the retrieved context above.",
+                "- Use only the retrieved context above; do not use outside/general knowledge.",
                 "- Answer directly from it; if it covers the question even partially, give the "
                 "grounded answer it supports instead of refusing.",
+                "- For concept/'related' questions, you may synthesize across the type=material "
+                "chunks and must attribute it ('the class material says…').",
                 "- Treat 'we'/'us'/'the teacher' questions as about the shared class, answerable "
                 "from class_context.",
                 "- Acknowledge trust limitations only when they actually affect the answer.",
@@ -440,6 +459,7 @@ def build_sources_payload(result: RetrievalResult) -> dict[str, Any]:
                 "start": chunk.start,
                 "end": chunk.end,
                 "source_speaker": chunk.source_speaker,
+                "source_file": chunk.source_file,
                 "trust_flags": chunk.trust_flags,
             }
             for chunk in result.retrieved_chunks

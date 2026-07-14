@@ -279,6 +279,111 @@ def test_build_prompt_messages_teaches_speaker_attribution() -> None:
     assert "type=spoken" in system
 
 
+def _result_with_material(question: str) -> RetrievalResult:
+    from scripts.retrieval import RetrievedChunk
+
+    material_chunk = RetrievedChunk(
+        chunk_id="m1",
+        chunk_type="material",
+        rank=1,
+        source_speaker="material",
+        source_file="supply_deck.pptx",
+        student_id="2302",
+        student_name="Bhagyashree",
+        text="The determinants of supply shift the whole supply curve.",
+    )
+    return RetrievalResult(
+        context_string="[1] type=material source=supply_deck.pptx\ntext=determinants shift supply",
+        embedding_model="m",
+        query=question,
+        result_count=1,
+        retrieved_chunks=[material_chunk],
+        student_id="2302",
+        top_k=8,
+    )
+
+
+def test_system_prompt_teaches_material_semantics_and_no_world_knowledge() -> None:
+    from scripts.chat import build_prompt_messages
+
+    messages = build_prompt_messages(
+        student_id="2302",
+        student_name="Bhagyashree",
+        question="How are the determinants connected to the supply function?",
+        retrieval_result=_result_with_material("concept q"),
+        history_turns=[],
+        max_history_turns=0,
+    )
+    system = messages[0].content.casefold()
+    # Material is named as authoritative and may be synthesized for concept questions.
+    assert "type=material" in system
+    assert "authoritative" in system
+    assert "synthesize" in system
+    # The no-world-knowledge binding must be explicit.
+    assert "world knowledge" in system or "outside knowledge" in system
+    # Attribution requirement present.
+    assert "class material" in system
+
+
+def test_prompt_carries_material_chunks_into_user_context() -> None:
+    from scripts.chat import build_prompt_messages
+
+    result = _result_with_material("How do determinants relate to supply?")
+    messages = build_prompt_messages(
+        student_id="2302",
+        student_name="Bhagyashree",
+        question="How do determinants relate to supply?",
+        retrieval_result=result,
+        history_turns=[],
+        max_history_turns=0,
+    )
+    user = messages[-1].content
+    assert "type=material" in user
+    assert "supply_deck.pptx" in user
+
+
+class _AttributingBackend:
+    """Fake LLM that echoes an attributed answer only if material is in the prompt."""
+
+    def generate(self, *, messages: Sequence[object], model: str) -> str:
+        joined = "\n".join(getattr(m, "content", "") for m in messages)
+        if "type=material" in joined:
+            return "According to the class material, the determinants shift the supply curve."
+        return "I do not have enough evidence."
+
+
+def test_concept_question_produces_attributed_answer(tmp_path: Path) -> None:
+    class _MaterialBackend:
+        def retrieve(self, args: ChatArgs, question: str) -> RetrievalResult:
+            return _result_with_material(question)
+
+    service = ChatService(
+        make_args(tmp_path),
+        retrieval_backend=_MaterialBackend(),
+        llm_backend=_AttributingBackend(),
+    )
+    turn = service.ask_question("How are the determinants connected to the supply function?")
+    assert turn.answer_source == "groq"
+    assert "class material" in turn.answer.casefold()
+
+
+def test_no_support_question_refuses_via_fallback(tmp_path: Path) -> None:
+    # result_count == 0 → no LLM call, deterministic refusal fallback (no world knowledge).
+    service = ChatService(make_args(tmp_path), retrieval_backend=_RecordingBackend())
+    turn = service.ask_question("What is the capital of France?")
+    assert turn.answer_source == "fallback"
+    assert "not have enough" in turn.answer.casefold()
+
+
+def test_self_referential_question_excludes_material(tmp_path: Path) -> None:
+    store = _CapturingStore()
+    backend = RetrievalBackend(store=store, embedder=_FixedEmbedder())  # type: ignore[arg-type]
+    backend.retrieve(make_args(tmp_path), "What did I say about determinants today?")
+    # Self-referential scope is the student's own words only — material must not appear.
+    assert store.search_chunk_types == ["spoken", "chat"]
+    assert "material" not in (store.search_chunk_types or [])
+
+
 class _CapturingStore:
     def __init__(self) -> None:
         self.search_chunk_types: list[str] | None = None

@@ -8,7 +8,11 @@ import pytest
 
 from scripts.chat import ChatArgs, RetrievalBackend
 from scripts.models.pipeline import SearchResult
-from scripts.retrieval import QueryEmbedder, search_result_to_chunk
+from scripts.retrieval import (
+    QueryEmbedder,
+    format_retrieved_chunk,
+    search_result_to_chunk,
+)
 
 
 class _FakeArray:
@@ -93,16 +97,22 @@ def test_retrieval_backend_does_not_close_injected_store() -> None:
     assert store.closed is False  # caller owns an injected store
 
 
-def _result(chunk_type: str, speaker: str | None) -> SearchResult:
+def _result(
+    chunk_type: str,
+    speaker: str | None,
+    metadata: dict[str, Any] | None = None,
+    text: str = "...",
+) -> SearchResult:
     return SearchResult(
         chunk_id="c1",
         student_id="2302",
         student_name="Bhagyashree",
         class_name="Eco",
         chunk_type=chunk_type,
-        text="...",
+        text=text,
         distance=0.1,
         speaker=speaker,
+        metadata=metadata or {},
     )
 
 
@@ -117,3 +127,30 @@ def test_spoken_speaker_preserved_else_student_name() -> None:
     assert search_result_to_chunk(_result("spoken", "Bhagyashree"), 1).source_speaker == "Bhagyashree"
     # spoken with no stored speaker still falls back to the student (their own words)
     assert search_result_to_chunk(_result("spoken", None), 1).source_speaker == "Bhagyashree"
+
+
+def test_material_chunk_surfaces_provenance_and_speaker() -> None:
+    # Material chunks carry speaker="material" (never labeled "teacher") and their source
+    # filename must flow from metadata into the chunk so the prompt can attribute it.
+    result = _result("material", "material", metadata={"source_file": "supply_deck.pptx"})
+    chunk = search_result_to_chunk(result, 1)
+    assert chunk.chunk_type == "material"
+    assert chunk.source_speaker == "material"
+    assert chunk.source_file == "supply_deck.pptx"
+
+
+def test_format_retrieved_chunk_shows_material_source_file() -> None:
+    result = _result(
+        "material",
+        "material",
+        metadata={"source_file": "supply_deck.pptx"},
+        text="determinants shift the supply curve",
+    )
+    rendered = format_retrieved_chunk(search_result_to_chunk(result, 1))
+    assert "type=material" in rendered
+    assert "source=supply_deck.pptx" in rendered
+
+
+def test_format_retrieved_chunk_omits_source_when_absent() -> None:
+    rendered = format_retrieved_chunk(search_result_to_chunk(_result("spoken", "Bhagyashree"), 1))
+    assert "source=" not in rendered
