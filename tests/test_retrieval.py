@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 import types
-from typing import Any
+from typing import Any, Sequence
 
 import pytest
 
@@ -16,6 +16,7 @@ from scripts.retrieval import (
     retrieve_from_pgvector,
     search_result_to_chunk,
 )
+from scripts.utils.reranker import NoOpReranker
 
 
 class _FakeArray:
@@ -221,7 +222,50 @@ def _retrieve(store: _HybridStore, chunk_types: list[str] | None = None) -> Retr
         db_url="postgresql://localhost/db",
         store=store,
         embedder=_FixedEmbedder(),  # type: ignore[arg-type]
+        reranker=NoOpReranker(),
     )
+
+
+class _FakeReranker:
+    def __init__(self, order: list[str]) -> None:
+        self._order = order
+
+    def rerank(self, query: str, candidates: Sequence[SearchResult]) -> list[SearchResult]:
+        by_id = {candidate.chunk_id: candidate for candidate in candidates}
+        promoted = [by_id[chunk_id] for chunk_id in self._order if chunk_id in by_id]
+        listed = set(self._order)
+        remainder = [c for c in candidates if c.chunk_id not in listed]
+        return promoted + remainder
+
+
+def test_reranker_reorders_pool_and_truncates_to_final_top_k() -> None:
+    store = _HybridStore([_hit("d1", 0.2), _hit("d2", 0.3), _hit("d3", 0.4)], [])
+    result = retrieve_from_pgvector(
+        student_id="2302",
+        query="q",
+        top_k=2,
+        db_url="postgresql://localhost/db",
+        store=store,
+        embedder=_FixedEmbedder(),  # type: ignore[arg-type]
+        reranker=_FakeReranker(["d3", "d1", "d2"]),
+    )
+    assert [chunk.chunk_id for chunk in result.retrieved_chunks] == ["d3", "d1"]
+
+
+def test_reranker_output_is_subset_of_fused_pool() -> None:
+    store = _HybridStore([_hit("d1", 0.2), _hit("d2", 0.3)], [_hit("lex", None)])
+    result = retrieve_from_pgvector(
+        student_id="2302",
+        query="q",
+        top_k=5,
+        db_url="postgresql://localhost/db",
+        store=store,
+        embedder=_FixedEmbedder(),  # type: ignore[arg-type]
+        reranker=_FakeReranker(["lex", "d2", "d1"]),
+    )
+    ids = {chunk.chunk_id for chunk in result.retrieved_chunks}
+    assert ids <= {"d1", "d2", "lex"}
+    assert ids == {"d1", "d2", "lex"}
 
 
 def test_hybrid_surfaces_lexical_only_hit() -> None:

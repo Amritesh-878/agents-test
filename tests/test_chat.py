@@ -434,15 +434,19 @@ def test_retrieval_backend_scopes_self_referential_to_spoken(tmp_path: Path) -> 
     assert store.lexical_chunk_types == []
 
 
-def test_retrieval_backend_widens_top_k_for_general_questions(tmp_path: Path) -> None:
+def test_retrieval_backend_keeps_final_top_k_tight_with_wide_candidate_pool(tmp_path: Path) -> None:
     from scripts.chat import GENERAL_QUESTION_TOP_K
+    from scripts.retrieval import HYBRID_POOL_SIZE
 
     store = _CapturingStore()
     backend = RetrievalBackend(store=store, embedder=_FixedEmbedder())  # type: ignore[arg-type]
     args = make_args(tmp_path)  # base top_k defaults to 5
 
     general = backend.retrieve(args, "What did we cover in class today?")
-    assert general.top_k == GENERAL_QUESTION_TOP_K
+    assert general.top_k == args.top_k
+    assert store.search_top_k is not None
+    assert store.search_top_k >= GENERAL_QUESTION_TOP_K
+    assert store.search_top_k >= HYBRID_POOL_SIZE
 
     self_referential = backend.retrieve(args, "What did I say during class today?")
     assert self_referential.top_k == args.top_k

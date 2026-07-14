@@ -536,7 +536,8 @@ class RetrievalBackend:
         return retrieve_from_pgvector(
             student_id=args.student_id,
             query=question,
-            top_k=effective_top_k(question, args.top_k),
+            top_k=args.top_k,
+            candidate_pool_size=effective_top_k(question, args.top_k),
             chunk_types=select_retrieval_chunk_types(question, args.chunk_types),
             class_name=args.class_name,
             db_url=args.db_url,

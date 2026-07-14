@@ -20,6 +20,7 @@ from scripts.models.pipeline import SearchResult
 from scripts.utils.chunker import ChunkType, SourceSegmentReference
 from scripts.utils.db_url import resolve_db_url
 from scripts.utils.fusion import reciprocal_rank_fusion
+from scripts.utils.reranker import DEFAULT_RERANKER, Reranker, make_reranker
 
 logger = logging.getLogger(__name__)
 
@@ -233,12 +234,14 @@ def retrieve_from_pgvector(
     student_id: str,
     query: str,
     top_k: int = 5,
+    candidate_pool_size: int | None = None,
     chunk_types: Sequence[ChunkType] | None = None,
     class_name: str | None = None,
     db_url: str,
     embedding_model: str = DEFAULT_EMBEDDING_MODEL,
     store: Any | None = None,
     embedder: QueryEmbedder | None = None,
+    reranker: Reranker | None = None,
 ) -> RetrievalResult:
     from scripts.utils.pg_store import PgVectorStore, connect_pg_store
 
@@ -248,7 +251,9 @@ def retrieve_from_pgvector(
     pg_store: PgVectorStore = store or connect_pg_store(db_url)
     close_after = store is None
     active_embedder = embedder if embedder is not None else QueryEmbedder(embedding_model)
-    pool_size = max(top_k, HYBRID_POOL_SIZE)
+    active_reranker = reranker if reranker is not None else make_reranker(DEFAULT_RERANKER)
+    pool_governor = candidate_pool_size if candidate_pool_size is not None else top_k
+    pool_size = max(pool_governor, HYBRID_POOL_SIZE)
 
     try:
         query_embedding = active_embedder.encode(query)
@@ -269,9 +274,9 @@ def retrieve_from_pgvector(
     if not dense_results and not lexical_results:
         warnings.append("No stored chunks found for this student scope.")
 
-    fused_results = fuse_search_results(dense_results, lexical_results, top_k)
+    fused_pool = fuse_search_results(dense_results, lexical_results, pool_size)
     query_model = getattr(active_embedder, "model_name", None) or embedding_model
-    for result in fused_results:
+    for result in fused_pool:
         stored_model = result.metadata.get("embedding_model", DEFAULT_EMBEDDING_MODEL)
         if stored_model != query_model:
             raise RetrievalError(
@@ -279,7 +284,8 @@ def retrieve_from_pgvector(
                 f"chunk was embedded with {stored_model!r}. Re-embed the store (transcripts AND "
                 f"materials) with a single model before querying."
             )
-    chunks = [search_result_to_chunk(r, i + 1) for i, r in enumerate(fused_results)]
+    final_results = active_reranker.rerank(query, fused_pool)[:top_k]
+    chunks = [search_result_to_chunk(r, i + 1) for i, r in enumerate(final_results)]
     for chunk in chunks:
         if chunk.student_id != student_id:
             raise RetrievalError(f"Cross-student leakage detected: {chunk.student_id}")

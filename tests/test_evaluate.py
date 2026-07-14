@@ -12,6 +12,7 @@ from scripts.embed_and_store import DEFAULT_EMBEDDING_MODEL
 from scripts.evaluate import BaselineService, EvalCase, EvalDataset, EvaluationArgs, load_eval_dataset
 from scripts.models.pipeline import SearchResult
 from scripts.retrieval import QueryEmbedder
+from scripts.utils.reranker import NoOpReranker
 
 EVAL_QA_PATH = Path(__file__).resolve().parents[1] / "data" / "eval_qa.json"
 
@@ -228,6 +229,7 @@ def test_baseline_service_scores_cases_without_llm(
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.setattr("scripts.evaluate.GroqChatBackend", boom)
     monkeypatch.setattr("scripts.evaluate.load_groq_api_key", boom)
+    monkeypatch.setattr("scripts.retrieval.make_reranker", lambda *args, **kwargs: NoOpReranker())
 
     eval_file = write_eval_file(tmp_path, BASELINE_CASES)
     store = make_baseline_store()
@@ -268,6 +270,7 @@ def test_baseline_snapshot_files_are_written(
 ) -> None:
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.setattr("scripts.evaluate.GroqChatBackend", boom)
+    monkeypatch.setattr("scripts.retrieval.make_reranker", lambda *args, **kwargs: NoOpReranker())
 
     eval_file = write_eval_file(tmp_path, BASELINE_CASES[:1])
     store = make_baseline_store()
@@ -298,6 +301,7 @@ def test_main_baseline_flag_routes_retrieval_only(
     store = make_baseline_store()
     monkeypatch.setattr("scripts.evaluate.connect_pg_store", lambda db_url: store)
     monkeypatch.setattr("scripts.chat.QueryEmbedder", lambda *a, **k: make_embedder())
+    monkeypatch.setattr("scripts.retrieval.make_reranker", lambda *a, **k: NoOpReranker())
 
     eval_file = write_eval_file(tmp_path, BASELINE_CASES)
     main(

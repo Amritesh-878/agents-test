@@ -129,7 +129,8 @@ def answer_for_student(
     retrieval_result = retrieve_from_pgvector(
         student_id=student_id,
         query=question,
-        top_k=effective_top_k(question, top_k),
+        top_k=top_k,
+        candidate_pool_size=effective_top_k(question, top_k),
         chunk_types=select_retrieval_chunk_types(question, ()),
         class_name=class_name,
         db_url=db_url,
