@@ -33,6 +33,8 @@ class TranscribeArgs(BaseModel):
     single_language: str | None = None
     allow_cpu: bool = False
     gate_monolingual: bool = False
+    vad_filter: bool = False
+    beam_size: int = 5
 
 
 def parse_args(argv: Sequence[str] | None = None) -> TranscribeArgs:
@@ -80,6 +82,19 @@ def parse_args(argv: Sequence[str] | None = None) -> TranscribeArgs:
             "track is confidently monolingual (multi-probe language ID). Default off; "
             "validate on >2 tracks before enabling for a corpus backfill."
         ),
+    )
+    parser.add_argument(
+        "--vad-filter",
+        action="store_true",
+        dest="vad_filter",
+        help="Opt-in: skip silence via faster-whisper VAD (default off).",
+    )
+    parser.add_argument(
+        "--beam-size",
+        type=int,
+        default=5,
+        dest="beam_size",
+        help="Decode beam size (default 5); pass 1 for ~2x faster decode.",
     )
     namespace = parser.parse_args(argv)
     return TranscribeArgs.model_validate(vars(namespace))
@@ -336,6 +351,8 @@ def run_whisperx_segments(
     model_name: str,
     device: str,
     compute_type: str,
+    vad_filter: bool = False,
+    beam_size: int = 5,
 ) -> list[TranscriptSegment]:
     # Use WhisperModel directly — bypasses VAD bootstrap URL (HTTP 301) and avoids
     # loading alignment models that have Wav2Vec2Processor API breaks in newer transformers.
@@ -345,7 +362,9 @@ def run_whisperx_segments(
 
     logger.info("Transcribing with language=%s model=%s device=%s", language, model_name, device)
     asr_model = whisperx.asr.WhisperModel(model_name, device=device, compute_type=compute_type)
-    segments_gen, _info = asr_model.transcribe(audio, language=language, word_timestamps=True)
+    segments_gen, _info = asr_model.transcribe(
+        audio, language=language, word_timestamps=True, vad_filter=vad_filter, beam_size=beam_size
+    )
     raw_segments = list(segments_gen)
     _release_gpu(asr_model)
     return _segments_from_raw(raw_segments)
@@ -374,6 +393,7 @@ def detect_track_language(
     prob_threshold: float = 0.85,
     window_seconds: float = 30.0,
     sample_rate: int = 16000,
+    vad_filter: bool = False,
 ) -> str | None:
     """Conservative multi-probe language ID over the whole track (opt-in gate).
 
@@ -396,7 +416,9 @@ def detect_track_language(
         probes: list[tuple[str, float]] = []
         for off in offsets:
             clip = audio[off : off + window]
-            _segs, info = asr_model.transcribe(clip, language=None, word_timestamps=False)
+            _segs, info = asr_model.transcribe(
+                clip, language=None, word_timestamps=False, vad_filter=vad_filter
+            )
             lang = str(getattr(info, "language", "") or "")
             prob = float(getattr(info, "language_probability", 0.0) or 0.0)
             probes.append((lang, prob))
@@ -455,18 +477,32 @@ def transcribe_audio(
     audio: Any = _load_wav(wav_path)
 
     if args.single_language:
-        segs = run_whisperx_segments(audio, args.single_language, args.model, device, compute_type)
+        segs = run_whisperx_segments(
+            audio, args.single_language, args.model, device, compute_type,
+            vad_filter=args.vad_filter, beam_size=args.beam_size,
+        )
         merged_words = _words_from_single_language(segs, args.single_language)
     else:
         gated_language: str | None = None
         if args.gate_monolingual:
-            gated_language = detect_track_language(audio, args.model, device, compute_type)
+            gated_language = detect_track_language(
+                audio, args.model, device, compute_type, vad_filter=args.vad_filter
+            )
         if gated_language is not None:
-            segs = run_whisperx_segments(audio, gated_language, args.model, device, compute_type)
+            segs = run_whisperx_segments(
+                audio, gated_language, args.model, device, compute_type,
+                vad_filter=args.vad_filter, beam_size=args.beam_size,
+            )
             merged_words = _words_from_single_language(segs, gated_language)
         else:
-            hi_segs = run_whisperx_segments(audio, "hi", args.model, device, compute_type)
-            en_segs = run_whisperx_segments(audio, "en", args.model, device, compute_type)
+            hi_segs = run_whisperx_segments(
+                audio, "hi", args.model, device, compute_type,
+                vad_filter=args.vad_filter, beam_size=args.beam_size,
+            )
+            en_segs = run_whisperx_segments(
+                audio, "en", args.model, device, compute_type,
+                vad_filter=args.vad_filter, beam_size=args.beam_size,
+            )
             merged_words = select_language_per_segment(hi_segs, en_segs)
 
     doc = build_transcript_document(merged_words, args.model)
@@ -483,6 +519,28 @@ def transcribe_audio(
         en_avg_score=en_avg,
         dominant_language=dominant,
     )
+
+
+def _transcribe_track(
+    audio_path: Path,
+    out_path: Path,
+    wav_dir: Path,
+    args: TranscribeArgs,
+    *,
+    student_name: str | None = None,
+    roll_no: str | None = None,
+    is_teacher: bool = False,
+) -> bool:
+    try:
+        result = transcribe_audio(
+            audio_path, wav_dir, args,
+            student_name=student_name, roll_no=roll_no, is_teacher=is_teacher,
+        )
+    except Exception as exc:
+        logger.warning("Skipping track %s: transcription failed: %s", audio_path.name, exc)
+        return False
+    out_path.write_text(result.model_dump_json(indent=2), encoding="utf-8")
+    return True
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -505,23 +563,22 @@ def main(argv: Sequence[str] | None = None) -> None:
     try:
         if manifest.session_mp4 is not None:
             logger.info("Transcribing session MP4: %s", manifest.session_mp4.name)
-            result = transcribe_audio(manifest.session_mp4, wav_dir, args)
-            out = args.output_dir / "session.json"
-            out.write_text(result.model_dump_json(indent=2), encoding="utf-8")
-            processed += 1
+            if _transcribe_track(
+                manifest.session_mp4, args.output_dir / "session.json", wav_dir, args
+            ):
+                processed += 1
 
         for audio_file in manifest.per_student_m4as:
             logger.info("Transcribing per-student M4A: %s", audio_file.filename)
-            result = transcribe_audio(
+            if _transcribe_track(
                 audio_file.path,
+                args.output_dir / f"{audio_file.filename}.json",
                 wav_dir,
                 args,
                 student_name=audio_file.display_name,
                 roll_no=audio_file.roll_no_4digit,
-            )
-            out = args.output_dir / f"{audio_file.filename}.json"
-            out.write_text(result.model_dump_json(indent=2), encoding="utf-8")
-            processed += 1
+            ):
+                processed += 1
     finally:
         # The WAV cache is purely intermediate; drop it so it doesn't grow unbounded.
         shutil.rmtree(wav_dir, ignore_errors=True)

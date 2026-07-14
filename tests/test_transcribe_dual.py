@@ -1,20 +1,35 @@
 from __future__ import annotations
 
+import logging
+import sys
+import types
 from pathlib import Path
+from typing import Any, Iterator
+from unittest.mock import MagicMock
 
 import pytest
 
 from scripts.extract_audio import validate_inputs as ea_validate_inputs
 from scripts.extract_audio import ExtractionArgs
-from scripts.models.transcript import DualLanguageWord, TranscriptSegment, TranscriptWord
+from scripts.models.identity import PerStudentAudioFile, ZoomFileManifest
+from scripts.models.transcript import (
+    DualLanguageWord,
+    PerStudentTranscript,
+    TranscriptDocument,
+    TranscriptSegment,
+    TranscriptWord,
+)
 from scripts.transcribe_dual import (
     TranscribeArgs,
     _decide_gate_language,
     _segments_from_raw,
     build_transcript_document,
     compute_language_stats,
+    main,
+    parse_args,
     resegment,
     select_language_per_segment,
+    transcribe_audio,
     validate_inputs,
 )
 
@@ -351,3 +366,154 @@ def test_extract_audio_rejects_mp3(tmp_path: Path) -> None:
     args = ExtractionArgs(input_path=f, output_path=tmp_path / "out.wav")
     with pytest.raises(ValueError, match=r"\.(mp4|m4a)"):
         ea_validate_inputs(args)
+
+
+class _FakeInfo:
+    def __init__(self, language: str = "en", probability: float = 0.99) -> None:
+        self.language = language
+        self.language_probability = probability
+
+
+@pytest.fixture
+def whisper_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
+
+    class _Model:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def transcribe(self, audio: Any, **kwargs: Any) -> tuple[Iterator[Any], _FakeInfo]:
+            calls.append(kwargs)
+            return iter([]), _FakeInfo()
+
+    fake_asr = types.ModuleType("whisperx.asr")
+    setattr(fake_asr, "WhisperModel", _Model)
+    fake_whisperx = types.ModuleType("whisperx")
+    setattr(fake_whisperx, "asr", fake_asr)
+    monkeypatch.setitem(sys.modules, "whisperx", fake_whisperx)
+    monkeypatch.setitem(sys.modules, "whisperx.asr", fake_asr)
+    return calls
+
+
+@pytest.fixture
+def stub_audio_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "scripts.transcribe_dual.convert_to_wav", lambda audio_path, wav_dir: wav_dir / "x.wav"
+    )
+    monkeypatch.setattr("scripts.transcribe_dual._load_wav", lambda wav_path: [0.0] * 16000)
+    monkeypatch.setattr("scripts.transcribe_dual._get_device", lambda allow_cpu: ("cpu", "int8"))
+
+
+def _args(tmp_path: Path, **overrides: Any) -> TranscribeArgs:
+    return TranscribeArgs(
+        manifest_path=tmp_path / "manifest.json", output_dir=tmp_path / "out", **overrides
+    )
+
+
+def test_vad_filter_reaches_transcribe(
+    tmp_path: Path, whisper_calls: list[dict[str, Any]], stub_audio_env: None
+) -> None:
+    transcribe_audio(
+        tmp_path / "a.m4a", tmp_path / "wav", _args(tmp_path, single_language="en", vad_filter=True)
+    )
+    assert whisper_calls[-1]["vad_filter"] is True
+
+
+def test_vad_filter_off_by_default(
+    tmp_path: Path, whisper_calls: list[dict[str, Any]], stub_audio_env: None
+) -> None:
+    transcribe_audio(
+        tmp_path / "a.m4a", tmp_path / "wav", _args(tmp_path, single_language="en")
+    )
+    assert whisper_calls[-1]["vad_filter"] is False
+
+
+def test_beam_size_reaches_transcribe(
+    tmp_path: Path, whisper_calls: list[dict[str, Any]], stub_audio_env: None
+) -> None:
+    transcribe_audio(
+        tmp_path / "a.m4a", tmp_path / "wav", _args(tmp_path, single_language="en", beam_size=1)
+    )
+    assert whisper_calls[-1]["beam_size"] == 1
+
+
+def test_beam_size_defaults_to_five(
+    tmp_path: Path, whisper_calls: list[dict[str, Any]], stub_audio_env: None
+) -> None:
+    transcribe_audio(
+        tmp_path / "a.m4a", tmp_path / "wav", _args(tmp_path, single_language="en")
+    )
+    assert whisper_calls[-1]["beam_size"] == 5
+
+
+def test_parse_args_speed_flags() -> None:
+    args = parse_args(
+        ["--manifest", "m.json", "--output-dir", "out", "--vad-filter", "--beam-size", "1"]
+    )
+    assert args.vad_filter is True
+    assert args.beam_size == 1
+
+
+def test_parse_args_speed_flag_defaults() -> None:
+    args = parse_args(["--manifest", "m.json", "--output-dir", "out"])
+    assert args.vad_filter is False
+    assert args.beam_size == 5
+    assert args.gate_monolingual is False
+
+
+def test_gate_monolingual_runs_single_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stub_audio_env: None
+) -> None:
+    run_mock = MagicMock(return_value=[])
+    monkeypatch.setattr("scripts.transcribe_dual.run_whisperx_segments", run_mock)
+    monkeypatch.setattr("scripts.transcribe_dual.detect_track_language", lambda *a, **k: "hi")
+    transcribe_audio(tmp_path / "a.m4a", tmp_path / "wav", _args(tmp_path, gate_monolingual=True))
+    assert run_mock.call_count == 1
+
+
+def test_gate_undecided_runs_both_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stub_audio_env: None
+) -> None:
+    run_mock = MagicMock(return_value=[])
+    monkeypatch.setattr("scripts.transcribe_dual.run_whisperx_segments", run_mock)
+    monkeypatch.setattr("scripts.transcribe_dual.detect_track_language", lambda *a, **k: None)
+    transcribe_audio(tmp_path / "a.m4a", tmp_path / "wav", _args(tmp_path, gate_monolingual=True))
+    assert run_mock.call_count == 2
+
+
+def _pst(name: str) -> PerStudentTranscript:
+    return PerStudentTranscript(
+        audio_file=name, transcript=TranscriptDocument(model="small"), merged_words=[]
+    )
+
+
+def test_main_isolates_failing_track(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    out_dir = tmp_path / "out"
+    manifest = ZoomFileManifest(
+        class_name="CS101",
+        raw_dir=tmp_path,
+        session_mp4=tmp_path / "session.mp4",
+        per_student_m4as=[
+            PerStudentAudioFile(path=tmp_path / "good.m4a", filename="good.m4a", roll_no_4digit="2301"),
+            PerStudentAudioFile(path=tmp_path / "bad.m4a", filename="bad.m4a", roll_no_4digit="2302"),
+        ],
+    )
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(manifest.model_dump_json(), encoding="utf-8")
+
+    def fake_transcribe(audio_path: Path, *a: Any, **k: Any) -> PerStudentTranscript:
+        if audio_path.name == "bad.m4a":
+            raise RuntimeError("degenerate two-meeting audio crashed faster-whisper")
+        return _pst(audio_path.name)
+
+    monkeypatch.setattr("scripts.transcribe_dual.transcribe_audio", fake_transcribe)
+
+    with caplog.at_level(logging.WARNING):
+        main(["--manifest", str(manifest_path), "--output-dir", str(out_dir)])
+
+    assert (out_dir / "session.json").exists()
+    assert (out_dir / "good.m4a.json").exists()
+    assert not (out_dir / "bad.m4a.json").exists()
+    assert any("bad.m4a" in r.message for r in caplog.records)

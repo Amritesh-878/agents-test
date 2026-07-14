@@ -28,6 +28,9 @@ class RunArgs(BaseModel):
     model: str = "small"
     single_language: str | None = None
     allow_cpu: bool = False
+    vad_filter: bool = False
+    gate_monolingual: bool = False
+    beam_size: int = 5
     skip_transcribe: bool = False
     skip_embed: bool = False
     skip_absent_summaries: bool = False
@@ -51,6 +54,9 @@ def parse_args(argv: Sequence[str] | None = None) -> RunArgs:
     parser.add_argument("--model", default="small")
     parser.add_argument("--single-language", default=None, dest="single_language")
     parser.add_argument("--allow-cpu", action="store_true", dest="allow_cpu")
+    parser.add_argument("--vad-filter", action="store_true", dest="vad_filter")
+    parser.add_argument("--gate-monolingual", action="store_true", dest="gate_monolingual")
+    parser.add_argument("--beam-size", type=int, default=5, dest="beam_size")
     parser.add_argument("--skip-transcribe", action="store_true", dest="skip_transcribe")
     parser.add_argument("--skip-embed", action="store_true", dest="skip_embed")
     parser.add_argument(
@@ -163,6 +169,9 @@ def process_single_class(zip_path: Path, config: RunArgs) -> ClassSessionReport:
                 "--model", config.model,
                 *(["--single-language", config.single_language] if config.single_language else []),
                 *(["--allow-cpu"] if config.allow_cpu else []),
+                *(["--vad-filter"] if config.vad_filter else []),
+                *(["--gate-monolingual"] if config.gate_monolingual else []),
+                *(["--beam-size", str(config.beam_size)] if config.beam_size != 5 else []),
             ])
             return transcripts_dir
 

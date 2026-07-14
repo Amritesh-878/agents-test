@@ -240,6 +240,56 @@ def test_run_pipeline_failed_class_continues(tmp_path: Path) -> None:
     assert report.successful_classes == 1
 
 
+def test_parse_args_speed_flags(tmp_path: Path) -> None:
+    from scripts.run_pipeline import parse_args
+
+    args = parse_args(
+        [
+            "--input", str(tmp_path),
+            "--output-dir", str(tmp_path / "o"),
+            "--teacher", "Nisha",
+            "--vad-filter",
+            "--gate-monolingual",
+            "--beam-size", "1",
+        ]
+    )
+    assert args.vad_filter is True
+    assert args.gate_monolingual is True
+    assert args.beam_size == 1
+
+
+def _capture_transcribe_argv(tmp_path: Path, **overrides: object) -> list[str]:
+    from scripts.run_pipeline import process_single_class
+
+    zip_path, base = _stage_class(tmp_path, stage_teacher_transcript=True)
+    args = base.model_copy(update={"skip_transcribe": False, **overrides})
+    captured: dict[str, list[str]] = {}
+
+    def fake_main(argv: list[str]) -> None:
+        captured["argv"] = list(argv)
+
+    with patch("scripts.transcribe_dual.main", side_effect=fake_main):
+        report = process_single_class(zip_path, args)
+    assert report.success, report.error
+    return captured["argv"]
+
+
+def test_speed_flags_forwarded_to_transcribe(tmp_path: Path) -> None:
+    argv = _capture_transcribe_argv(
+        tmp_path, vad_filter=True, gate_monolingual=True, beam_size=1
+    )
+    assert "--vad-filter" in argv
+    assert "--gate-monolingual" in argv
+    assert argv[argv.index("--beam-size") + 1] == "1"
+
+
+def test_default_speed_flags_not_forwarded(tmp_path: Path) -> None:
+    argv = _capture_transcribe_argv(tmp_path)
+    assert "--vad-filter" not in argv
+    assert "--gate-monolingual" not in argv
+    assert "--beam-size" not in argv
+
+
 # --- teacher M4A as primary class-context source (process_single_class wiring) ---
 
 
