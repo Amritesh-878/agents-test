@@ -61,7 +61,7 @@
         ["negative"]
       ],
       "evidence_quotes": [
-        "quantity supply is negative 12 when the price is one, negative 9 when the price is two"
+        "Quantity supply is negative 12"
       ],
       "notes": "Confirms the medium transcript captured Bhagyashree's worked example of the supply schedule at low prices."
     },
@@ -125,7 +125,7 @@
         ["price of related goods", "related goods", "substitute", "complement"]
       ],
       "evidence_quotes": [
-        "taxes, then technology, price of related goods, it can be substitute goods, or like, what is the other name, the other one, complementary goods, determinant"
+        "taxes, then technology, price of related goods, it can be substitute goods"
       ],
       "notes": "GENERAL topic question about class content ('the class' -> not self-referential), widens to top_k=8. Grounded in Bhagyashree's Economics class_context on the determinants of supply (taxes, technology, price of related goods / substitutes / complements). Concepts from live retrieved class_context."
     },
@@ -167,7 +167,7 @@
         ["complementary", "complement", "related goods"]
       ],
       "evidence_quotes": [
-        "taxes, then technology, price of related goods, it can be substitute goods, or like, what is the other name, the other one, complementary goods, determinant"
+        "substitute goods, or like, what is the other name, the other one, complementary goods"
       ],
       "notes": "Exact-term case (TASK-026, for TASK-027 BM25): 'complementary goods' is a rare, distinctive token a single dense vector can under-rank against generic 'determinants of supply' phrasing; the lexical arm should surface it. Reuses the verified determinants class_context quote (see bhagyashree-general-determinants) — real indexed text, not invented. Unfiltered so the exact token must be found across all chunk types."
     },
@@ -181,7 +181,7 @@
         ["negative 12", "negative twelve", "12"]
       ],
       "evidence_quotes": [
-        "quantity supply is negative 12 when the price is one, negative 9 when the price is two"
+        "Quantity supply is negative 12"
       ],
       "notes": "Exact-term/number case (TASK-026, for TASK-027 BM25): the exact token 'negative 12' is a strong lexical signal a dense embedder can blur into nearby numbers. Reuses Bhagyashree's verified spoken worked-example quote (see bhagyashree-negative-quantity) — real indexed text. Left unfiltered (not scoped to spoken) so retrieval must locate the exact term across all types."
     },
