@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Sequence
@@ -156,6 +158,9 @@ class FakeStore:
 
     def get_student_chunks(self, student_id: str) -> list[SearchResult]:
         return self._student_chunks
+
+    def count_chunks(self) -> int:
+        return len(self._student_chunks)
 
 
 def make_result(text: str, distance: float, chunk_id: str) -> SearchResult:
@@ -317,3 +322,58 @@ def test_main_baseline_flag_routes_retrieval_only(
     )
 
     assert (tmp_path / "out" / "baseline_snapshot.json").is_file()
+
+
+def test_baseline_snapshot_records_provenance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.setattr("scripts.evaluate.GroqChatBackend", boom)
+    monkeypatch.setattr("scripts.retrieval.make_reranker", lambda *a, **k: NoOpReranker())
+
+    eval_file = write_eval_file(tmp_path, BASELINE_CASES)
+    store = make_baseline_store()
+    args = EvaluationArgs(
+        eval_file=eval_file,
+        db_url="postgresql://localhost/db",
+        output_dir=tmp_path / "out",
+        top_k=5,
+    )
+    snapshot = BaselineService(
+        args,
+        store=store,
+        retrieval_backend=RetrievalBackend(store=store, embedder=make_embedder()),
+        now_provider=lambda: datetime(2026, 7, 14, 12, 0, 0, tzinfo=UTC),
+    ).run()
+
+    assert snapshot.captured_at == "2026-07-14T12:00:00Z"
+    assert snapshot.dataset_sha256 == hashlib.sha256(eval_file.read_bytes()).hexdigest()
+    assert snapshot.reranker == "crossencoder"
+    assert snapshot.store_total_rows == store.count_chunks()
+
+
+def test_baseline_snapshot_label_changes_filenames(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.setattr("scripts.evaluate.GroqChatBackend", boom)
+    monkeypatch.setattr("scripts.retrieval.make_reranker", lambda *a, **k: NoOpReranker())
+
+    eval_file = write_eval_file(tmp_path, BASELINE_CASES[:1])
+    store = make_baseline_store()
+    args = EvaluationArgs(
+        eval_file=eval_file,
+        db_url="postgresql://localhost/db",
+        output_dir=tmp_path / "out",
+        top_k=5,
+        label="multilingual",
+    )
+    BaselineService(
+        args,
+        store=store,
+        retrieval_backend=RetrievalBackend(store=store, embedder=make_embedder()),
+    ).run()
+
+    assert (tmp_path / "out" / "baseline_snapshot_multilingual.json").is_file()
+    assert (tmp_path / "out" / "baseline_snapshot_multilingual.md").is_file()
+    assert not (tmp_path / "out" / "baseline_snapshot.json").exists()

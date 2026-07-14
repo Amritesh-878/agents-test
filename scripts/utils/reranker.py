@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any, Protocol, Sequence
 
 from scripts.models.pipeline import SearchResult
@@ -36,9 +37,14 @@ class CrossEncoderReranker:
         return [ordered[index] for index in order]
 
 
+@lru_cache(maxsize=1)
+def _crossencoder_singleton() -> CrossEncoderReranker:
+    return CrossEncoderReranker()
+
+
 def make_reranker(name: str = DEFAULT_RERANKER) -> Reranker:
     if name == "none":
         return NoOpReranker()
     if name == "crossencoder":
-        return CrossEncoderReranker()
+        return _crossencoder_singleton()
     raise ValueError(f"Unknown reranker: {name!r}")

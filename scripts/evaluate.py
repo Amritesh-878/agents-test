@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal, Sequence
+from typing import Any, Callable, Literal, Sequence
 
 from pydantic import BaseModel, Field
 
@@ -14,12 +16,15 @@ from scripts.chat import (
     GroqChatBackend,
     RetrievalBackend,
     SupportsRetrieve,
+    iso_timestamp,
     load_groq_api_key,
+    utc_now,
 )
 from scripts.embed_and_store import DEFAULT_EMBEDDING_MODEL
 from scripts.retrieval import RetrievedChunk, search_result_to_chunk
 from scripts.utils.chunker import ChunkType
 from scripts.utils.pg_store import PgVectorStore, connect_pg_store
+from scripts.utils.reranker import DEFAULT_RERANKER
 from scripts.utils.retrieval_metrics import (
     AggregateRetrievalMetrics,
     CaseRetrievalMetrics,
@@ -88,6 +93,7 @@ class EvaluationArgs(BaseModel):
     max_history_turns: int = 0
     fail_on_case_failure: bool = False
     baseline: bool = False
+    label: str = ""
 
 
 class ConceptGroupResult(BaseModel):
@@ -169,6 +175,7 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationArgs:
     parser.add_argument("--max-history-turns", type=int, default=0, dest="max_history_turns")
     parser.add_argument("--fail-on-case-fail", action="store_true", dest="fail_on_case_failure")
     parser.add_argument("--baseline", action="store_true", dest="baseline")
+    parser.add_argument("--label", default="", dest="label")
     namespace = parser.parse_args(argv)
     from dotenv import load_dotenv
     import os
@@ -185,6 +192,7 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationArgs:
         max_history_turns=namespace.max_history_turns,
         fail_on_case_failure=namespace.fail_on_case_failure,
         baseline=namespace.baseline,
+        label=namespace.label,
     )
 
 
@@ -689,6 +697,10 @@ class BaselineSnapshot(BaseModel):
     dataset_path: str
     embedding_model: str
     top_k: int
+    captured_at: str
+    dataset_sha256: str
+    reranker: str
+    store_total_rows: int
     selected_case_ids: list[str] = Field(default_factory=list)
     retrieval_aggregate: AggregateRetrievalMetrics
     quote_not_indexed_case_ids: list[str] = Field(default_factory=list)
@@ -702,7 +714,11 @@ def build_baseline_markdown(snapshot: BaselineSnapshot) -> str:
         "Retrieval-only capture — no Groq. Transcribe these numbers into docs/PROGRESS.md.",
         "",
         f"- Dataset: {snapshot.dataset_path}",
+        f"- Dataset sha256: {snapshot.dataset_sha256}",
         f"- Embedding model: {snapshot.embedding_model}",
+        f"- Reranker: {snapshot.reranker}",
+        f"- Captured at: {snapshot.captured_at}",
+        f"- Store total rows: {snapshot.store_total_rows}",
         f"- top_k: {snapshot.top_k}",
     ]
     lines.extend(
@@ -738,8 +754,10 @@ class BaselineService:
         *,
         store: Any = None,
         retrieval_backend: SupportsRetrieve | None = None,
+        now_provider: Callable[[], datetime] = utc_now,
     ) -> None:
         self.args = args
+        self.now_provider = now_provider
         self.dataset = load_eval_dataset(args.eval_file)
         self.selected_cases = select_cases(self.dataset, args.case_ids)
         self.store: Any = store if store is not None else connect_pg_store(args.db_url)
@@ -791,6 +809,10 @@ class BaselineService:
             dataset_path=str(self.args.eval_file),
             embedding_model=self.args.embedding_model,
             top_k=self.args.top_k,
+            captured_at=iso_timestamp(self.now_provider()),
+            dataset_sha256=hashlib.sha256(self.args.eval_file.read_bytes()).hexdigest(),
+            reranker=DEFAULT_RERANKER,
+            store_total_rows=self.store.count_chunks(),
             selected_case_ids=[case.case_id for case in self.selected_cases],
             retrieval_aggregate=aggregate_metrics(
                 [result.metrics for result in case_results], k=self.args.top_k
@@ -806,8 +828,9 @@ class BaselineService:
         return snapshot
 
     def write_snapshot(self, snapshot: BaselineSnapshot) -> None:
-        write_json(self.args.output_dir / "baseline_snapshot.json", snapshot)
-        markdown_path = self.args.output_dir / "baseline_snapshot.md"
+        suffix = f"_{self.args.label}" if self.args.label else ""
+        write_json(self.args.output_dir / f"baseline_snapshot{suffix}.json", snapshot)
+        markdown_path = self.args.output_dir / f"baseline_snapshot{suffix}.md"
         markdown_path.parent.mkdir(parents=True, exist_ok=True)
         markdown_path.write_text(build_baseline_markdown(snapshot), encoding="utf-8")
 
@@ -815,6 +838,9 @@ class BaselineService:
 def run_baseline(args: EvaluationArgs) -> BaselineSnapshot:
     snapshot = BaselineService(args).run()
     aggregate = snapshot.retrieval_aggregate
+    suffix = f"_{args.label}" if args.label else ""
+    json_path = args.output_dir / f"baseline_snapshot{suffix}.json"
+    markdown_path = args.output_dir / f"baseline_snapshot{suffix}.md"
     print(
         "\n".join(
             [
@@ -826,8 +852,8 @@ def run_baseline(args: EvaluationArgs) -> BaselineSnapshot:
                 f"Low-tier rate: {aggregate.low_tier_rate}",
                 f"quote_not_indexed: {aggregate.quote_not_indexed_case_count} "
                 f"{snapshot.quote_not_indexed_case_ids}",
-                f"Snapshot JSON: {args.output_dir / 'baseline_snapshot.json'}",
-                f"Snapshot Markdown: {args.output_dir / 'baseline_snapshot.md'}",
+                f"Snapshot JSON: {json_path}",
+                f"Snapshot Markdown: {markdown_path}",
             ]
         )
     )

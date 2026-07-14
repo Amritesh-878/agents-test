@@ -20,15 +20,11 @@ from scripts.chat import (
     build_empty_context_answer,
     build_prompt_messages,
     collect_trust_flags,
-    effective_top_k,
     iso_timestamp,
     select_retrieval_chunk_types,
     utc_now,
 )
 from scripts.retrieval import QueryEmbedder, RetrievalResult, retrieve_from_pgvector
-
-# Per-question retrieval breadth (general questions widen to GENERAL_QUESTION_TOP_K) is
-# owned by scripts.chat.effective_top_k, so the demo, CLI, and eval harness widen identically.
 
 _SESSION_SUFFIX_RE = re.compile(r"_s(\d+)$", re.IGNORECASE)
 _SUBJECT_TOKEN_RE = re.compile(r"^[A-Za-z]+\.\d+$")
@@ -130,7 +126,6 @@ def answer_for_student(
         student_id=student_id,
         query=question,
         top_k=top_k,
-        candidate_pool_size=effective_top_k(question, top_k),
         chunk_types=select_retrieval_chunk_types(question, ()),
         class_name=class_name,
         db_url=db_url,

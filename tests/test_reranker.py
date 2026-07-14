@@ -33,6 +33,27 @@ def test_make_reranker_selects_implementation() -> None:
         make_reranker("bogus")
 
 
+def test_make_reranker_crossencoder_is_a_singleton() -> None:
+    assert make_reranker("crossencoder") is make_reranker("crossencoder")
+
+
+def test_singleton_reranker_loads_model_once_across_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    from scripts.utils.reranker import _crossencoder_singleton
+
+    _crossencoder_singleton.cache_clear()
+    counters = {"init": 0, "predict": 0}
+    _install_fake_cross_encoder(monkeypatch, counters)
+
+    first = make_reranker("crossencoder")
+    second = make_reranker("crossencoder")
+    assert first is second
+
+    candidates = [_result("a", "xxx"), _result("b", "xxxxxxx")]
+    first.rerank("q1", candidates)
+    second.rerank("q2", candidates)
+    assert counters["init"] == 1
+
+
 def _install_fake_cross_encoder(
     monkeypatch: pytest.MonkeyPatch, counters: dict[str, int]
 ) -> None:

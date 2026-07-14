@@ -300,28 +300,6 @@ def is_self_referential_question(question: str) -> bool:
     return bool(_SELF_REFERENTIAL_SPEECH.search(question))
 
 
-# General "what did the class cover / what did the teacher ask" questions answer from
-# class_context, where the specific instruction or topic chunk can rank just outside a
-# tight top-5 (observed: the topic chunk at rank 6). Widen the net for those so the
-# grounding chunk is retrieved. Self-referential questions stay tight: a student's own
-# spoken+chat chunks are few, so a wider net only adds unrelated noise.
-GENERAL_QUESTION_TOP_K = 8
-
-
-def effective_top_k(question: str, base_top_k: int) -> int:
-    """Per-question retrieval breadth — the single source of truth shared by the CLI,
-    eval harness, and demo so all three retrieve identically.
-
-    Widens ONLY: a general question retrieves at least ``GENERAL_QUESTION_TOP_K`` so a
-    grounding chunk ranked just outside a tight top-5 is still pulled in. A
-    self-referential question returns ``base_top_k`` unchanged — no implicit cap, so
-    ``--top-k`` still scales every question uniformly for experiments.
-    """
-    if is_self_referential_question(question):
-        return base_top_k
-    return max(base_top_k, GENERAL_QUESTION_TOP_K)
-
-
 def select_retrieval_chunk_types(
     question: str, base_chunk_types: Sequence[ChunkType]
 ) -> list[ChunkType]:
@@ -537,7 +515,6 @@ class RetrievalBackend:
             student_id=args.student_id,
             query=question,
             top_k=args.top_k,
-            candidate_pool_size=effective_top_k(question, args.top_k),
             chunk_types=select_retrieval_chunk_types(question, args.chunk_types),
             class_name=args.class_name,
             db_url=args.db_url,

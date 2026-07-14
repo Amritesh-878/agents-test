@@ -229,19 +229,6 @@ def test_is_self_referential_question_ignores_class_and_passive_questions() -> N
     assert not is_self_referential_question("What did I do in class today?")
 
 
-def test_effective_top_k_widens_general_and_leaves_self_referential() -> None:
-    from scripts.chat import GENERAL_QUESTION_TOP_K, effective_top_k
-
-    # General questions widen to at least GENERAL_QUESTION_TOP_K so a grounding chunk
-    # ranked just outside a tight top-5 is still retrieved.
-    assert effective_top_k("What did we cover in class today?", 5) == GENERAL_QUESTION_TOP_K
-    # A larger base still scales up uniformly (helper only widens, never caps).
-    assert effective_top_k("What did we cover in class today?", 10) == 10
-    # Self-referential questions stay at the base (their own chunks are few).
-    assert effective_top_k("What did I say about determinants today?", 5) == 5
-    assert effective_top_k("What did I say about determinants today?", 10) == 10
-
-
 def test_select_retrieval_chunk_types_scopes_self_referential_to_own_contributions() -> None:
     from scripts.chat import select_retrieval_chunk_types
 
@@ -434,8 +421,7 @@ def test_retrieval_backend_scopes_self_referential_to_spoken(tmp_path: Path) -> 
     assert store.lexical_chunk_types == []
 
 
-def test_retrieval_backend_keeps_final_top_k_tight_with_wide_candidate_pool(tmp_path: Path) -> None:
-    from scripts.chat import GENERAL_QUESTION_TOP_K
+def test_retrieval_backend_returns_base_top_k_over_a_hybrid_pool(tmp_path: Path) -> None:
     from scripts.retrieval import HYBRID_POOL_SIZE
 
     store = _CapturingStore()
@@ -444,9 +430,8 @@ def test_retrieval_backend_keeps_final_top_k_tight_with_wide_candidate_pool(tmp_
 
     general = backend.retrieve(args, "What did we cover in class today?")
     assert general.top_k == args.top_k
-    assert store.search_top_k is not None
-    assert store.search_top_k >= GENERAL_QUESTION_TOP_K
-    assert store.search_top_k >= HYBRID_POOL_SIZE
+    assert store.search_top_k == HYBRID_POOL_SIZE
 
     self_referential = backend.retrieve(args, "What did I say during class today?")
     assert self_referential.top_k == args.top_k
+    assert store.search_top_k == HYBRID_POOL_SIZE

@@ -233,8 +233,7 @@ def test_answer_for_student_leaves_class_questions_unfiltered() -> None:
     assert store.search_calls[0][2] == []
 
 
-def test_answer_for_student_keeps_final_top_k_tight_with_wide_candidate_pool() -> None:
-    from scripts.chat import GENERAL_QUESTION_TOP_K
+def test_answer_for_student_returns_base_top_k_over_a_hybrid_pool() -> None:
     from scripts.retrieval import HYBRID_POOL_SIZE
 
     store = FakeStore(search_results=[make_search_result()])
@@ -250,9 +249,7 @@ def test_answer_for_student_keeps_final_top_k_tight_with_wide_candidate_pool() -
         top_k=5,
     )
     assert turn.retrieval_result.top_k == 5
-    candidate_pool_size = store.search_calls[0][1]
-    assert candidate_pool_size >= GENERAL_QUESTION_TOP_K
-    assert candidate_pool_size >= HYBRID_POOL_SIZE
+    assert store.search_calls[0][1] == HYBRID_POOL_SIZE
 
 
 def test_answer_for_student_keeps_top_k_tight_for_self_referential() -> None:

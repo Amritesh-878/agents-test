@@ -71,6 +71,8 @@ WHERE student_id = %s
 ORDER BY class_name
 """
 
+_COUNT_CHUNKS_SQL = "SELECT COUNT(*) FROM embeddings"
+
 
 class PgVectorStore:
     def __init__(self, conn: Any) -> None:
@@ -294,6 +296,12 @@ class PgVectorStore:
             cur.execute(_LIST_STUDENT_CLASSES_SQL, (student_id,))
             rows = cur.fetchall()
         return [str(row[0]) for row in rows if row[0]]
+
+    def count_chunks(self) -> int:
+        with self._conn.cursor() as cur:
+            cur.execute(_COUNT_CHUNKS_SQL)
+            row = cur.fetchone()
+        return int(row[0]) if row else 0
 
     def close(self) -> None:
         self._conn.close()

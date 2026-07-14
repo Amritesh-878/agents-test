@@ -268,6 +268,29 @@ def test_reranker_output_is_subset_of_fused_pool() -> None:
     assert ids == {"d1", "d2", "lex"}
 
 
+def test_cross_student_row_in_pool_raises_even_when_sliced_out() -> None:
+    leaked = SearchResult(
+        chunk_id="leaked",
+        student_id="9999",
+        student_name="Someone Else",
+        class_name="Eco",
+        chunk_type="spoken",
+        text="...",
+        distance=0.9,
+    )
+    store = _HybridStore([_hit("good", 0.1), leaked], [])
+    with pytest.raises(RetrievalError, match="Cross-student leakage"):
+        retrieve_from_pgvector(
+            student_id="2302",
+            query="q",
+            top_k=1,
+            db_url="postgresql://localhost/db",
+            store=store,
+            embedder=_FixedEmbedder(),  # type: ignore[arg-type]
+            reranker=NoOpReranker(),
+        )
+
+
 def test_hybrid_surfaces_lexical_only_hit() -> None:
     dense = [_hit("d1", 0.2), _hit("shared", 0.5)]
     lexical = [_hit("shared", None), _hit("lex_only", None)]

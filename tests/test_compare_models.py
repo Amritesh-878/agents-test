@@ -262,7 +262,6 @@ def test_general_golden_cases_load_and_validate() -> None:
 
     for case in dataset.cases:
         if case.case_id in GENERAL_GOLDEN_IDS:
-            # general questions must be non-self-referential (so they widen to top_k=8)
             assert not is_self_referential_question(case.question)
             assert case.expected_answer_mode == "grounded_answer"
             assert case.required_concept_groups  # concept-grounded, not empty
