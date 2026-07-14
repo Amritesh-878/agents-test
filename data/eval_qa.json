@@ -1,9 +1,10 @@
 {
-  "description": "Golden QA set for RAG evaluation, grounded in the CURRENT pgvector store after the 2026-06-07 medium-model re-embed. student_id values are the roll numbers used as the store key. Cases were verified end-to-end (retrieval + Groq) against the live DB. Mix of self-referential (own spoken/chat, tight top_k), wrong-subject refusal, and GENERAL class-content questions (non-self-referential, widened to GENERAL_QUESTION_TOP_K=8 via scripts.chat.effective_top_k) so the harness covers the retrieval breadth real users/the demo hit.",
+  "description": "Golden QA set for RAG evaluation, grounded in the CURRENT pgvector store after the 2026-06-07 medium-model re-embed. student_id values are the roll numbers used as the store key. Cases were verified end-to-end (retrieval + Groq) against the live DB. Mix of self-referential (own spoken/chat, tight top_k), wrong-subject refusal, GENERAL class-content questions (non-self-referential, widened to GENERAL_QUESTION_TOP_K=8 via scripts.chat.effective_top_k), and — added for TASK-021 — CONCEPT/'related' questions that ground on the authoritative 'material' chunks from TASK-019/020. NOTE ON THE CONCEPT CASES: any case with expected_chunk_types=['material'] stays RED until the owner ingests that class's materials (scripts.ingest_materials) into the live store, then GREEN; its required_concept_groups are relationship-level and grounded in determinants already verified in class_context — the owner must reconcile the concept groups + evidence_quotes to the real ingested slide/notes text before relying on the case, without loosening the prompt/top_k just to force a pass.",
   "generated_from": [
     "pgvector store after medium re-embed (docs/TRANSCRIPTION_COMPARISON_RESULTS.md)",
     "scripts/run_pipeline.py --skip-transcribe --model medium with rosters C1 (Economics) / C3 (Math)",
-    "general-question expected concepts derived from live retrieved class_context (2026-07-03), not invented"
+    "general-question expected concepts derived from live retrieved class_context (2026-07-03), not invented",
+    "concept cases (TASK-021) target the 'material' chunks from scripts.ingest_materials; owner reconciles material-grounded expectations against the ingested slide/notes text"
   ],
   "cases": [
     {
@@ -127,6 +128,34 @@
         "taxes, then technology, price of related goods, it can be substitute goods, or like, what is the other name, the other one, complementary goods, determinant"
       ],
       "notes": "GENERAL topic question about class content ('the class' -> not self-referential), widens to top_k=8. Grounded in Bhagyashree's Economics class_context on the determinants of supply (taxes, technology, price of related goods / substitutes / complements). Concepts from live retrieved class_context."
+    },
+    {
+      "case_id": "bhagyashree-concept-determinants-supply-link",
+      "student_id": "2302",
+      "student_name": "Bhagyashree",
+      "question": "How are the determinants of supply connected to the supply function?",
+      "expected_answer_mode": "grounded_answer",
+      "expected_chunk_types": ["material"],
+      "required_concept_groups": [
+        ["determinant", "determinants"],
+        ["supply function", "supply curve", "supply schedule", "supply equation"],
+        ["shift", "shifts", "change", "changes", "affect", "affects", "move", "moves"]
+      ],
+      "evidence_quotes": [
+        "DRAFT - reconcile against the ingested material chunk text after running scripts.ingest_materials: the class slides/notes list the determinants of supply (e.g. taxes, technology, price of related goods) and show how each shifts the supply function / curve."
+      ],
+      "source_artifacts": [
+        "materials/<Bhagyashree Economics class>/*.pptx|pdf|docx (ingested via scripts.ingest_materials as chunk_type=material)"
+      ],
+      "notes": "THE concept case Nisha broke on in the 2026-07 eval: a 'related' question the noisy transcript alone could not answer, now expected to be answered from the class's authoritative material (TASK-019 ingestion + TASK-020 materials-aware prompt). expected_chunk_types=['material'] makes this a hard regression guard: it stays RED until the owner ingests this class's materials into the live store, then GREEN. required_concept_groups are deliberately relationship-level (a determinant shifts/affects the supply function) and grounded in the determinants already verified in class_context (see bhagyashree-general-determinants), not invented slide text; the owner should tighten the concept groups + evidence_quotes to the real ingested material after the live run, without loosening prompt/top_k to force a pass. A correct answer must ATTRIBUTE the material ('the class material / slides say...') per TASK-020."
+    },
+    {
+      "case_id": "bhagyashree-concept-not-in-source-refusal",
+      "student_id": "2302",
+      "student_name": "Bhagyashree",
+      "question": "How is GDP calculated, and what are the components of national income?",
+      "expected_answer_mode": "insufficient_evidence",
+      "notes": "No-world-knowledge guard for TASK-020: GDP / national income is a real economics concept the model KNOWS from general training but that these supply classes and their materials never covered. The bot must decline ('not enough evidence') rather than fall back to world knowledge, even after materials are ingested. Mirrors the EVAL.md Chatbot-1 Q6 trap. No trust-ack required: a clean not-in-any-source refusal has no low-confidence flags to cite."
     }
   ]
 }
