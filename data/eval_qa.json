@@ -156,6 +156,48 @@
       "question": "How is GDP calculated, and what are the components of national income?",
       "expected_answer_mode": "insufficient_evidence",
       "notes": "No-world-knowledge guard for TASK-020: GDP / national income is a real economics concept the model KNOWS from general training but that these supply classes and their materials never covered. The bot must decline ('not enough evidence') rather than fall back to world knowledge, even after materials are ingested. Mirrors the EVAL.md Chatbot-1 Q6 trap. No trust-ack required: a clean not-in-any-source refusal has no low-confidence flags to cite."
+    },
+    {
+      "case_id": "bhagyashree-exact-term-complementary-goods",
+      "student_id": "2302",
+      "student_name": "Bhagyashree",
+      "question": "What did the class say about complementary goods?",
+      "expected_answer_mode": "grounded_answer",
+      "required_concept_groups": [
+        ["complementary", "complement", "related goods"]
+      ],
+      "evidence_quotes": [
+        "taxes, then technology, price of related goods, it can be substitute goods, or like, what is the other name, the other one, complementary goods, determinant"
+      ],
+      "notes": "Exact-term case (TASK-026, for TASK-027 BM25): 'complementary goods' is a rare, distinctive token a single dense vector can under-rank against generic 'determinants of supply' phrasing; the lexical arm should surface it. Reuses the verified determinants class_context quote (see bhagyashree-general-determinants) — real indexed text, not invented. Unfiltered so the exact token must be found across all chunk types."
+    },
+    {
+      "case_id": "bhagyashree-exact-term-negative-twelve",
+      "student_id": "2302",
+      "student_name": "Bhagyashree",
+      "question": "Where did the supply schedule work out to negative 12?",
+      "expected_answer_mode": "grounded_answer",
+      "required_concept_groups": [
+        ["negative 12", "negative twelve", "12"]
+      ],
+      "evidence_quotes": [
+        "quantity supply is negative 12 when the price is one, negative 9 when the price is two"
+      ],
+      "notes": "Exact-term/number case (TASK-026, for TASK-027 BM25): the exact token 'negative 12' is a strong lexical signal a dense embedder can blur into nearby numbers. Reuses Bhagyashree's verified spoken worked-example quote (see bhagyashree-negative-quantity) — real indexed text. Left unfiltered (not scoped to spoken) so retrieval must locate the exact term across all types."
+    },
+    {
+      "case_id": "saisha-typo-worksheet-count",
+      "student_id": "2521",
+      "student_name": "Saisha Shashikant Kadam",
+      "question": "How many problems were on the workseet the teacher gave?",
+      "expected_answer_mode": "grounded_answer",
+      "required_concept_groups": [
+        ["25", "worksheet", "problems"]
+      ],
+      "evidence_quotes": [
+        "I am not going to solve all the 25 problems on the worksheet"
+      ],
+      "notes": "Typo case (TASK-026, for TASK-027 pg_trgm): 'workseet' misspells 'worksheet'. Dense embeddings may absorb the typo; an exact FTS lexical arm needs trigram fuzziness to still match. Reuses Saisha's verified class_context quote (see saisha-general-what-covered) — real indexed text; the typo is only in the question, so the quote still resolves against the store."
     }
   ]
 }

@@ -12,12 +12,20 @@ from scripts.chat import (
     ChatArgs,
     ChatService,
     GroqChatBackend,
+    RetrievalBackend,
+    SupportsRetrieve,
     load_groq_api_key,
 )
 from scripts.embed_and_store import DEFAULT_EMBEDDING_MODEL
 from scripts.retrieval import RetrievedChunk, search_result_to_chunk
 from scripts.utils.chunker import ChunkType
 from scripts.utils.pg_store import PgVectorStore, connect_pg_store
+from scripts.utils.retrieval_metrics import (
+    AggregateRetrievalMetrics,
+    CaseRetrievalMetrics,
+    aggregate_metrics,
+    compute_case_metrics,
+)
 
 INSUFFICIENT_EVIDENCE_HINTS = (
     "do not have enough",
@@ -79,6 +87,7 @@ class EvaluationArgs(BaseModel):
     top_k: int = 5
     max_history_turns: int = 0
     fail_on_case_failure: bool = False
+    baseline: bool = False
 
 
 class ConceptGroupResult(BaseModel):
@@ -130,6 +139,7 @@ class CaseEvaluationResult(BaseModel):
     ]
     failure_reasons: list[str] = Field(default_factory=list)
     retrieval_checks: RetrievalCheckResult
+    retrieval_metrics: CaseRetrievalMetrics
     answer_checks: AnswerCheckResult
 
 
@@ -140,6 +150,8 @@ class EvaluationSummary(BaseModel):
     failed_cases: int
     selected_case_ids: list[str] = Field(default_factory=list)
     failure_stage_counts: dict[str, int] = Field(default_factory=dict)
+    retrieval_aggregate: AggregateRetrievalMetrics
+    quote_not_indexed_case_ids: list[str] = Field(default_factory=list)
     case_results: list[CaseEvaluationResult] = Field(default_factory=list)
 
 
@@ -156,6 +168,7 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationArgs:
     parser.add_argument("--top-k", type=int, default=5, dest="top_k")
     parser.add_argument("--max-history-turns", type=int, default=0, dest="max_history_turns")
     parser.add_argument("--fail-on-case-fail", action="store_true", dest="fail_on_case_failure")
+    parser.add_argument("--baseline", action="store_true", dest="baseline")
     namespace = parser.parse_args(argv)
     from dotenv import load_dotenv
     import os
@@ -171,6 +184,7 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationArgs:
         top_k=namespace.top_k,
         max_history_turns=namespace.max_history_turns,
         fail_on_case_failure=namespace.fail_on_case_failure,
+        baseline=namespace.baseline,
     )
 
 
@@ -274,6 +288,23 @@ def load_indexed_chunks(store: Any, case: EvalCase) -> list[RetrievedChunk]:
     if case.chunk_types:
         raw_results = [r for r in raw_results if r.chunk_type in case.chunk_types]
     return [search_result_to_chunk(r, i + 1) for i, r in enumerate(raw_results)]
+
+
+def case_retrieval_metrics(
+    case: EvalCase,
+    indexed_chunks: Sequence[RetrievedChunk],
+    retrieved_chunks: Sequence[RetrievedChunk],
+    *,
+    k: int,
+) -> CaseRetrievalMetrics:
+    return compute_case_metrics(
+        quotes=case.evidence_quotes,
+        retrieved_texts=[chunk.text for chunk in retrieved_chunks],
+        indexed_texts=[chunk.text for chunk in indexed_chunks],
+        scores=[chunk.score for chunk in retrieved_chunks],
+        is_refusal=case.expected_answer_mode == "insufficient_evidence",
+        k=k,
+    )
 
 
 def select_cases(dataset: EvalDataset, case_ids: Sequence[str]) -> list[EvalCase]:
@@ -467,6 +498,25 @@ def write_json(path: Path, payload: BaseModel) -> None:
     path.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
 
 
+def build_retrieval_metrics_lines(
+    aggregate: AggregateRetrievalMetrics,
+    quote_not_indexed_case_ids: Sequence[str],
+) -> list[str]:
+    lines = [
+        f"- recall@{aggregate.k}: {aggregate.recall_at_k}",
+        f"- MRR: {aggregate.mrr}",
+        f"- Scorable cases: {aggregate.scorable_case_count} / {aggregate.total_cases}",
+        f"- Retrieved beyond k (rerank opportunity): {aggregate.retrieved_beyond_k_count}",
+        f"- Refusal cases (excluded from recall/MRR): {aggregate.refusal_case_count}",
+        f"- quote_not_indexed (excluded, ingest gap): {aggregate.quote_not_indexed_case_count}",
+        f"- Tier distribution: {aggregate.tier_distribution}",
+        f"- Low-tier rate: {aggregate.low_tier_rate}",
+    ]
+    if quote_not_indexed_case_ids:
+        lines.append(f"- quote_not_indexed case ids: {', '.join(quote_not_indexed_case_ids)}")
+    return lines
+
+
 def build_summary_markdown(summary: EvaluationSummary) -> str:
     lines = [
         "# RAG Evaluation Summary",
@@ -485,19 +535,30 @@ def build_summary_markdown(summary: EvaluationSummary) -> str:
     else:
         lines.append("- none: 0")
 
+    lines.extend(["", "## Retrieval Metrics (quote-containment)", ""])
+    lines.extend(
+        build_retrieval_metrics_lines(
+            summary.retrieval_aggregate, summary.quote_not_indexed_case_ids
+        )
+    )
+
     lines.extend(
         [
             "",
             "## Case Results",
             "",
-            "| Case | Student | Passed | Failure Stage |",
-            "| --- | --- | --- | --- |",
+            "| Case | Student | Passed | Failure Stage | Status | Tier | First-hit rank | Hit@k |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for result in summary.case_results:
         status_text = "yes" if result.passed else "no"
+        metric = result.retrieval_metrics
+        rank_text = "n/a" if metric.first_hit_rank is None else str(metric.first_hit_rank)
+        hit_text = "yes" if metric.hit else "no"
         lines.append(
-            f"| {result.case.case_id} | {result.case.student_name} | {status_text} | {result.failure_stage} |"
+            f"| {result.case.case_id} | {result.case.student_name} | {status_text} | "
+            f"{result.failure_stage} | {metric.status} | {metric.tier} | {rank_text} | {hit_text} |"
         )
     return "\n".join(lines)
 
@@ -540,10 +601,10 @@ class EvaluationService:
         )
         turn_record = chat_service.ask_question(case.question)
         indexed_chunks = self.load_indexed_chunks(case)
-        retrieval_checks = evaluate_retrieval_expectations(
-            case,
-            indexed_chunks,
-            turn_record.retrieval_result.retrieved_chunks,
+        retrieved_chunks = turn_record.retrieval_result.retrieved_chunks
+        retrieval_checks = evaluate_retrieval_expectations(case, indexed_chunks, retrieved_chunks)
+        retrieval_metrics = case_retrieval_metrics(
+            case, indexed_chunks, retrieved_chunks, k=self.args.top_k
         )
         answer_checks = evaluate_answer_expectations(
             case,
@@ -560,6 +621,7 @@ class EvaluationService:
             failure_stage=failure_stage,
             failure_reasons=failure_reasons,
             retrieval_checks=retrieval_checks,
+            retrieval_metrics=retrieval_metrics,
             answer_checks=answer_checks,
         )
 
@@ -597,15 +659,187 @@ class EvaluationService:
             failed_cases=sum(1 for case_result in case_results if not case_result.passed),
             selected_case_ids=[case.case_id for case in self.selected_cases],
             failure_stage_counts=dict(failure_stage_counts),
+            retrieval_aggregate=aggregate_metrics(
+                [case_result.retrieval_metrics for case_result in case_results], k=self.args.top_k
+            ),
+            quote_not_indexed_case_ids=[
+                case_result.case.case_id
+                for case_result in case_results
+                if case_result.retrieval_metrics.status == "quote_not_indexed"
+            ],
             case_results=case_results,
         )
         self.write_summary(summary)
         return summary
 
 
+class CaseBaselineResult(BaseModel):
+    case_id: str
+    student_id: str
+    student_name: str
+    question: str
+    expected_answer_mode: Literal["grounded_answer", "insufficient_evidence"]
+    evidence_quotes: list[str] = Field(default_factory=list)
+    retrieval_result_count: int
+    indexed_chunk_count: int
+    metrics: CaseRetrievalMetrics
+
+
+class BaselineSnapshot(BaseModel):
+    dataset_path: str
+    embedding_model: str
+    top_k: int
+    selected_case_ids: list[str] = Field(default_factory=list)
+    retrieval_aggregate: AggregateRetrievalMetrics
+    quote_not_indexed_case_ids: list[str] = Field(default_factory=list)
+    case_results: list[CaseBaselineResult] = Field(default_factory=list)
+
+
+def build_baseline_markdown(snapshot: BaselineSnapshot) -> str:
+    lines = [
+        "# Retrieval Baseline Snapshot (TASK-026)",
+        "",
+        "Retrieval-only capture — no Groq. Transcribe these numbers into docs/PROGRESS.md.",
+        "",
+        f"- Dataset: {snapshot.dataset_path}",
+        f"- Embedding model: {snapshot.embedding_model}",
+        f"- top_k: {snapshot.top_k}",
+    ]
+    lines.extend(
+        build_retrieval_metrics_lines(
+            snapshot.retrieval_aggregate, snapshot.quote_not_indexed_case_ids
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "## Per-case",
+            "",
+            "| Case | Status | Tier | First-hit rank | Hit@k | Top score | Retrieved | Indexed |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    for result in snapshot.case_results:
+        metric = result.metrics
+        rank_text = "n/a" if metric.first_hit_rank is None else str(metric.first_hit_rank)
+        top_text = "n/a" if metric.top_score is None else f"{metric.top_score:.4f}"
+        hit_text = "yes" if metric.hit else "no"
+        lines.append(
+            f"| {result.case_id} | {metric.status} | {metric.tier} | {rank_text} | {hit_text} | "
+            f"{top_text} | {result.retrieval_result_count} | {result.indexed_chunk_count} |"
+        )
+    return "\n".join(lines)
+
+
+class BaselineService:
+    def __init__(
+        self,
+        args: EvaluationArgs,
+        *,
+        store: Any = None,
+        retrieval_backend: SupportsRetrieve | None = None,
+    ) -> None:
+        self.args = args
+        self.dataset = load_eval_dataset(args.eval_file)
+        self.selected_cases = select_cases(self.dataset, args.case_ids)
+        self.store: Any = store if store is not None else connect_pg_store(args.db_url)
+        self.retrieval_backend: SupportsRetrieve = retrieval_backend or RetrievalBackend(
+            store=self.store
+        )
+
+    def _chat_args(self, case: EvalCase) -> ChatArgs:
+        return ChatArgs(
+            db_url=self.args.db_url,
+            chunk_types=list(case.chunk_types),
+            embedding_model=self.args.embedding_model,
+            max_history_turns=0,
+            question=case.question,
+            student_id=case.student_id,
+            student_name=case.student_name,
+            top_k=self.args.top_k,
+        )
+
+    def run_case(self, case: EvalCase) -> CaseBaselineResult:
+        retrieval_result = self.retrieval_backend.retrieve(self._chat_args(case), case.question)
+        indexed_chunks = load_indexed_chunks(self.store, case)
+        metrics = case_retrieval_metrics(
+            case, indexed_chunks, retrieval_result.retrieved_chunks, k=self.args.top_k
+        )
+        return CaseBaselineResult(
+            case_id=case.case_id,
+            student_id=case.student_id,
+            student_name=case.student_name,
+            question=case.question,
+            expected_answer_mode=case.expected_answer_mode,
+            evidence_quotes=list(case.evidence_quotes),
+            retrieval_result_count=retrieval_result.result_count,
+            indexed_chunk_count=len(indexed_chunks),
+            metrics=metrics,
+        )
+
+    def run(self) -> BaselineSnapshot:
+        print(
+            f"Capturing retrieval baseline for {len(self.selected_cases)} case(s) "
+            "(retrieval-only, no Groq)..."
+        )
+        case_results: list[CaseBaselineResult] = []
+        for case in self.selected_cases:
+            print(f"- Retrieving {case.case_id} for {case.student_name}...")
+            case_results.append(self.run_case(case))
+
+        snapshot = BaselineSnapshot(
+            dataset_path=str(self.args.eval_file),
+            embedding_model=self.args.embedding_model,
+            top_k=self.args.top_k,
+            selected_case_ids=[case.case_id for case in self.selected_cases],
+            retrieval_aggregate=aggregate_metrics(
+                [result.metrics for result in case_results], k=self.args.top_k
+            ),
+            quote_not_indexed_case_ids=[
+                result.case_id
+                for result in case_results
+                if result.metrics.status == "quote_not_indexed"
+            ],
+            case_results=case_results,
+        )
+        self.write_snapshot(snapshot)
+        return snapshot
+
+    def write_snapshot(self, snapshot: BaselineSnapshot) -> None:
+        write_json(self.args.output_dir / "baseline_snapshot.json", snapshot)
+        markdown_path = self.args.output_dir / "baseline_snapshot.md"
+        markdown_path.parent.mkdir(parents=True, exist_ok=True)
+        markdown_path.write_text(build_baseline_markdown(snapshot), encoding="utf-8")
+
+
+def run_baseline(args: EvaluationArgs) -> BaselineSnapshot:
+    snapshot = BaselineService(args).run()
+    aggregate = snapshot.retrieval_aggregate
+    print(
+        "\n".join(
+            [
+                "Baseline capture complete (retrieval-only, no Groq).",
+                f"recall@{aggregate.k}: {aggregate.recall_at_k}",
+                f"MRR: {aggregate.mrr}",
+                f"Scorable cases: {aggregate.scorable_case_count} / {aggregate.total_cases}",
+                f"Tier distribution: {aggregate.tier_distribution}",
+                f"Low-tier rate: {aggregate.low_tier_rate}",
+                f"quote_not_indexed: {aggregate.quote_not_indexed_case_count} "
+                f"{snapshot.quote_not_indexed_case_ids}",
+                f"Snapshot JSON: {args.output_dir / 'baseline_snapshot.json'}",
+                f"Snapshot Markdown: {args.output_dir / 'baseline_snapshot.md'}",
+            ]
+        )
+    )
+    return snapshot
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     validate_inputs(args)
+    if args.baseline:
+        run_baseline(args)
+        return
     service = EvaluationService(args)
     summary = service.run()
     print(
