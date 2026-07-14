@@ -122,7 +122,7 @@ def parse_args(argv: Sequence[str] | None = None) -> ChatArgs:
     parser.add_argument(
         "--chunk-type",
         action="append",
-        choices=("spoken", "missed", "class_context", "chat"),
+        choices=("spoken", "missed", "class_context", "chat", "material"),
         dest="chunk_types",
     )
     parser.add_argument(

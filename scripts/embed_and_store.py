@@ -227,6 +227,39 @@ def chunk_student_context(
     return records
 
 
+def chunk_material_blocks(
+    blocks: Sequence[tuple[str, str]],
+    *,
+    student_id: str,
+    student_name: str,
+    class_name: str,
+) -> list[EmbeddingRecord]:
+    """Chunk extracted ``(source_filename, block_text)`` material blocks for one student.
+
+    Materials are authoritative class content, not speech: no timestamps, and the
+    speaker is set to "material" so retrieval never mis-labels them as the teacher's
+    spoken words. The source filename is kept as provenance for TASK-020 labeling.
+    """
+    records: list[EmbeddingRecord] = []
+    for source_filename, block_text in blocks:
+        for chunk_text in _split_text(block_text, _MAX_CHUNK_CHARS):
+            if not is_quality_text(chunk_text):
+                continue
+            records.append(
+                EmbeddingRecord(
+                    id=stable_chunk_id(student_id, "material", chunk_text),
+                    student_id=student_id,
+                    student_name=student_name,
+                    class_name=class_name,
+                    chunk_type="material",
+                    text=chunk_text,
+                    speaker="material",
+                    metadata={"source_file": source_filename},
+                )
+            )
+    return records
+
+
 def chunk_absent_summary(
     summary: AbsentStudentSummary, class_name: str
 ) -> list[EmbeddingRecord]:
@@ -266,6 +299,27 @@ def embed_records(
     embeddings = model.encode(texts, show_progress_bar=True)
     for rec, emb in zip(records, embeddings):
         rec.embedding = emb.tolist()
+    return records
+
+
+def embed_records_deduped(
+    records: list[EmbeddingRecord], model_name: str
+) -> list[EmbeddingRecord]:
+    """Embed each distinct text once and share the vector across duplicates.
+
+    Material chunks are identical for every enrolled student of a class, so
+    encoding the per-student copies would redo the same work N times.
+    """
+    if not records:
+        return records
+    from sentence_transformers import SentenceTransformer
+
+    model = SentenceTransformer(model_name)
+    unique_texts = list(dict.fromkeys(record.text for record in records))
+    embeddings = model.encode(unique_texts, show_progress_bar=True)
+    vector_by_text = {text: emb.tolist() for text, emb in zip(unique_texts, embeddings)}
+    for record in records:
+        record.embedding = vector_by_text[record.text]
     return records
 
 

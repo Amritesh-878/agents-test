@@ -113,6 +113,34 @@ python -m scripts.run_pipeline ... --skip-transcribe
 
 ---
 
+## Class Materials Ingestion (PPT / PDF / notes)
+
+Class materials are an **authoritative** grounding source for concept questions,
+complementing the noisy spoken transcript. `scripts.ingest_materials` extracts text
+from `.pptx` / `.pdf` / `.docx` / `.txt` / `.md` files, chunks it, and embeds it as
+`material` chunks under every enrolled student of the class (mirroring how
+`class_context` is stored, so per-student isolation is unchanged).
+
+**Folder layout:** one folder per class — `materials\<class_name>\*.pptx|pdf|docx|txt|md`.
+
+```powershell
+python -m scripts.ingest_materials `
+  --materials-dir "materials\ClassName" `
+  --class-name "ClassName" `
+  --identity-map "output\ClassName\identity_map.json" `
+  --chunk-review "output\ClassName\material_chunk_review.csv"
+```
+
+- Enrolled students come from the class's `identity_map.json` (teacher and unmatched
+  entries are skipped). If no identity map exists yet, pass one or more explicit
+  `--student-id` flags instead (also usable alongside the map to add students).
+- Re-running **replaces** the class's `material` chunks (per-student purge, then
+  upsert with stable ids); spoken/chat/class_context chunks are never touched.
+- Empty slides and boilerplate ("Thank You") are dropped by the same quality gate
+  used for transcript chunks; each chunk keeps its source filename as provenance.
+
+---
+
 ## Google Drive Ingestion (automated front-end)
 
 Instead of running each zip by hand, `scripts.drive_sync` polls a Google Drive folder

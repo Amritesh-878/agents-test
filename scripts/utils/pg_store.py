@@ -34,6 +34,11 @@ LIMIT %s
 
 _DELETE_CLASS_SQL = "DELETE FROM embeddings WHERE class_name = %s"
 
+_DELETE_STUDENT_MATERIAL_SQL = (
+    "DELETE FROM embeddings "
+    "WHERE class_name = %s AND student_id = %s AND chunk_type = 'material'"
+)
+
 _GET_STUDENT_SQL = """
 SELECT id, student_id, student_name, class_name, chunk_type, text,
        start_time, end_time, speaker, metadata
@@ -89,6 +94,18 @@ class PgVectorStore:
     def delete_class_chunks(self, class_name: str) -> int:
         with self._conn.cursor() as cur:
             cur.execute(_DELETE_CLASS_SQL, (class_name,))
+            count = cur.rowcount
+        self._conn.commit()
+        return count
+
+    def delete_student_material_chunks(self, class_name: str, student_id: str) -> int:
+        """Purge one student's ``material`` chunks for a class before re-upserting.
+
+        Scoped to chunk_type='material' so spoken/chat/class_context/missed chunks
+        are never touched by a materials re-ingest.
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(_DELETE_STUDENT_MATERIAL_SQL, (class_name, student_id))
             count = cur.rowcount
         self._conn.commit()
         return count

@@ -73,6 +73,26 @@ def test_delete_class_chunks_executes_delete() -> None:
     mock_conn.commit.assert_called_once()
 
 
+# --- delete_student_material_chunks ---
+
+
+def test_delete_student_material_chunks_scoped_to_material() -> None:
+    store, mock_conn = make_store()
+    mock_cursor = MagicMock()
+    mock_cursor.rowcount = 3
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    count = store.delete_student_material_chunks("CS101", "2301")
+
+    assert count == 3
+    sql, params = mock_cursor.execute.call_args.args
+    assert "chunk_type = 'material'" in sql
+    assert "student_id = %s" in sql
+    assert params == ("CS101", "2301")
+    mock_conn.commit.assert_called_once()
+
+
 # --- search ---
 
 
