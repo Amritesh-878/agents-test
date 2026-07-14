@@ -141,6 +141,17 @@ class FakeStore:
     ) -> list[SearchResult]:
         return self._search_results
 
+    def search_lexical(
+        self,
+        query_text: str,
+        *,
+        student_id: str,
+        chunk_types: Sequence[str] | None = None,
+        limit: int = 25,
+        class_name: str | None = None,
+    ) -> list[SearchResult]:
+        return []
+
     def get_student_chunks(self, student_id: str) -> list[SearchResult]:
         return self._student_chunks
 

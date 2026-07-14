@@ -45,7 +45,7 @@ class SearchResult(BaseModel):
     class_name: str
     chunk_type: str
     text: str
-    distance: float
+    distance: float | None = None
     start_time: float | None = None
     end_time: float | None = None
     speaker: str | None = None

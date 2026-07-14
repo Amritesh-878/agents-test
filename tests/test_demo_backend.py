@@ -45,6 +45,17 @@ class FakeStore:
         self.search_calls.append((student_id, top_k, list(chunk_types or []), class_name))
         return self._search_results
 
+    def search_lexical(
+        self,
+        query_text: str,
+        *,
+        student_id: str,
+        chunk_types: Sequence[str] | None = None,
+        limit: int = 25,
+        class_name: str | None = None,
+    ) -> list[SearchResult]:
+        return []
+
     def get_student_chunks(self, student_id: str) -> list[SearchResult]:
         return self._student_chunks
 
@@ -222,13 +233,11 @@ def test_answer_for_student_leaves_class_questions_unfiltered() -> None:
 
 
 def test_answer_for_student_widens_top_k_for_general_questions() -> None:
-    # The specific topic/instruction chunk can rank just outside a tight top-5, so general
-    # questions widen the retrieval net (GENERAL_QUESTION_TOP_K) to surface it.
     from scripts.chat import GENERAL_QUESTION_TOP_K
 
     store = FakeStore(search_results=[make_search_result()])
     backend = FakeChatBackend()
-    answer_for_student(
+    turn = answer_for_student(
         student_id="2302",
         student_name="Bhagyashree",
         question="What did the teacher ask us to do on the worksheet?",
@@ -238,14 +247,13 @@ def test_answer_for_student_widens_top_k_for_general_questions() -> None:
         db_url="postgresql://localhost/db",
         top_k=5,
     )
-    assert store.search_calls[0][1] == GENERAL_QUESTION_TOP_K
+    assert turn.retrieval_result.top_k == GENERAL_QUESTION_TOP_K
 
 
 def test_answer_for_student_keeps_top_k_tight_for_self_referential() -> None:
-    # A student's own spoken+chat chunks are few; a wider net would only add noise.
     store = FakeStore(search_results=[make_search_result()])
     backend = FakeChatBackend()
-    answer_for_student(
+    turn = answer_for_student(
         student_id="2302",
         student_name="Bhagyashree",
         question="What did I say about determinants today?",
@@ -255,7 +263,7 @@ def test_answer_for_student_keeps_top_k_tight_for_self_referential() -> None:
         db_url="postgresql://localhost/db",
         top_k=5,
     )
-    assert store.search_calls[0][1] == 5
+    assert turn.retrieval_result.top_k == 5
 
 
 def test_answer_for_student_scopes_to_selected_class() -> None:

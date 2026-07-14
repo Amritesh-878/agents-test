@@ -10,7 +10,9 @@ from scripts.chat import ChatArgs, RetrievalBackend
 from scripts.models.pipeline import SearchResult
 from scripts.retrieval import (
     QueryEmbedder,
+    RetrievalResult,
     format_retrieved_chunk,
+    retrieve_from_pgvector,
     search_result_to_chunk,
 )
 
@@ -51,6 +53,9 @@ class _CountingStore:
         self.closed = False
 
     def search(self, *args: Any, **kwargs: Any) -> list[Any]:
+        return []
+
+    def search_lexical(self, *args: Any, **kwargs: Any) -> list[Any]:
         return []
 
     def close(self) -> None:
@@ -154,3 +159,91 @@ def test_format_retrieved_chunk_shows_material_source_file() -> None:
 def test_format_retrieved_chunk_omits_source_when_absent() -> None:
     rendered = format_retrieved_chunk(search_result_to_chunk(_result("spoken", "Bhagyashree"), 1))
     assert "source=" not in rendered
+
+
+class _FixedEmbedder:
+    def encode(self, query: str) -> list[float]:
+        return [0.1, 0.2]
+
+
+class _HybridStore:
+    def __init__(
+        self, dense: list[SearchResult], lexical: list[SearchResult]
+    ) -> None:
+        self._dense = dense
+        self._lexical = lexical
+        self.dense_chunk_types: list[str] | None = None
+        self.lexical_chunk_types: list[str] | None = None
+
+    def search(
+        self,
+        query_embedding: list[float],
+        student_id: str,
+        top_k: int = 5,
+        chunk_types: Any = None,
+        class_name: str | None = None,
+    ) -> list[SearchResult]:
+        self.dense_chunk_types = list(chunk_types or [])
+        return self._dense
+
+    def search_lexical(
+        self,
+        query_text: str,
+        *,
+        student_id: str,
+        chunk_types: Any = None,
+        limit: int = 25,
+        class_name: str | None = None,
+    ) -> list[SearchResult]:
+        self.lexical_chunk_types = list(chunk_types or [])
+        return self._lexical
+
+
+def _hit(chunk_id: str, distance: float | None, text: str = "...") -> SearchResult:
+    return SearchResult(
+        chunk_id=chunk_id,
+        student_id="2302",
+        student_name="Bhagyashree",
+        class_name="Eco",
+        chunk_type="spoken",
+        text=text,
+        distance=distance,
+    )
+
+
+def _retrieve(store: _HybridStore, chunk_types: list[str] | None = None) -> RetrievalResult:
+    return retrieve_from_pgvector(
+        student_id="2302",
+        query="q",
+        top_k=5,
+        chunk_types=chunk_types,  # type: ignore[arg-type]
+        db_url="postgresql://localhost/db",
+        store=store,
+        embedder=_FixedEmbedder(),  # type: ignore[arg-type]
+    )
+
+
+def test_hybrid_surfaces_lexical_only_hit() -> None:
+    dense = [_hit("d1", 0.2), _hit("shared", 0.5)]
+    lexical = [_hit("shared", None), _hit("lex_only", None)]
+    result = _retrieve(_HybridStore(dense, lexical))
+    ids = {chunk.chunk_id for chunk in result.retrieved_chunks}
+    assert "lex_only" in ids
+    assert ids == {"d1", "shared", "lex_only"}
+
+
+def test_hybrid_lexical_only_hit_has_no_fake_score() -> None:
+    dense = [_hit("d1", 0.2)]
+    lexical = [_hit("lex_only", None)]
+    result = _retrieve(_HybridStore(dense, lexical))
+    by_id = {chunk.chunk_id: chunk for chunk in result.retrieved_chunks}
+    assert by_id["lex_only"].score is None
+    assert by_id["lex_only"].distance is None
+    assert by_id["d1"].score is not None
+
+
+def test_hybrid_scopes_both_arms_to_same_chunk_types() -> None:
+    store = _HybridStore([], [])
+    _retrieve(store, chunk_types=["spoken", "chat"])
+    assert store.dense_chunk_types == ["spoken", "chat"]
+    assert store.lexical_chunk_types == ["spoken", "chat"]

@@ -19,8 +19,11 @@ from scripts.embed_and_store import DEFAULT_EMBEDDING_MODEL
 from scripts.models.pipeline import SearchResult
 from scripts.utils.chunker import ChunkType, SourceSegmentReference
 from scripts.utils.db_url import resolve_db_url
+from scripts.utils.fusion import reciprocal_rank_fusion
 
 logger = logging.getLogger(__name__)
+
+HYBRID_POOL_SIZE = 25
 
 
 class RetrievalArgs(BaseModel):
@@ -209,6 +212,22 @@ class QueryEmbedder:
         return self._model.encode(query).tolist()
 
 
+def fuse_search_results(
+    dense: Sequence[SearchResult],
+    lexical: Sequence[SearchResult],
+    top_k: int,
+) -> list[SearchResult]:
+    by_id: dict[str, SearchResult] = {}
+    for result in lexical:
+        by_id.setdefault(result.chunk_id, result)
+    for result in dense:
+        by_id[result.chunk_id] = result
+    fused_ids = reciprocal_rank_fusion(
+        [[result.chunk_id for result in dense], [result.chunk_id for result in lexical]]
+    )
+    return [by_id[chunk_id] for chunk_id in fused_ids][:top_k]
+
+
 def retrieve_from_pgvector(
     *,
     student_id: str,
@@ -229,20 +248,29 @@ def retrieve_from_pgvector(
     pg_store: PgVectorStore = store or connect_pg_store(db_url)
     close_after = store is None
     active_embedder = embedder if embedder is not None else QueryEmbedder(embedding_model)
+    pool_size = max(top_k, HYBRID_POOL_SIZE)
 
     try:
         query_embedding = active_embedder.encode(query)
-        raw_results = pg_store.search(
-            query_embedding, student_id, top_k, resolved_chunk_types, class_name
+        dense_results = pg_store.search(
+            query_embedding, student_id, pool_size, resolved_chunk_types, class_name
+        )
+        lexical_results = pg_store.search_lexical(
+            query,
+            student_id=student_id,
+            chunk_types=resolved_chunk_types,
+            limit=pool_size,
+            class_name=class_name,
         )
     finally:
         if close_after:
             pg_store.close()
 
-    if not raw_results:
+    if not dense_results and not lexical_results:
         warnings.append("No stored chunks found for this student scope.")
 
-    chunks = [search_result_to_chunk(r, i + 1) for i, r in enumerate(raw_results)]
+    fused_results = fuse_search_results(dense_results, lexical_results, top_k)
+    chunks = [search_result_to_chunk(r, i + 1) for i, r in enumerate(fused_results)]
     for chunk in chunks:
         if chunk.student_id != student_id:
             raise RetrievalError(f"Cross-student leakage detected: {chunk.student_id}")

@@ -32,6 +32,16 @@ ORDER BY distance
 LIMIT %s
 """
 
+_LEXICAL_SEARCH_HEAD = """
+SELECT id, student_id, student_name, class_name, chunk_type, text,
+       start_time, end_time, speaker, metadata
+FROM embeddings
+WHERE """
+_LEXICAL_SEARCH_TAIL = """
+ORDER BY ts_rank_cd(to_tsvector('simple', text), websearch_to_tsquery('simple', %s)) DESC
+LIMIT %s
+"""
+
 _DELETE_CLASS_SQL = "DELETE FROM embeddings WHERE class_name = %s"
 
 _DELETE_STUDENT_MATERIAL_SQL = (
@@ -158,6 +168,61 @@ class PgVectorStore:
                     chunk_type=ctype,
                     text=text,
                     distance=float(distance),
+                    start_time=start_time,
+                    end_time=end_time,
+                    speaker=speaker,
+                    metadata=metadata,
+                )
+            )
+        return results
+
+    def search_lexical(
+        self,
+        query_text: str,
+        *,
+        student_id: str,
+        chunk_types: Sequence[str] | None = None,
+        limit: int = 25,
+        class_name: str | None = None,
+    ) -> list[SearchResult]:
+        types = list(chunk_types or [])
+        conditions = ["student_id = %s"]
+        filter_params: list[Any] = [student_id]
+        if types:
+            conditions.append("chunk_type = ANY(%s)")
+            filter_params.append(types)
+        if class_name:
+            conditions.append("class_name = %s")
+            filter_params.append(class_name)
+        conditions.append("to_tsvector('simple', text) @@ websearch_to_tsquery('simple', %s)")
+        filter_params.append(query_text)
+        sql = _LEXICAL_SEARCH_HEAD + " AND ".join(conditions) + _LEXICAL_SEARCH_TAIL
+        params: tuple[Any, ...] = (*filter_params, query_text, limit)
+
+        with self._conn.cursor() as cur:
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+
+        results: list[SearchResult] = []
+        for row in rows:
+            (chunk_id, sid, sname, cname, ctype, text, start_time, end_time, speaker, metadata_raw) = row
+            metadata: dict[str, Any] = {}
+            if isinstance(metadata_raw, str):
+                try:
+                    metadata = json.loads(metadata_raw)
+                except ValueError:
+                    pass
+            elif isinstance(metadata_raw, dict):
+                metadata = metadata_raw
+            results.append(
+                SearchResult(
+                    chunk_id=chunk_id,
+                    student_id=sid,
+                    student_name=sname,
+                    class_name=cname,
+                    chunk_type=ctype,
+                    text=text,
+                    distance=None,
                     start_time=start_time,
                     end_time=end_time,
                     speaker=speaker,

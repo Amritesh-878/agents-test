@@ -55,6 +55,19 @@ _DDL = [
     ON embeddings USING hnsw (embedding vector_cosine_ops)
     WITH (m = 16, ef_construction = 64)""",
     ),
+    (
+        "index",
+        "idx_embeddings_text_fts",
+        "CREATE INDEX IF NOT EXISTS idx_embeddings_text_fts "
+        "ON embeddings USING gin (to_tsvector('simple', text))",
+    ),
+    ("extension", "pg_trgm", "CREATE EXTENSION IF NOT EXISTS pg_trgm"),
+    (
+        "index",
+        "idx_embeddings_text_trgm",
+        "CREATE INDEX IF NOT EXISTS idx_embeddings_text_trgm "
+        "ON embeddings USING gin (text gin_trgm_ops)",
+    ),
 ]
 
 

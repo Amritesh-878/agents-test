@@ -199,6 +199,70 @@ def test_search_empty_returns_empty_list() -> None:
     assert results == []
 
 
+def test_search_lexical_returns_results_with_no_distance() -> None:
+    import json
+
+    store, mock_conn = make_store()
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = [
+        ("id1", "2301", "Anshi", "CS101", "spoken", "worksheet problems", 0.0, 5.0, "Anshi", json.dumps({})),
+    ]
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    results = store.search_lexical("worksheet", student_id="2301", limit=5)
+
+    assert len(results) == 1
+    assert results[0].chunk_id == "id1"
+    assert results[0].distance is None
+    sql = mock_cursor.execute.call_args.args[0]
+    assert "websearch_to_tsquery" in sql
+    assert "ts_rank_cd" in sql
+
+
+def test_search_lexical_unfiltered_params() -> None:
+    store, mock_conn = make_store()
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = []
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    store.search_lexical("worksheet", student_id="2301", limit=5)
+
+    sql, params = mock_cursor.execute.call_args.args
+    assert "chunk_type = ANY" not in sql
+    assert "class_name = %s" not in sql
+    assert params == ("2301", "worksheet", "worksheet", 5)
+
+
+def test_search_lexical_pushes_chunk_type_filter() -> None:
+    store, mock_conn = make_store()
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = []
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    store.search_lexical("worksheet", student_id="2301", chunk_types=["spoken", "chat"], limit=5)
+
+    sql, params = mock_cursor.execute.call_args.args
+    assert "chunk_type = ANY(%s)" in sql
+    assert params == ("2301", ["spoken", "chat"], "worksheet", "worksheet", 5)
+
+
+def test_search_lexical_pushes_class_name_filter() -> None:
+    store, mock_conn = make_store()
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = []
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    store.search_lexical("worksheet", student_id="2301", class_name="CS101", limit=5)
+
+    sql, params = mock_cursor.execute.call_args.args
+    assert "class_name = %s" in sql
+    assert params == ("2301", "CS101", "worksheet", "worksheet", 5)
+
+
 # --- get_student_chunks ---
 
 

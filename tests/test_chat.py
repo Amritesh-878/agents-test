@@ -388,6 +388,7 @@ class _CapturingStore:
     def __init__(self) -> None:
         self.search_chunk_types: list[str] | None = None
         self.search_top_k: int | None = None
+        self.lexical_chunk_types: list[str] | None = None
 
     def search(
         self,
@@ -399,6 +400,18 @@ class _CapturingStore:
     ) -> list[object]:
         self.search_chunk_types = list(chunk_types or [])
         self.search_top_k = top_k
+        return []
+
+    def search_lexical(
+        self,
+        query_text: str,
+        *,
+        student_id: str,
+        chunk_types: Sequence[str] | None = None,
+        limit: int = 25,
+        class_name: str | None = None,
+    ) -> list[object]:
+        self.lexical_chunk_types = list(chunk_types or [])
         return []
 
 
@@ -414,23 +427,22 @@ def test_retrieval_backend_scopes_self_referential_to_spoken(tmp_path: Path) -> 
 
     backend.retrieve(args, "What did I say during class today?")
     assert store.search_chunk_types == ["spoken", "chat"]
+    assert store.lexical_chunk_types == ["spoken", "chat"]
 
     backend.retrieve(args, "What did we cover in class today?")
     assert store.search_chunk_types == []
+    assert store.lexical_chunk_types == []
 
 
 def test_retrieval_backend_widens_top_k_for_general_questions(tmp_path: Path) -> None:
-    # Gap-closing: the CLI/eval path (RetrievalBackend) must widen general questions to
-    # GENERAL_QUESTION_TOP_K the same way the demo does, and keep self-referential ones
-    # at the base top_k — so scripts.evaluate now covers the breadth real users hit.
     from scripts.chat import GENERAL_QUESTION_TOP_K
 
     store = _CapturingStore()
     backend = RetrievalBackend(store=store, embedder=_FixedEmbedder())  # type: ignore[arg-type]
     args = make_args(tmp_path)  # base top_k defaults to 5
 
-    backend.retrieve(args, "What did we cover in class today?")
-    assert store.search_top_k == GENERAL_QUESTION_TOP_K
+    general = backend.retrieve(args, "What did we cover in class today?")
+    assert general.top_k == GENERAL_QUESTION_TOP_K
 
-    backend.retrieve(args, "What did I say during class today?")
-    assert store.search_top_k == args.top_k
+    self_referential = backend.retrieve(args, "What did I say during class today?")
+    assert self_referential.top_k == args.top_k
