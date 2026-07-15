@@ -471,6 +471,41 @@ def test_attendance_roll_absent_from_roster_warns(caplog: pytest.LogCaptureFixtu
     assert "roster" in caplog.text
 
 
+def test_attendance_name_agreement_grants_presence() -> None:
+    transcript = make_transcript([(0, 5, "teacher talk", ["Dr Smith"])], duration=600.0)
+    roster = [make_roster("Rani Sharma", "2620")]
+    imap = IdentityMap(teacher_name="Nisha")
+    teacher_doc = make_teacher_doc([(0, 600, "class content")])
+    attendance = [AttendanceRecord(name="Rani Sharma", roll_no="2620", duration_minutes=45.0)]
+    doc = build_context_document(transcript, imap, roster, attendance, [], teacher_doc)
+    assert "2620" in doc.present_students
+    assert ATTENDANCE_ONLY_PRESENCE_TAG in doc.present_students["2620"].tags
+
+
+def test_attendance_roll_name_mismatch_denies_presence(caplog: pytest.LogCaptureFixture) -> None:
+    transcript = make_transcript([(0, 5, "teacher talk", ["Dr Smith"])], duration=600.0)
+    roster = [make_roster("Priya Nair", "2407")]
+    imap = IdentityMap(teacher_name="Nisha")
+    teacher_doc = make_teacher_doc([(0, 600, "class content")])
+    attendance = [AttendanceRecord(name="Rani Sharma", roll_no="2407", duration_minutes=150.0)]
+    with caplog.at_level("WARNING"):
+        doc = build_context_document(transcript, imap, roster, attendance, [], teacher_doc)
+    assert "2407" not in doc.present_students
+    assert "2407" in doc.absent_students
+    assert "Rani Sharma" in caplog.text
+    assert "Priya Nair" in caplog.text
+
+
+def test_empty_attendance_name_trusts_roll() -> None:
+    transcript = make_transcript([(0, 5, "teacher talk", ["Dr Smith"])], duration=600.0)
+    roster = [make_roster("Anon Student", "2500")]
+    imap = IdentityMap(teacher_name="Nisha")
+    teacher_doc = make_teacher_doc([(0, 600, "class content")])
+    attendance = [AttendanceRecord(name="", roll_no="2500", duration_minutes=45.0)]
+    doc = build_context_document(transcript, imap, roster, attendance, [], teacher_doc)
+    assert "2500" in doc.present_students
+
+
 def test_build_attendance_only_context_flags_missed_unknown() -> None:
     transcript = make_transcript([(0, 5, "content", ["Dr Smith"])], duration=600.0)
     student = make_roster("Video Only", "2401")

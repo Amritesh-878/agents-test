@@ -8,7 +8,14 @@ from typing import Sequence
 
 from pydantic import BaseModel
 
-from scripts.match_identity import load_attendance, load_roster, resolve_chat_sender
+from scripts.match_identity import (
+    _NAME_MATCH_THRESHOLD,
+    _name_score,
+    _normalize_plain_tokens,
+    load_attendance,
+    load_roster,
+    resolve_chat_sender,
+)
 from scripts.models.context import (
     AbsentStudentSummary,
     BuildContextMetadata,
@@ -235,6 +242,21 @@ def build_chat_only_context(
     )
 
 
+def _attendance_name_agrees(attendance: AttendanceRecord, student: RosterEntry) -> bool:
+    tokens = _normalize_plain_tokens(attendance.name)
+    if not tokens:
+        return True
+    if _name_score(tokens, student.name) >= _NAME_MATCH_THRESHOLD:
+        return True
+    logger.warning(
+        "Attendance roll %s carries name %r but roster student is %r; presence not granted",
+        student.roll_no,
+        attendance.name,
+        student.name,
+    )
+    return False
+
+
 def build_attendance_only_context(
     student: RosterEntry,
     transcript: MergedTranscriptDocument,
@@ -418,7 +440,11 @@ def build_context_document(
             )
         else:
             att = attendance_by_roll.get(roll)
-            if att is not None and att.duration_minutes >= attendance_presence_threshold:
+            if (
+                att is not None
+                and att.duration_minutes >= attendance_presence_threshold
+                and _attendance_name_agrees(att, student)
+            ):
                 covered_roll_nos.add(roll)
                 present_students[key] = build_attendance_only_context(
                     student, transcript, topics, teacher_segments, att
