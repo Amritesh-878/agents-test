@@ -25,11 +25,13 @@ from scripts.retrieval import RetrievedChunk, search_result_to_chunk
 from scripts.utils.chunker import ChunkType
 from scripts.utils.pg_store import PgVectorStore, connect_pg_store
 from scripts.utils.reranker import DEFAULT_RERANKER
+from scripts.utils.retrieval_grade import RouterTier, grade_retrieval
 from scripts.utils.retrieval_metrics import (
     AggregateRetrievalMetrics,
     CaseRetrievalMetrics,
     aggregate_metrics,
     compute_case_metrics,
+    tier_distribution,
 )
 
 INSUFFICIENT_EVIDENCE_HINTS = (
@@ -146,6 +148,7 @@ class CaseEvaluationResult(BaseModel):
     failure_reasons: list[str] = Field(default_factory=list)
     retrieval_checks: RetrievalCheckResult
     retrieval_metrics: CaseRetrievalMetrics
+    router_grade: RouterTier
     answer_checks: AnswerCheckResult
 
 
@@ -157,6 +160,8 @@ class EvaluationSummary(BaseModel):
     selected_case_ids: list[str] = Field(default_factory=list)
     failure_stage_counts: dict[str, int] = Field(default_factory=dict)
     retrieval_aggregate: AggregateRetrievalMetrics
+    router_tier_distribution: dict[str, int] = Field(default_factory=dict)
+    router_low_tier_rate: float = 0.0
     quote_not_indexed_case_ids: list[str] = Field(default_factory=list)
     case_results: list[CaseEvaluationResult] = Field(default_factory=list)
 
@@ -313,6 +318,19 @@ def case_retrieval_metrics(
         is_refusal=case.expected_answer_mode == "insufficient_evidence",
         k=k,
     )
+
+
+def router_tier_summary(grades: Sequence[RouterTier]) -> tuple[dict[str, int], float]:
+    distribution = tier_distribution(list(grades))
+    low_rate = round(distribution["low"] / len(grades), 6) if grades else 0.0
+    return distribution, low_rate
+
+
+def build_router_tier_lines(distribution: dict[str, int], low_tier_rate: float) -> list[str]:
+    return [
+        f"- Router-tier distribution: {distribution}",
+        f"- Router low-tier fire-rate: {low_tier_rate}",
+    ]
 
 
 def select_cases(dataset: EvalDataset, case_ids: Sequence[str]) -> list[EvalCase]:
@@ -550,13 +568,18 @@ def build_summary_markdown(summary: EvaluationSummary) -> str:
         )
     )
 
+    lines.extend(["", "## Router Tiers (confidence routing)", ""])
+    lines.extend(
+        build_router_tier_lines(summary.router_tier_distribution, summary.router_low_tier_rate)
+    )
+
     lines.extend(
         [
             "",
             "## Case Results",
             "",
-            "| Case | Student | Passed | Failure Stage | Status | Tier | First-hit rank | Hit@k |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| Case | Student | Passed | Failure Stage | Status | Tier | Router | First-hit rank | Hit@k |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for result in summary.case_results:
@@ -566,7 +589,8 @@ def build_summary_markdown(summary: EvaluationSummary) -> str:
         hit_text = "yes" if metric.hit else "no"
         lines.append(
             f"| {result.case.case_id} | {result.case.student_name} | {status_text} | "
-            f"{result.failure_stage} | {metric.status} | {metric.tier} | {rank_text} | {hit_text} |"
+            f"{result.failure_stage} | {metric.status} | {metric.tier} | {result.router_grade} | "
+            f"{rank_text} | {hit_text} |"
         )
     return "\n".join(lines)
 
@@ -630,6 +654,7 @@ class EvaluationService:
             failure_reasons=failure_reasons,
             retrieval_checks=retrieval_checks,
             retrieval_metrics=retrieval_metrics,
+            router_grade=turn_record.grade,
             answer_checks=answer_checks,
         )
 
@@ -660,6 +685,9 @@ class EvaluationService:
         failure_stage_counts = Counter(
             case_result.failure_stage for case_result in case_results if case_result.failure_stage != "none"
         )
+        router_distribution, router_low_rate = router_tier_summary(
+            [case_result.router_grade for case_result in case_results]
+        )
         summary = EvaluationSummary(
             dataset_path=str(self.args.eval_file),
             total_cases=len(case_results),
@@ -670,6 +698,8 @@ class EvaluationService:
             retrieval_aggregate=aggregate_metrics(
                 [case_result.retrieval_metrics for case_result in case_results], k=self.args.top_k
             ),
+            router_tier_distribution=router_distribution,
+            router_low_tier_rate=router_low_rate,
             quote_not_indexed_case_ids=[
                 case_result.case.case_id
                 for case_result in case_results
@@ -691,6 +721,7 @@ class CaseBaselineResult(BaseModel):
     retrieval_result_count: int
     indexed_chunk_count: int
     metrics: CaseRetrievalMetrics
+    router_grade: RouterTier
 
 
 class BaselineSnapshot(BaseModel):
@@ -703,6 +734,8 @@ class BaselineSnapshot(BaseModel):
     store_total_rows: int
     selected_case_ids: list[str] = Field(default_factory=list)
     retrieval_aggregate: AggregateRetrievalMetrics
+    router_tier_distribution: dict[str, int] = Field(default_factory=dict)
+    router_low_tier_rate: float = 0.0
     quote_not_indexed_case_ids: list[str] = Field(default_factory=list)
     case_results: list[CaseBaselineResult] = Field(default_factory=list)
 
@@ -725,6 +758,9 @@ def build_baseline_markdown(snapshot: BaselineSnapshot) -> str:
         build_retrieval_metrics_lines(
             snapshot.retrieval_aggregate, snapshot.quote_not_indexed_case_ids
         )
+    )
+    lines.extend(
+        build_router_tier_lines(snapshot.router_tier_distribution, snapshot.router_low_tier_rate)
     )
     lines.extend(
         [
@@ -793,6 +829,7 @@ class BaselineService:
             retrieval_result_count=retrieval_result.result_count,
             indexed_chunk_count=len(indexed_chunks),
             metrics=metrics,
+            router_grade=grade_retrieval(retrieval_result.retrieved_chunks),
         )
 
     def run(self) -> BaselineSnapshot:
@@ -805,6 +842,9 @@ class BaselineService:
             print(f"- Retrieving {case.case_id} for {case.student_name}...")
             case_results.append(self.run_case(case))
 
+        router_distribution, router_low_rate = router_tier_summary(
+            [result.router_grade for result in case_results]
+        )
         snapshot = BaselineSnapshot(
             dataset_path=str(self.args.eval_file),
             embedding_model=self.args.embedding_model,
@@ -817,6 +857,8 @@ class BaselineService:
             retrieval_aggregate=aggregate_metrics(
                 [result.metrics for result in case_results], k=self.args.top_k
             ),
+            router_tier_distribution=router_distribution,
+            router_low_tier_rate=router_low_rate,
             quote_not_indexed_case_ids=[
                 result.case_id
                 for result in case_results
@@ -850,6 +892,8 @@ def run_baseline(args: EvaluationArgs) -> BaselineSnapshot:
                 f"Scorable cases: {aggregate.scorable_case_count} / {aggregate.total_cases}",
                 f"Tier distribution: {aggregate.tier_distribution}",
                 f"Low-tier rate: {aggregate.low_tier_rate}",
+                f"Router-tier distribution: {snapshot.router_tier_distribution}",
+                f"Router low-tier fire-rate: {snapshot.router_low_tier_rate}",
                 f"quote_not_indexed: {aggregate.quote_not_indexed_case_count} "
                 f"{snapshot.quote_not_indexed_case_ids}",
                 f"Snapshot JSON: {json_path}",

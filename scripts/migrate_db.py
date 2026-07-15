@@ -63,13 +63,12 @@ def build_ddl(embedding_dim: int = DEFAULT_EMBEDDING_DIM) -> list[tuple[str, str
             "CREATE INDEX IF NOT EXISTS idx_embeddings_text_fts "
             "ON embeddings USING gin (to_tsvector('simple', text))",
         ),
-        ("extension", "pg_trgm", "CREATE EXTENSION IF NOT EXISTS pg_trgm"),
-        (
-            "index",
-            "idx_embeddings_text_trgm",
-            "CREATE INDEX IF NOT EXISTS idx_embeddings_text_trgm "
-            "ON embeddings USING gin (text gin_trgm_ops)",
-        ),
+    ]
+
+
+def build_trigram_cleanup_ddl() -> list[tuple[str, str, str]]:
+    return [
+        ("index", "idx_embeddings_text_trgm", "DROP INDEX IF EXISTS idx_embeddings_text_trgm"),
     ]
 
 
@@ -130,6 +129,7 @@ def run_migration(
     indexes_created: list[str] = []
 
     statements = list(build_ddl(embedding_dim))
+    statements.extend(build_trigram_cleanup_ddl())
     if embedding_dim != DEFAULT_EMBEDDING_DIM:
         statements.extend(build_dimension_migration_ddl(embedding_dim))
 

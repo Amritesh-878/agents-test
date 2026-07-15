@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 from scripts.migrate_db import (
     build_dimension_migration_ddl,
     build_ddl,
+    build_trigram_cleanup_ddl,
     get_ddl_statements,
     run_migration,
 )
@@ -136,3 +137,21 @@ def test_run_migration_default_dim_has_no_column_alter() -> None:
     executed = " ".join(str(call.args[0]) for call in cur.execute.call_args_list)
     assert "vector(384)" in executed
     assert "ALTER COLUMN" not in executed
+
+
+def test_build_ddl_no_longer_creates_trigram_machinery() -> None:
+    joined = " ".join(sql for _, _, sql in build_ddl()).lower()
+    assert "pg_trgm" not in joined
+    assert "gin_trgm_ops" not in joined
+
+
+def test_trigram_cleanup_drops_index_idempotently() -> None:
+    sqls = [sql for _, _, sql in build_trigram_cleanup_ddl()]
+    assert any("DROP INDEX IF EXISTS idx_embeddings_text_trgm" in sql for sql in sqls)
+
+
+def test_run_migration_drops_stale_trigram_index() -> None:
+    conn, cur = _mock_conn()
+    run_migration(conn)
+    executed = " ".join(str(call.args[0]) for call in cur.execute.call_args_list)
+    assert "DROP INDEX IF EXISTS idx_embeddings_text_trgm" in executed

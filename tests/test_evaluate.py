@@ -352,6 +352,36 @@ def test_baseline_snapshot_records_provenance(
     assert snapshot.store_total_rows == store.count_chunks()
 
 
+def test_baseline_snapshot_records_router_tiers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.setattr("scripts.evaluate.GroqChatBackend", boom)
+    monkeypatch.setattr("scripts.retrieval.make_reranker", lambda *a, **k: NoOpReranker())
+
+    eval_file = write_eval_file(tmp_path, BASELINE_CASES)
+    store = make_baseline_store()
+    args = EvaluationArgs(
+        eval_file=eval_file,
+        db_url="postgresql://localhost/db",
+        output_dir=tmp_path / "out",
+        top_k=5,
+    )
+    snapshot = BaselineService(
+        args,
+        store=store,
+        retrieval_backend=RetrievalBackend(store=store, embedder=make_embedder()),
+    ).run()
+
+    distribution = snapshot.router_tier_distribution
+    assert set(distribution) == {"high", "medium", "low"}
+    assert sum(distribution.values()) == len(BASELINE_CASES)
+    assert 0.0 <= snapshot.router_low_tier_rate <= 1.0
+    assert all(
+        result.router_grade in {"high", "medium", "low"} for result in snapshot.case_results
+    )
+
+
 def test_baseline_snapshot_label_changes_filenames(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

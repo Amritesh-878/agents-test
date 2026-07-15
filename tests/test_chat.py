@@ -10,6 +10,7 @@ from scripts.chat import (
     ChatArgs,
     ChatError,
     ChatService,
+    ChatTurnRecord,
     RetrievalBackend,
     normalize_answer_text,
     parse_args,
@@ -273,6 +274,8 @@ def _result_with_material(question: str) -> RetrievalResult:
         chunk_id="m1",
         chunk_type="material",
         rank=1,
+        rerank_score=0.82,
+        score=0.8,
         source_speaker="material",
         source_file="supply_deck.pptx",
         student_id="2302",
@@ -435,3 +438,180 @@ def test_retrieval_backend_returns_base_top_k_over_a_hybrid_pool(tmp_path: Path)
     self_referential = backend.retrieve(args, "What did I say during class today?")
     assert self_referential.top_k == args.top_k
     assert store.search_top_k == HYBRID_POOL_SIZE
+
+
+# --- TASK-031: confidence routing ---
+
+
+class _CountingBackend:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.messages: list[Sequence[object]] = []
+
+    def generate(self, *, messages: Sequence[object], model: str) -> str:
+        self.calls += 1
+        self.messages.append(messages)
+        return "generated"
+
+
+def _routed_result(rerank_score: float | None, *, chunk_type: str = "class_context") -> RetrievalResult:
+    from scripts.retrieval import RetrievedChunk
+
+    chunk = RetrievedChunk(
+        chunk_id="c1",
+        chunk_type=chunk_type,  # type: ignore[arg-type]
+        rank=1,
+        rerank_score=rerank_score,
+        source_speaker="teacher",
+        student_id="2302",
+        student_name="Bhagyashree",
+        text="the supply curve shifts with its determinants",
+    )
+    return RetrievalResult(
+        context_string="[1] type=class_context\ntext=determinants shift supply",
+        embedding_model="m",
+        query="q",
+        result_count=1,
+        retrieved_chunks=[chunk],
+        student_id="2302",
+        top_k=5,
+    )
+
+
+def _answer_turn(result: RetrievalResult, backend: _CountingBackend) -> ChatTurnRecord:
+    from scripts.chat import answer_turn, utc_now
+
+    return answer_turn(
+        student_id="2302",
+        student_name="Bhagyashree",
+        question="What did we cover about supply?",
+        retrieval_result=result,
+        llm_backend=backend,
+        groq_model="test-model",
+        history_turns=[],
+        max_history_turns=0,
+        student_classes=["Economics.02"],
+        now=utc_now(),
+        turn_index=1,
+    )
+
+
+def test_high_tier_answers_via_groq() -> None:
+    backend = _CountingBackend()
+    turn = _answer_turn(_routed_result(0.9), backend)
+    assert turn.grade == "high"
+    assert turn.answer_source == "groq"
+    assert backend.calls == 1
+    assert turn.answer == "generated"
+
+
+def test_medium_tier_uses_soft_landing_prompt() -> None:
+    from scripts.chat import MEDIUM_SYSTEM_INSTRUCTION, MEDIUM_USER_INSTRUCTION
+
+    backend = _CountingBackend()
+    turn = _answer_turn(_routed_result(0.4), backend)
+    assert turn.grade == "medium"
+    assert turn.answer_source == "groq"
+    assert backend.calls == 1
+    assert MEDIUM_SYSTEM_INSTRUCTION in turn.prompt_messages[0].content
+    assert MEDIUM_USER_INSTRUCTION in turn.prompt_messages[-1].content
+
+
+def test_low_tier_makes_no_llm_call_and_refuses_deterministically() -> None:
+    backend = _CountingBackend()
+    turn = _answer_turn(_routed_result(0.1), backend)
+    assert turn.grade == "low"
+    assert turn.answer_source == "fallback"
+    assert backend.calls == 0
+    assert "not have enough" in turn.answer.casefold()
+    assert "Economics.02" in turn.answer
+
+
+def test_empty_retrieval_routes_low_without_a_model() -> None:
+    backend = _CountingBackend()
+    empty = RetrievalResult(
+        context_string="none",
+        embedding_model="m",
+        query="q",
+        result_count=0,
+        student_id="2302",
+        top_k=5,
+    )
+    turn = _answer_turn(empty, backend)
+    assert turn.grade == "low"
+    assert turn.answer_source == "fallback"
+    assert backend.calls == 0
+
+
+def test_build_low_tier_answer_lists_classes_and_missed_notes() -> None:
+    from scripts.chat import build_low_tier_answer
+    from scripts.retrieval import RetrievedChunk
+
+    missed_chunk = RetrievedChunk(
+        chunk_id="x",
+        chunk_type="missed",
+        rank=1,
+        source_speaker="teacher",
+        student_id="2302",
+        student_name="Bhagyashree",
+        text="the part you missed on elasticity",
+    )
+    result = RetrievalResult(
+        context_string="c",
+        embedding_model="m",
+        query="q",
+        result_count=1,
+        retrieved_chunks=[missed_chunk],
+        student_id="2302",
+        top_k=5,
+    )
+    text = build_low_tier_answer("Bhagyashree", result, ["Economics.02", "Math.01"])
+    assert "not have enough" in text.casefold()
+    assert "Economics.02" in text
+    assert "Math.01" in text
+    assert "missed" in text.casefold()
+
+
+def test_high_tier_prompt_is_byte_identical_to_default() -> None:
+    from scripts.chat import build_prompt_messages
+
+    result = _result_with_material("concept q")
+    kwargs = dict(
+        student_id="2302",
+        student_name="Bhagyashree",
+        question="How do determinants relate to supply?",
+        retrieval_result=result,
+        history_turns=[],
+        max_history_turns=0,
+    )
+    default = build_prompt_messages(**kwargs)  # type: ignore[arg-type]
+    high = build_prompt_messages(**kwargs, grade="high")  # type: ignore[arg-type]
+    assert [m.model_dump() for m in high] == [m.model_dump() for m in default]
+
+
+def test_medium_prompt_is_strictly_additive_over_high() -> None:
+    from scripts.chat import (
+        MEDIUM_SYSTEM_INSTRUCTION,
+        MEDIUM_USER_INSTRUCTION,
+        build_prompt_messages,
+    )
+
+    result = _result_with_material("concept q")
+    kwargs = dict(
+        student_id="2302",
+        student_name="Bhagyashree",
+        question="How do determinants relate to supply?",
+        retrieval_result=result,
+        history_turns=[],
+        max_history_turns=0,
+    )
+    high = build_prompt_messages(**kwargs, grade="high")  # type: ignore[arg-type]
+    medium = build_prompt_messages(**kwargs, grade="medium")  # type: ignore[arg-type]
+
+    assert MEDIUM_SYSTEM_INSTRUCTION not in high[0].content
+    assert MEDIUM_USER_INSTRUCTION not in high[-1].content
+    assert MEDIUM_SYSTEM_INSTRUCTION in medium[0].content
+    assert MEDIUM_USER_INSTRUCTION in medium[-1].content
+    # the high content is preserved verbatim as the prefix of the medium content
+    assert medium[0].content.startswith(high[0].content)
+    assert medium[-1].content.startswith(high[-1].content)

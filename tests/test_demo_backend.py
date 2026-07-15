@@ -3,7 +3,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any, Sequence
 
-from scripts.chat import PromptMessage
+from pathlib import Path
+
+from scripts.chat import ChatArgs, ChatService, PromptMessage, RetrievalBackend
 from scripts.demo_backend import answer_for_student, student_summary, top_score
 from scripts.embed_and_store import DEFAULT_EMBEDDING_MODEL
 from scripts.models.pipeline import SearchResult
@@ -319,6 +321,70 @@ def test_session_display_label_parses_topic_and_date() -> None:
     ).startswith("Linear Equation Scaffolding Time and Work")
     # Unparseable input falls back to the raw value rather than raising.
     assert session_display_label("freeform-name") == "freeform-name"
+
+
+def _chat_service(store: FakeStore, backend: FakeChatBackend, tmp_path: Path) -> ChatService:
+    args = ChatArgs(
+        db_url="postgresql://localhost/db",
+        student_id="2302",
+        student_name="Bhagyashree",
+        save_session_dir=tmp_path / "chat_sessions",
+    )
+    return ChatService(
+        args,
+        retrieval_backend=RetrievalBackend(store=store, embedder=make_embedder()),
+        llm_backend=backend,
+    )
+
+
+def test_cli_and_demo_route_identically_on_the_same_retrieval(tmp_path: Path) -> None:
+    # One shared answer routine: the CLI (ChatService) and the demo wrapper must produce the
+    # same grade and the same answer path for identical retrieval.
+    question = "What did the class cover about supply?"
+    demo_store = FakeStore(search_results=[make_search_result()])
+    demo_backend = FakeChatBackend()
+    cli_store = FakeStore(search_results=[make_search_result()])
+    cli_backend = FakeChatBackend()
+
+    demo_turn = answer_for_student(
+        student_id="2302",
+        student_name="Bhagyashree",
+        question=question,
+        store=demo_store,
+        embedder=make_embedder(),
+        chat_backend=demo_backend,
+        db_url="postgresql://localhost/db",
+    )
+    cli_turn = _chat_service(cli_store, cli_backend, tmp_path).ask_question(question)
+
+    assert demo_turn.grade == cli_turn.grade == "high"
+    assert demo_turn.answer_source == cli_turn.answer_source == "groq"
+    assert demo_turn.answer == cli_turn.answer
+    assert len(demo_backend.calls) == len(cli_backend.calls) == 1
+
+
+def test_cli_and_demo_refuse_identically_when_no_context(tmp_path: Path) -> None:
+    question = "What did the class cover about the Balance of Payments?"
+    demo_store = FakeStore(search_results=[], student_chunks=[make_search_result()])
+    demo_backend = FakeChatBackend()
+    cli_store = FakeStore(search_results=[], student_chunks=[make_search_result()])
+    cli_backend = FakeChatBackend()
+
+    demo_turn = answer_for_student(
+        student_id="2302",
+        student_name="Bhagyashree",
+        question=question,
+        store=demo_store,
+        embedder=make_embedder(),
+        chat_backend=demo_backend,
+        db_url="postgresql://localhost/db",
+    )
+    cli_turn = _chat_service(cli_store, cli_backend, tmp_path).ask_question(question)
+
+    assert demo_turn.grade == cli_turn.grade == "low"
+    assert demo_turn.answer_source == cli_turn.answer_source == "fallback"
+    assert demo_turn.answer == cli_turn.answer
+    assert demo_backend.calls == cli_backend.calls == []
 
 
 def test_answer_for_student_turn_index_follows_history() -> None:

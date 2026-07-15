@@ -16,7 +16,7 @@ from scripts.retrieval import (
     retrieve_from_pgvector,
     search_result_to_chunk,
 )
-from scripts.utils.reranker import NoOpReranker
+from scripts.utils.reranker import NoOpReranker, RerankedCandidate
 
 
 class _FakeArray:
@@ -230,12 +230,12 @@ class _FakeReranker:
     def __init__(self, order: list[str]) -> None:
         self._order = order
 
-    def rerank(self, query: str, candidates: Sequence[SearchResult]) -> list[SearchResult]:
+    def rerank(self, query: str, candidates: Sequence[SearchResult]) -> list[RerankedCandidate]:
         by_id = {candidate.chunk_id: candidate for candidate in candidates}
         promoted = [by_id[chunk_id] for chunk_id in self._order if chunk_id in by_id]
         listed = set(self._order)
         remainder = [c for c in candidates if c.chunk_id not in listed]
-        return promoted + remainder
+        return [RerankedCandidate(result=result) for result in promoted + remainder]
 
 
 def test_reranker_reorders_pool_and_truncates_to_final_top_k() -> None:

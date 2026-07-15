@@ -21,9 +21,11 @@ def _result(chunk_id: str, text: str) -> SearchResult:
     )
 
 
-def test_noop_reranker_preserves_order() -> None:
+def test_noop_reranker_preserves_order_and_yields_no_scores() -> None:
     candidates = [_result("a", "x"), _result("b", "y"), _result("c", "z")]
-    assert [c.chunk_id for c in NoOpReranker().rerank("q", candidates)] == ["a", "b", "c"]
+    reranked = NoOpReranker().rerank("q", candidates)
+    assert [c.result.chunk_id for c in reranked] == ["a", "b", "c"]
+    assert all(c.rerank_score is None for c in reranked)
 
 
 def test_make_reranker_selects_implementation() -> None:
@@ -78,8 +80,13 @@ def test_cross_encoder_reorders_by_score_and_loads_once(monkeypatch: pytest.Monk
     candidates = [_result("a", "xxx"), _result("b", "xxxxxxx"), _result("c", "xxxxx")]
 
     first = reranker.rerank("q1", candidates)
-    assert [c.chunk_id for c in first] == ["b", "c", "a"]
-    assert {c.chunk_id for c in first} == {"a", "b", "c"}
+    assert [c.result.chunk_id for c in first] == ["b", "c", "a"]
+    assert {c.result.chunk_id for c in first} == {"a", "b", "c"}
+    # cross-encoder logits pass through a sigmoid to [0, 1] and descend with rank
+    assert all(c.rerank_score is not None and 0.0 <= c.rerank_score <= 1.0 for c in first)
+    scores = [c.rerank_score for c in first if c.rerank_score is not None]
+    assert len(scores) == 3
+    assert scores == sorted(scores, reverse=True)
 
     reranker.rerank("q2", candidates)
     assert counters["init"] == 1
@@ -97,4 +104,6 @@ def test_cross_encoder_short_circuits_without_loading(monkeypatch: pytest.Monkey
     reranker = CrossEncoderReranker("fake-model")
     assert reranker.rerank("q", []) == []
     single = [_result("only", "text")]
-    assert [c.chunk_id for c in reranker.rerank("q", single)] == ["only"]
+    reranked = reranker.rerank("q", single)
+    assert [c.result.chunk_id for c in reranked] == ["only"]
+    assert reranked[0].rerank_score is None

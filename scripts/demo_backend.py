@@ -8,19 +8,16 @@ reimplementing any of it.
 from __future__ import annotations
 
 import re
-from typing import Any, Literal, Sequence
+from typing import Any, Sequence
 
 from pydantic import BaseModel, Field
 
 from scripts.chat import (
     DEFAULT_GROQ_MODEL,
     ChatTurnRecord,
-    PromptMessage,
     SupportsGenerate,
-    build_empty_context_answer,
-    build_prompt_messages,
-    collect_trust_flags,
-    iso_timestamp,
+    answer_turn,
+    resolve_student_classes,
     select_retrieval_chunk_types,
     utc_now,
 )
@@ -114,14 +111,6 @@ def answer_for_student(
     groq_model: str = DEFAULT_GROQ_MODEL,
     max_history_turns: int = 3,
 ) -> ChatTurnRecord:
-    """Retrieve student-scoped context and answer one question.
-
-    Mirrors ``ChatService.ask_question`` without the session-file side effects:
-    on zero retrieval it returns the grounded "no evidence" fallback (no Groq
-    call); otherwise it builds the same prompt and calls the LLM backend. The
-    returned ``ChatTurnRecord`` carries the retrieval result so the UI can show
-    the grounding chunks.
-    """
     retrieval_result = retrieve_from_pgvector(
         student_id=student_id,
         query=question,
@@ -132,31 +121,16 @@ def answer_for_student(
         store=store,
         embedder=embedder,
     )
-    if retrieval_result.result_count == 0:
-        answer = build_empty_context_answer(student_name, retrieval_result)
-        answer_source: Literal["fallback", "groq"] = "fallback"
-        model_name: str | None = None
-        prompt_messages: list[PromptMessage] = []
-    else:
-        prompt_messages = build_prompt_messages(
-            student_id=student_id,
-            student_name=student_name,
-            question=question,
-            retrieval_result=retrieval_result,
-            history_turns=history_turns,
-            max_history_turns=max_history_turns,
-        )
-        answer = chat_backend.generate(messages=prompt_messages, model=groq_model)
-        answer_source = "groq"
-        model_name = groq_model
-    return ChatTurnRecord(
-        answer=answer,
-        answer_source=answer_source,
-        asked_at=iso_timestamp(utc_now()),
-        model=model_name,
-        prompt_messages=prompt_messages,
+    return answer_turn(
+        student_id=student_id,
+        student_name=student_name,
         question=question,
         retrieval_result=retrieval_result,
+        llm_backend=chat_backend,
+        groq_model=groq_model,
+        history_turns=history_turns,
+        max_history_turns=max_history_turns,
+        student_classes=resolve_student_classes(store, student_id),
+        now=utc_now(),
         turn_index=len(history_turns) + 1,
-        trust_flags=collect_trust_flags(retrieval_result),
     )

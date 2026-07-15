@@ -49,6 +49,7 @@ class RetrievedChunk(BaseModel):
     end: float = 0.0
     participant_kind: str = "student"
     rank: int
+    rerank_score: float | None = None
     score: float | None = None
     source_manual_review_required: bool = False
     source_mapped_student: str | None = None
@@ -137,7 +138,9 @@ def distance_to_score(distance: float | None) -> float | None:
     return round(1.0 / (1.0 + max(distance, 0.0)), 6)
 
 
-def search_result_to_chunk(result: SearchResult, rank: int) -> RetrievedChunk:
+def search_result_to_chunk(
+    result: SearchResult, rank: int, *, rerank_score: float | None = None
+) -> RetrievedChunk:
     meta = result.metadata
     return RetrievedChunk(
         chunk_id=result.chunk_id,
@@ -145,6 +148,7 @@ def search_result_to_chunk(result: SearchResult, rank: int) -> RetrievedChunk:
         distance=result.distance,
         end=result.end_time or 0.0,
         rank=rank,
+        rerank_score=rerank_score,
         score=distance_to_score(result.distance),
         source_file=meta.get("source_file"),
         source_speaker=result.speaker
@@ -284,8 +288,11 @@ def retrieve_from_pgvector(
                 f"chunk was embedded with {stored_model!r}. Re-embed the store (transcripts AND "
                 f"materials) with a single model before querying."
             )
-    final_results = active_reranker.rerank(query, fused_pool)[:top_k]
-    chunks = [search_result_to_chunk(r, i + 1) for i, r in enumerate(final_results)]
+    reranked = active_reranker.rerank(query, fused_pool)[:top_k]
+    chunks = [
+        search_result_to_chunk(candidate.result, i + 1, rerank_score=candidate.rerank_score)
+        for i, candidate in enumerate(reranked)
+    ]
 
     context = build_context_string(
         student_id=student_id,

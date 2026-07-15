@@ -25,6 +25,7 @@ from scripts.retrieval import (
 )
 from scripts.utils.chunker import ChunkType
 from scripts.utils.db_url import resolve_db_url
+from scripts.utils.retrieval_grade import RouterTier, grade_retrieval
 
 DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
 GROQ_EGRESS_NOTICE = (
@@ -65,6 +66,7 @@ class ChatTurnRecord(BaseModel):
     answer: str
     answer_source: Literal["fallback", "groq"]
     asked_at: str
+    grade: RouterTier
     model: str | None = None
     prompt_messages: list[PromptMessage] = Field(default_factory=list)
     question: str
@@ -319,6 +321,21 @@ def select_retrieval_chunk_types(
     return []
 
 
+MEDIUM_SYSTEM_INSTRUCTION = (
+    "The retrieved context may not answer the exact question asked. If it does not, do not "
+    "refuse. Say plainly that you could not find that specific thing, then share the closest "
+    "topic the retrieved chunks do cover, explained simply and drawn only from those chunks. "
+    "Only name a class or source if the retrieved chunks themselves identify it. Do not mention "
+    "any dates. Add nothing from outside the retrieved chunks."
+)
+
+MEDIUM_USER_INSTRUCTION = (
+    "- The exact ask may be missing from the retrieved context. If so, acknowledge that "
+    "briefly, then answer with the nearest topic the chunks do cover. Do not refuse, do not use "
+    "dates, and use only the retrieved chunks."
+)
+
+
 def build_prompt_messages(
     *,
     student_id: str,
@@ -327,13 +344,11 @@ def build_prompt_messages(
     retrieval_result: RetrievalResult,
     history_turns: Sequence[ChatTurnRecord],
     max_history_turns: int,
+    grade: RouterTier = "high",
 ) -> list[PromptMessage]:
     history = build_history_messages(history_turns, max_history_turns)
     trust_summary = summarize_trust_flags(retrieval_result)
-    system = PromptMessage(
-        role="system",
-        content="\n".join(
-            [
+    system_lines = [
                 "You are a student-support chatbot for a recorded class session.",
                 "Answer only from the retrieved context you are given (the class transcript "
                 "and the class materials). Do not answer from general or outside knowledge.",
@@ -385,13 +400,8 @@ def build_prompt_messages(
                 "en-dashes; use commas, periods, or separate sentences instead. Do not open with "
                 "preamble or filler ('Great question', 'Based on the context'); answer directly. "
                 "Avoid stock AI phrasing and needless hedging.",
-            ]
-        ),
-    )
-    user = PromptMessage(
-        role="user",
-        content="\n\n".join(
-            [
+    ]
+    user_lines = [
                 f"Student name: {student_name}",
                 f"Student id: {student_id}",
                 f"Current question: {question}",
@@ -409,9 +419,12 @@ def build_prompt_messages(
                 "- Acknowledge trust limitations only when they actually affect the answer.",
                 "- Refuse ('not enough evidence') only when the question's topic is absent from "
                 "every retrieved chunk; do not undercut a grounded answer with a disclaimer.",
-            ]
-        ),
-    )
+    ]
+    if grade == "medium":
+        system_lines.append(MEDIUM_SYSTEM_INSTRUCTION)
+        user_lines.append(MEDIUM_USER_INSTRUCTION)
+    system = PromptMessage(role="system", content="\n".join(system_lines))
+    user = PromptMessage(role="user", content="\n\n".join(user_lines))
     return [system, *history, user]
 
 
@@ -421,6 +434,96 @@ def build_empty_context_answer(student_name: str, retrieval_result: RetrievalRes
         f"I do not have enough student-scoped class context to answer that reliably for "
         f"{student_name}. The retrieval step did not return supporting chunks for this question. "
         f"Current retrieval notes: {warning_text}"
+    )
+
+
+def resolve_student_classes(store: Any, student_id: str) -> list[str]:
+    native = getattr(store, "list_student_classes", None)
+    if callable(native):
+        return list(native(student_id))
+    getter = getattr(store, "get_student_chunks", None)
+    if callable(getter):
+        return sorted({chunk.class_name for chunk in getter(student_id) if chunk.class_name})
+    return []
+
+
+def build_low_tier_answer(
+    student_name: str,
+    retrieval_result: RetrievalResult,
+    student_classes: Sequence[str],
+) -> str:
+    parts = [
+        f"I do not have enough class context to answer that reliably for {student_name}."
+    ]
+    if student_classes:
+        parts.append("Your classes so far covered: " + ", ".join(student_classes) + ".")
+        parts.append("Ask about one of those and I can pull it from your class material.")
+    else:
+        parts.append(
+            "Try asking about a specific topic from one of your classes and I can pull it from "
+            "your class material."
+        )
+    if any(chunk.chunk_type == "missed" for chunk in retrieval_result.retrieved_chunks):
+        parts.append("You also have notes on parts you missed, so you can ask about those directly.")
+    return " ".join(parts)
+
+
+def answer_turn(
+    *,
+    student_id: str,
+    student_name: str,
+    question: str,
+    retrieval_result: RetrievalResult,
+    llm_backend: SupportsGenerate | None,
+    groq_model: str,
+    history_turns: Sequence[ChatTurnRecord],
+    max_history_turns: int,
+    student_classes: Sequence[str],
+    now: datetime,
+    turn_index: int,
+    output_fn: Callable[[str], None] | None = None,
+) -> ChatTurnRecord:
+    grade = grade_retrieval(retrieval_result.retrieved_chunks)
+    asked_at = iso_timestamp(now)
+    trust_flags = collect_trust_flags(retrieval_result)
+    if grade == "low":
+        return ChatTurnRecord(
+            answer=build_low_tier_answer(student_name, retrieval_result, student_classes),
+            answer_source="fallback",
+            asked_at=asked_at,
+            grade=grade,
+            model=None,
+            prompt_messages=[],
+            question=question,
+            retrieval_result=retrieval_result,
+            turn_index=turn_index,
+            trust_flags=trust_flags,
+        )
+    if llm_backend is None:
+        raise ChatError("No language model backend was configured.")
+    prompt_messages = build_prompt_messages(
+        student_id=student_id,
+        student_name=student_name,
+        question=question,
+        retrieval_result=retrieval_result,
+        history_turns=history_turns,
+        max_history_turns=max_history_turns,
+        grade=grade,
+    )
+    if output_fn is not None:
+        output_fn("Generating grounded answer with Groq...")
+    answer = llm_backend.generate(messages=prompt_messages, model=groq_model)
+    return ChatTurnRecord(
+        answer=answer,
+        answer_source="groq",
+        asked_at=asked_at,
+        grade=grade,
+        model=groq_model,
+        prompt_messages=prompt_messages,
+        question=question,
+        retrieval_result=retrieval_result,
+        turn_index=turn_index,
+        trust_flags=trust_flags,
     )
 
 
@@ -523,6 +626,11 @@ class RetrievalBackend:
             embedder=self._embedder,
         )
 
+    def student_classes(self, student_id: str) -> list[str]:
+        if self._store is None:
+            return []
+        return resolve_student_classes(self._store, student_id)
+
     def close(self) -> None:
         if self._owns_store and self._store is not None:
             self._store.close()
@@ -573,37 +681,11 @@ class ChatService:
             "Commands: context, sources, help, quit"
         )
 
-    def build_turn_record(
-        self, question: str, answer: str, retrieval_result: RetrievalResult
-    ) -> ChatTurnRecord:
-        if retrieval_result.result_count == 0:
-            prompt_messages: list[PromptMessage] = []
-            answer_source: Literal["fallback", "groq"] = "fallback"
-            model_name: str | None = None
-        else:
-            if self.llm_backend is None:
-                raise ChatError("No language model backend was configured.")
-            prompt_messages = build_prompt_messages(
-                student_id=self.args.student_id,
-                student_name=self.args.student_name,
-                question=question,
-                retrieval_result=retrieval_result,
-                history_turns=self.session_record.turns,
-                max_history_turns=self.args.max_history_turns,
-            )
-            answer_source = "groq"
-            model_name = self.args.groq_model
-        return ChatTurnRecord(
-            answer=answer,
-            answer_source=answer_source,
-            asked_at=iso_timestamp(self.now_provider()),
-            model=model_name,
-            prompt_messages=prompt_messages,
-            question=question,
-            retrieval_result=retrieval_result,
-            turn_index=len(self.session_record.turns) + 1,
-            trust_flags=collect_trust_flags(retrieval_result),
-        )
+    def _student_classes(self) -> list[str]:
+        resolver = getattr(self.retrieval_backend, "student_classes", None)
+        if callable(resolver):
+            return list(resolver(self.args.student_id))
+        return []
 
     def ask_question(self, question: str) -> ChatTurnRecord:
         normalized = question.strip()
@@ -612,22 +694,20 @@ class ChatService:
         self.output_fn("Retrieving student-scoped context...")
         retrieval_result = self.retrieval_backend.retrieve(self.args, normalized)
         self.last_retrieval = retrieval_result
-        if retrieval_result.result_count == 0:
-            answer = build_empty_context_answer(self.args.student_name, retrieval_result)
-        else:
-            if self.llm_backend is None:
-                raise ChatError("No language model backend was configured.")
-            prompt_messages = build_prompt_messages(
-                student_id=self.args.student_id,
-                student_name=self.args.student_name,
-                question=normalized,
-                retrieval_result=retrieval_result,
-                history_turns=self.session_record.turns,
-                max_history_turns=self.args.max_history_turns,
-            )
-            self.output_fn("Generating grounded answer with Groq...")
-            answer = self.llm_backend.generate(messages=prompt_messages, model=self.args.groq_model)
-        turn = self.build_turn_record(normalized, answer, retrieval_result)
+        turn = answer_turn(
+            student_id=self.args.student_id,
+            student_name=self.args.student_name,
+            question=normalized,
+            retrieval_result=retrieval_result,
+            llm_backend=self.llm_backend,
+            groq_model=self.args.groq_model,
+            history_turns=self.session_record.turns,
+            max_history_turns=self.args.max_history_turns,
+            student_classes=self._student_classes(),
+            now=self.now_provider(),
+            turn_index=len(self.session_record.turns) + 1,
+            output_fn=self.output_fn,
+        )
         self.session_record.turns.append(turn)
         self.session_record.last_updated_at = iso_timestamp(self.now_provider())
         write_session_record(self.session_record, self.session_path)
