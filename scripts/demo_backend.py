@@ -22,14 +22,11 @@ from scripts.chat import (
     utc_now,
 )
 from scripts.retrieval import QueryEmbedder, RetrievalResult, retrieve_from_pgvector
+from scripts.utils.class_date import CLASS_DATE_RE
 
 _SESSION_SUFFIX_RE = re.compile(r"_s(\d+)$", re.IGNORECASE)
 _SUBJECT_TOKEN_RE = re.compile(r"^[A-Za-z]+\.\d+$")
 _AY_TOKEN_RE = re.compile(r"^AY\d{4}-\d{2}$", re.IGNORECASE)
-_DATE_RE = re.compile(
-    r"\d{1,2}\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*",
-    re.IGNORECASE,
-)
 
 
 def session_display_label(class_name: str) -> str:
@@ -55,7 +52,7 @@ def session_display_label(class_name: str) -> str:
         kept.append(token)
 
     date = ""
-    if kept and _DATE_RE.search(kept[-1]):
+    if kept and CLASS_DATE_RE.search(kept[-1]):
         date = kept.pop()
     topic = re.sub(r"\s+", " ", " ".join(kept)).strip()
 

@@ -38,6 +38,9 @@ logger = logging.getLogger(__name__)
 # was missed". This flag makes that ambiguity explicit instead of silent.
 MISSED_UNKNOWN_TAG = "missed_unknown_no_attendance"
 
+ATTENDANCE_ONLY_PRESENCE_TAG = "attendance_only_presence"
+ATTENDANCE_PRESENCE_THRESHOLD_MINUTES = 5.0
+
 
 class ContextArgs(BaseModel):
     transcript_path: Path
@@ -51,6 +54,7 @@ class ContextArgs(BaseModel):
     review_csv_path: Path | None = None
     top_topics: int = 10
     skip_absent_summaries: bool = False
+    attendance_presence_threshold: float = ATTENDANCE_PRESENCE_THRESHOLD_MINUTES
 
 
 def parse_args(argv: Sequence[str] | None = None) -> ContextArgs:
@@ -87,6 +91,14 @@ def parse_args(argv: Sequence[str] | None = None) -> ContextArgs:
         dest="skip_absent_summaries",
         help="Do not generate topic-only bots for pure-absent students (no audio AND no "
         "chat). Present and chat-only students are unaffected.",
+    )
+    parser.add_argument(
+        "--attendance-presence-threshold",
+        type=float,
+        default=ATTENDANCE_PRESENCE_THRESHOLD_MINUTES,
+        dest="attendance_presence_threshold",
+        help="Attendance minutes at/above which a roster student with no audio and no "
+        "chat is treated as present. Default: 5.",
     )
     namespace = parser.parse_args(argv)
     return ContextArgs.model_validate(vars(namespace))
@@ -223,6 +235,34 @@ def build_chat_only_context(
     )
 
 
+def build_attendance_only_context(
+    student: RosterEntry,
+    transcript: MergedTranscriptDocument,
+    topics: list[str],
+    teacher_segments: list[ContextSegment] | None,
+    attendance: AttendanceRecord,
+) -> StudentContext:
+    if teacher_segments is not None:
+        present_segments = list(teacher_segments)
+    else:
+        present_segments = [merged_seg_to_context(s) for s in transcript.segments]
+    return StudentContext(
+        name=student.name,
+        roll_no=student.roll_no,
+        email=student.email,
+        status="present",
+        attendance_duration_minutes=attendance.duration_minutes,
+        spoken_segments=[],
+        chat_segments=[],
+        present_segments=present_segments,
+        missed_segments=[],
+        topics_discussed=topics,
+        class_duration_seconds=transcript.duration_seconds,
+        teacher_name=transcript.teacher_name,
+        tags=[ATTENDANCE_ONLY_PRESENCE_TAG, MISSED_UNKNOWN_TAG],
+    )
+
+
 def build_present_context(
     student: RosterEntry,
     entry: IdentityMapEntry,
@@ -323,6 +363,7 @@ def build_context_document(
     teacher_doc: PerStudentTranscript | None = None,
     chat_messages: list[ChatMessage] | None = None,
     skip_absent_summaries: bool = False,
+    attendance_presence_threshold: float = ATTENDANCE_PRESENCE_THRESHOLD_MINUTES,
 ) -> StudentContextDocument:
     class_name = transcript.class_name
     # Clean class-context source: the teacher's isolated mic when available, else None
@@ -345,6 +386,15 @@ def build_context_document(
     roster_by_roll: dict[str, RosterEntry] = {r.roll_no: r for r in roster}
     chat_by_roll = attribute_chat_to_students(chat_messages or [], roster, roster_by_roll)
 
+    if roster:
+        for att_roll, record in attendance_by_roll.items():
+            if att_roll not in roster_by_roll:
+                logger.warning(
+                    "Attendance roll %s (%s) is absent from the roster; no bot generated",
+                    att_roll,
+                    record.name,
+                )
+
     present_students: dict[str, StudentContext] = {}
     absent_students: dict[str, AbsentStudentSummary] = {}
     covered_roll_nos: set[str] = set()
@@ -366,12 +416,15 @@ def build_context_document(
             present_students[key] = build_chat_only_context(
                 student, student_chat, transcript, topics, teacher_segments
             )
-        elif not skip_absent_summaries:
-            # Pure-absent (no audio AND no chat). Cohort rosters span A/B sections, so these
-            # over-generate topic-only bots for students not in this class — suppressible
-            # via the flag until per-section roster data is available. PRESENT students
-            # (audio or chat-only, handled above) are never affected.
-            absent_students[key] = build_absent_summary(student, transcript, topics)
+        else:
+            att = attendance_by_roll.get(roll)
+            if att is not None and att.duration_minutes >= attendance_presence_threshold:
+                covered_roll_nos.add(roll)
+                present_students[key] = build_attendance_only_context(
+                    student, transcript, topics, teacher_segments, att
+                )
+            elif not skip_absent_summaries:
+                absent_students[key] = build_absent_summary(student, transcript, topics)
 
     # Students matched via attendance (or other means) but absent from the roster CSV.
     # This handles the no-roster case: every matched entry still gets a context object.
@@ -519,6 +572,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     doc = build_context_document(
         transcript, identity_map, roster, attendance, topics, teacher_doc, chat_messages,
         skip_absent_summaries=args.skip_absent_summaries,
+        attendance_presence_threshold=args.attendance_presence_threshold,
     )
 
     args.output_path.parent.mkdir(parents=True, exist_ok=True)

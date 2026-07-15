@@ -24,6 +24,7 @@ class RunArgs(BaseModel):
     teacher: list[str]
     roster_path: Path | None = None
     attendance_path: Path | None = None
+    attendance_dir: Path | None = None
     db_url: str = ""
     model: str = "small"
     single_language: str | None = None
@@ -44,7 +45,18 @@ def parse_args(argv: Sequence[str] | None = None) -> RunArgs:
     parser.add_argument("--output-dir", required=True, type=Path, dest="output_dir")
     parser.add_argument("--teacher", action="append", default=[], dest="teacher")
     parser.add_argument("--roster", type=Path, dest="roster_path", default=None)
-    parser.add_argument("--attendance", type=Path, dest="attendance_path", default=None)
+    attendance_group = parser.add_mutually_exclusive_group()
+    attendance_group.add_argument(
+        "--attendance", type=Path, dest="attendance_path", default=None
+    )
+    attendance_group.add_argument(
+        "--attendance-dir",
+        type=Path,
+        dest="attendance_dir",
+        default=None,
+        help="Directory of full-day attendance CSVs; each class's file is resolved by the "
+        "date in its name. Mutually exclusive with --attendance.",
+    )
     parser.add_argument(
         "--db-url",
         default=None,
@@ -77,6 +89,8 @@ def validate_inputs(args: RunArgs) -> None:
         raise ValueError(f"Input path not found: {args.input_path}")
     if not args.teacher:
         raise ValueError("At least one --teacher name is required.")
+    if args.attendance_dir is not None and not args.attendance_dir.is_dir():
+        raise ValueError(f"Attendance directory not found: {args.attendance_dir}")
 
 
 def _timed_step(name: str, fn: object, *a: object, **kw: object) -> StepResult:
@@ -113,6 +127,7 @@ def process_single_class(zip_path: Path, config: RunArgs) -> ClassSessionReport:
     from scripts.models.identity import IdentityMap
     from scripts.models.transcript import MergedTranscriptDocument, PerStudentTranscript
     from scripts.parse_chat import parse_chat_file
+    from scripts.utils.attendance_resolver import resolve_attendance_file
     from scripts.utils.topics import extract_topics
 
     class_name = zip_path.stem
@@ -138,7 +153,11 @@ def process_single_class(zip_path: Path, config: RunArgs) -> ClassSessionReport:
 
     manifest = ZoomFileManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
     roster = load_roster(config.roster_path) if config.roster_path else []
-    attendance = load_attendance(config.attendance_path) if config.attendance_path else []
+    if config.attendance_dir is not None:
+        attendance_path = resolve_attendance_file(class_name, config.attendance_dir)
+    else:
+        attendance_path = config.attendance_path
+    attendance = load_attendance(attendance_path) if attendance_path else []
 
     def _match() -> Path:
         identity_map = match_files(manifest, roster, attendance, config.teacher)

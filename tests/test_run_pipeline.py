@@ -82,6 +82,62 @@ def _stage_class(tmp_path: Path, *, stage_teacher_transcript: bool) -> tuple[Pat
     return zip_path, args
 
 
+def _stage_attendance_dir_class(tmp_path: Path) -> tuple[Path, RunArgs, Path]:
+    class_name = "English.03_AY2025-26_Nouns_7 Jul"
+    roster = tmp_path / "roster.csv"
+    roster.write_text(
+        "Name,RollNo,Email\n"
+        "Anshi Kumar,2301,anshi@example.com\n"
+        "Video Only,2401,vo@example.com\n",
+        encoding="utf-8",
+    )
+    attendance_dir = tmp_path / "attendance"
+    attendance_dir.mkdir()
+    (attendance_dir / "participants_800_2025_07_07.csv").write_text(
+        "Name (original name),Email,Total duration (minutes),Guest\n"
+        "Video Only_2401,vo@example.com,45,No\n",
+        encoding="utf-8",
+    )
+
+    zip_path = tmp_path / f"{class_name}.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("GMT_Session.mp4", "x")
+        zf.writestr("Audio Record/audioNisha.m4a", "x")
+        zf.writestr("Audio Record/audioAnshi_2301.m4a", "x")
+
+    out = tmp_path / "out"
+    transcripts = out / class_name / "transcripts"
+    transcripts.mkdir(parents=True, exist_ok=True)
+    _write_transcript(
+        transcripts / "session.json",
+        [(0, 5, "noisy session unknown filler")],
+        "GMT_Session.mp4",
+    )
+    _write_transcript(
+        transcripts / "audioAnshi_2301.m4a.json",
+        [(2, 4, "anshi own answer")],
+        "audioAnshi_2301.m4a",
+    )
+    _write_transcript(
+        transcripts / "audioNisha.m4a.json",
+        [(0, 20, "today we cover the water cycle")],
+        "audioNisha.m4a",
+        is_teacher=True,
+    )
+
+    args = RunArgs(
+        input_path=zip_path,
+        output_dir=out,
+        teacher=["Nisha"],
+        roster_path=roster,
+        attendance_dir=attendance_dir,
+        db_url="",
+        skip_transcribe=True,
+        skip_embed=True,
+    )
+    return zip_path, args, out / class_name
+
+
 # --- validate_inputs ---
 
 
@@ -99,6 +155,47 @@ def test_validate_inputs_no_teacher(tmp_path: Path) -> None:
     args = RunArgs(input_path=tmp_path, output_dir=tmp_path / "out", teacher=[])
     with pytest.raises(ValueError, match="teacher"):
         validate_inputs(args)
+
+
+def test_validate_inputs_missing_attendance_dir(tmp_path: Path) -> None:
+    args = RunArgs(
+        input_path=tmp_path,
+        output_dir=tmp_path / "out",
+        teacher=["Nisha"],
+        attendance_dir=tmp_path / "nonexistent",
+    )
+    with pytest.raises(ValueError, match="Attendance directory"):
+        validate_inputs(args)
+
+
+def test_parse_args_attendance_dir(tmp_path: Path) -> None:
+    from scripts.run_pipeline import parse_args
+
+    args = parse_args(
+        [
+            "--input", str(tmp_path),
+            "--output-dir", str(tmp_path / "o"),
+            "--teacher", "Nisha",
+            "--attendance-dir", str(tmp_path / "att"),
+        ]
+    )
+    assert args.attendance_dir == tmp_path / "att"
+    assert args.attendance_path is None
+
+
+def test_attendance_and_attendance_dir_are_mutually_exclusive(tmp_path: Path) -> None:
+    from scripts.run_pipeline import parse_args
+
+    with pytest.raises(SystemExit):
+        parse_args(
+            [
+                "--input", str(tmp_path),
+                "--output-dir", str(tmp_path / "o"),
+                "--teacher", "Nisha",
+                "--attendance", str(tmp_path / "a.csv"),
+                "--attendance-dir", str(tmp_path / "att"),
+            ]
+        )
 
 
 def test_validate_inputs_directory_ok(tmp_path: Path) -> None:
@@ -329,6 +426,27 @@ def test_process_single_class_falls_back_without_teacher_transcript(tmp_path: Pa
     present = contexts["present_students"]["2301"]["present_segments"]
     texts = [s["text"] for s in present]
     assert any("noisy session" in t for t in texts)  # fallback uses session timeline
+
+
+def test_process_single_class_attendance_dir_creates_attendance_only_student(
+    tmp_path: Path,
+) -> None:
+    import json
+
+    from scripts.run_pipeline import process_single_class
+
+    zip_path, args, class_out = _stage_attendance_dir_class(tmp_path)
+    report = process_single_class(zip_path, args)
+    assert report.success, report.error
+
+    contexts = json.loads((class_out / "student_contexts.json").read_text(encoding="utf-8"))
+    present = contexts["present_students"]
+    assert "2401" in present
+    vo = present["2401"]
+    assert "attendance_only_presence" in vo["tags"]
+    assert vo["attendance_duration_minutes"] == 45.0
+    assert vo["spoken_segments"] == []
+    assert any("water cycle" in s["text"] for s in vo["present_segments"])
 
 
 # --- retrieval layer ---

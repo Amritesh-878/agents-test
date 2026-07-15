@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import pytest
+
 from scripts.build_student_context import (
+    ATTENDANCE_ONLY_PRESENCE_TAG,
+    MISSED_UNKNOWN_TAG,
     attribute_chat_to_students,
     build_absent_summary,
+    build_attendance_only_context,
     build_context_document,
     build_present_context,
     class_context_text,
@@ -375,6 +380,108 @@ def test_chat_only_student_becomes_present_not_absent() -> None:
     # They still get the teacher's class context (what was taught).
     assert any("supply and demand" in s.text for s in ctx.present_segments)
     assert ctx.spoken_segments == []
+
+
+def test_attendance_only_student_becomes_present() -> None:
+    transcript = make_transcript([(0, 5, "teacher talk", ["Dr Smith"])], duration=600.0)
+    roster = [make_roster("Video Only", "2401")]
+    imap = IdentityMap(teacher_name="Nisha")
+    teacher_doc = make_teacher_doc([(0, 600, "today we cover the water cycle")])
+    attendance = [AttendanceRecord(name="Video Only", roll_no="2401", duration_minutes=45.0)]
+    doc = build_context_document(transcript, imap, roster, attendance, ["water"], teacher_doc)
+
+    assert "2401" in doc.present_students
+    assert "2401" not in doc.absent_students
+    ctx = doc.present_students["2401"]
+    assert ctx.status == "present"
+    assert ATTENDANCE_ONLY_PRESENCE_TAG in ctx.tags
+    assert ctx.attendance_duration_minutes == 45.0
+    assert ctx.spoken_segments == []
+    assert ctx.chat_segments == []
+    assert any("water cycle" in s.text for s in ctx.present_segments)
+    assert ctx.missed_segments == []
+
+
+def test_attendance_below_threshold_stays_absent() -> None:
+    transcript = make_transcript([(0, 5, "teacher talk", ["Dr Smith"])], duration=600.0)
+    roster = [make_roster("Brief Visit", "2402")]
+    imap = IdentityMap(teacher_name="Nisha")
+    attendance = [AttendanceRecord(name="Brief Visit", roll_no="2402", duration_minutes=3.0)]
+    doc = build_context_document(transcript, imap, roster, attendance, [])
+    assert "2402" in doc.absent_students
+    assert "2402" not in doc.present_students
+
+
+def test_attendance_only_falls_back_to_merged_timeline_without_teacher() -> None:
+    transcript = make_transcript([(0, 5, "merged timeline content", ["Dr Smith"])], duration=600.0)
+    roster = [make_roster("Video Only", "2401")]
+    imap = IdentityMap(teacher_name="Nisha")
+    attendance = [AttendanceRecord(name="Video Only", roll_no="2401", duration_minutes=45.0)]
+    doc = build_context_document(transcript, imap, roster, attendance, [], None)
+    ctx = doc.present_students["2401"]
+    assert any("merged timeline content" in s.text for s in ctx.present_segments)
+
+
+def test_chat_takes_precedence_over_attendance() -> None:
+    transcript = make_transcript([(0, 5, "teacher talk", ["Dr Smith"])], duration=600.0)
+    roster = [make_roster("Typed", "2403")]
+    imap = IdentityMap(teacher_name="Nisha")
+    teacher_doc = make_teacher_doc([(0, 600, "photosynthesis basics")])
+    attendance = [AttendanceRecord(name="Typed", roll_no="2403", duration_minutes=45.0)]
+    messages = [
+        ChatMessage(
+            time_str="00:00:04", timestamp_seconds=4.0, sender="Typed_2403", text="a typed question"
+        )
+    ]
+    doc = build_context_document(transcript, imap, roster, attendance, [], teacher_doc, messages)
+    ctx = doc.present_students["2403"]
+    assert "chat_only_no_audio" in ctx.tags
+    assert ATTENDANCE_ONLY_PRESENCE_TAG not in ctx.tags
+    assert [s.text for s in ctx.chat_segments] == ["a typed question"]
+
+
+def test_skip_absent_summaries_keeps_attendance_present() -> None:
+    transcript = make_transcript([(0, 5, "teacher talk", ["Dr Smith"])], duration=600.0)
+    roster = [make_roster("Video Only", "2401"), make_roster("Truly Absent", "2999")]
+    imap = IdentityMap(teacher_name="Nisha")
+    teacher_doc = make_teacher_doc([(0, 600, "content")])
+    attendance = [AttendanceRecord(name="Video Only", roll_no="2401", duration_minutes=45.0)]
+    doc = build_context_document(
+        transcript, imap, roster, attendance, [], teacher_doc, None, skip_absent_summaries=True
+    )
+    assert "2401" in doc.present_students
+    assert doc.absent_students == {}
+    assert "2999" not in doc.present_students
+
+
+def test_attendance_roll_absent_from_roster_warns(caplog: pytest.LogCaptureFixture) -> None:
+    transcript = make_transcript([(0, 5, "teacher talk", ["Dr Smith"])], duration=600.0)
+    roster = [make_roster("On Roster", "2401")]
+    imap = IdentityMap(teacher_name="Nisha")
+    teacher_doc = make_teacher_doc([(0, 600, "content")])
+    attendance = [
+        AttendanceRecord(name="On Roster", roll_no="2401", duration_minutes=45.0),
+        AttendanceRecord(name="Ghost", roll_no="2407", duration_minutes=30.0),
+    ]
+    with caplog.at_level("WARNING"):
+        doc = build_context_document(transcript, imap, roster, attendance, [], teacher_doc)
+    assert "2407" not in doc.present_students
+    assert "2407" not in doc.absent_students
+    assert "2407" in caplog.text
+    assert "roster" in caplog.text
+
+
+def test_build_attendance_only_context_flags_missed_unknown() -> None:
+    transcript = make_transcript([(0, 5, "content", ["Dr Smith"])], duration=600.0)
+    student = make_roster("Video Only", "2401")
+    teacher_segs = [cseg(0, 600, "teacher content")]
+    att = AttendanceRecord(name="Video Only", roll_no="2401", duration_minutes=45.0)
+    ctx = build_attendance_only_context(student, transcript, ["topic"], teacher_segs, att)
+    assert MISSED_UNKNOWN_TAG in ctx.tags
+    assert ATTENDANCE_ONLY_PRESENCE_TAG in ctx.tags
+    assert ctx.missed_segments == []
+    assert ctx.attendance_duration_minutes == 45.0
+    assert [s.text for s in ctx.present_segments] == ["teacher content"]
 
 
 def test_student_without_chat_stays_absent() -> None:
