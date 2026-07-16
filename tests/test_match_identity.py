@@ -11,6 +11,7 @@ from scripts.match_identity import (
     load_roster,
     match_files,
     parse_attendance_name,
+    resolve_attendance_rolls,
     resolve_chat_sender,
     validate_inputs,
 )
@@ -348,6 +349,75 @@ def test_resolve_chat_sender_ambiguous_drops() -> None:
     ]
     # Two "Disha"s and no usable roll in the sender -> don't guess, drop.
     assert resolve_chat_sender("Disha", roster, _by_roll(roster)) is None
+
+
+# --- resolve_attendance_rolls ---
+
+
+def _name_resolve_roster() -> list[RosterEntry]:
+    return [
+        RosterEntry(name="Ramsha Khan", roll_no="2408", email=""),
+        RosterEntry(name="Shraddha Singh", roll_no="2409", email=""),
+    ]
+
+
+def test_resolve_attendance_rolls_unique_match() -> None:
+    roster = _name_resolve_roster()
+    records = [AttendanceRecord(name="Ramsha Khan", roll_no=None, duration_minutes=40.0, guest=True)]
+    resolved = resolve_attendance_rolls(records, roster)
+    assert resolved[0].roll_no == "2408"
+    assert resolved[0].name == "Ramsha Khan"
+    assert resolved[0].duration_minutes == 40.0
+    assert resolved[0].guest is True
+
+
+def test_resolve_attendance_rolls_ambiguous_stays_unresolved(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    roster = [
+        RosterEntry(name="Disha", roll_no="2504", email=""),
+        RosterEntry(name="Disha Rajesh", roll_no="2505", email=""),
+    ]
+    records = [AttendanceRecord(name="Disha", roll_no=None, duration_minutes=30.0)]
+    with caplog.at_level("WARNING"):
+        resolved = resolve_attendance_rolls(records, roster)
+    assert resolved[0].roll_no is None
+    assert "Disha" in caplog.text
+    assert "2504" in caplog.text
+    assert "2505" in caplog.text
+
+
+def test_resolve_attendance_rolls_zero_match_stays_unresolved() -> None:
+    roster = _name_resolve_roster()
+    records = [AttendanceRecord(name="Unknown Teacher", roll_no=None, duration_minutes=60.0)]
+    resolved = resolve_attendance_rolls(records, roster)
+    assert resolved[0].roll_no is None
+
+
+def test_resolve_attendance_rolls_empty_name_skipped() -> None:
+    roster = _name_resolve_roster()
+    records = [AttendanceRecord(name="   ", roll_no=None, duration_minutes=10.0)]
+    resolved = resolve_attendance_rolls(records, roster)
+    assert resolved[0].roll_no is None
+
+
+def test_resolve_attendance_rolls_already_rolled_passthrough() -> None:
+    roster = _name_resolve_roster()
+    records = [AttendanceRecord(name="Ramsha Khan", roll_no="9999", duration_minutes=40.0)]
+    resolved = resolve_attendance_rolls(records, roster)
+    assert resolved[0] is records[0]
+    assert resolved[0].roll_no == "9999"
+
+
+def test_resolve_attendance_rolls_preserves_order() -> None:
+    roster = _name_resolve_roster()
+    records = [
+        AttendanceRecord(name="Shraddha Singh", roll_no=None, duration_minutes=20.0),
+        AttendanceRecord(name="Unknown Teacher", roll_no=None, duration_minutes=60.0),
+        AttendanceRecord(name="Ramsha Khan", roll_no=None, duration_minutes=30.0),
+    ]
+    resolved = resolve_attendance_rolls(records, roster)
+    assert [r.roll_no for r in resolved] == ["2409", None, "2408"]
 
 
 # --- Teacher matching ---

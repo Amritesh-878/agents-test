@@ -5,6 +5,8 @@ import pytest
 from scripts.build_student_context import (
     ATTENDANCE_ONLY_PRESENCE_TAG,
     MISSED_UNKNOWN_TAG,
+    _collapse_consecutive,
+    _dedup_exact,
     attribute_chat_to_students,
     build_absent_summary,
     build_attendance_only_context,
@@ -689,3 +691,153 @@ def test_build_context_document_no_teacher_doc_is_fallback() -> None:
     doc = build_context_document(transcript, imap, roster, [], [], None)
     present_texts = [s.text for s in doc.present_students["2301"].present_segments]
     assert "peer bob speaks" in present_texts  # full merged timeline when no teacher M4A
+
+
+# --- dedup helpers ---
+
+
+def test_dedup_exact_keeps_first_of_interleaved_repeats() -> None:
+    segs = [
+        cseg(0, 1, "A"),
+        cseg(1, 2, "B"),
+        cseg(2, 3, "A"),
+        cseg(3, 4, "C"),
+        cseg(4, 5, "A"),
+    ]
+    assert [s.text for s in _dedup_exact(segs)] == ["A", "B", "C"]
+
+
+def test_dedup_exact_normalizes_case_and_whitespace() -> None:
+    segs = [cseg(0, 1, "Thank you."), cseg(1, 2, "  thank   YOU.  "), cseg(2, 3, "THANK YOU.")]
+    assert [s.text for s in _dedup_exact(segs)] == ["Thank you."]
+
+
+def test_collapse_consecutive_drops_adjacent_keeps_nonadjacent() -> None:
+    segs = [cseg(0, 1, "T"), cseg(1, 2, "T"), cseg(2, 3, "U"), cseg(3, 4, "T")]
+    assert [s.text for s in _collapse_consecutive(segs)] == ["T", "U", "T"]
+
+
+def test_collapse_consecutive_normalizes_adjacent_variants() -> None:
+    segs = [cseg(0, 1, "Hello world"), cseg(1, 2, "hello   world"), cseg(2, 3, "next")]
+    assert [s.text for s in _collapse_consecutive(segs)] == ["Hello world", "next"]
+
+
+def test_build_present_dedups_looped_spoken_segments() -> None:
+    transcript = make_transcript(
+        [
+            (0, 1, "thank you.", ["Anshi"]),
+            (1, 2, "thank you.", ["Anshi"]),
+            (2, 3, "real content", ["Anshi"]),
+            (3, 4, "thank you.", ["Anshi"]),
+        ],
+        duration=10.0,
+    )
+    entry = make_entry(matched_name="Anshi", matched_roll_no="2301")
+    student = make_roster()
+    ctx = build_present_context(student, entry, transcript, {}, [])
+    assert [s.text for s in ctx.spoken_segments] == ["thank you.", "real content"]
+
+
+def test_teacher_timeline_collapses_consecutive_repeats() -> None:
+    transcript = make_transcript([(0, 5, "student speech", ["Anshi"])], duration=100.0)
+    roster = [make_roster("Anshi Kumar", "2301")]
+    entry = make_entry(matched_name="Anshi", matched_roll_no="2301")
+    imap = IdentityMap(teacher_name="Dr Smith", entries=[entry])
+    teacher_doc = make_teacher_doc(
+        [
+            (0, 5, "open the book"),
+            (5, 10, "open the book"),
+            (10, 15, "now solve"),
+            (15, 20, "open the book"),
+        ]
+    )
+    doc = build_context_document(transcript, imap, roster, [], [], teacher_doc)
+    teacher_texts = [
+        s.text for s in doc.present_students["2301"].present_segments if s.source == "teacher"
+    ]
+    assert teacher_texts == ["open the book", "now solve", "open the book"]
+
+
+def test_attendance_only_merged_fallback_collapses_consecutive() -> None:
+    transcript = make_transcript(
+        [
+            (0, 1, "loop", ["X"]),
+            (1, 2, "loop", ["X"]),
+            (2, 3, "distinct", ["X"]),
+            (3, 4, "loop", ["X"]),
+        ],
+        duration=600.0,
+    )
+    roster = [make_roster("Video Only", "2401")]
+    imap = IdentityMap(teacher_name="Nisha")
+    attendance = [AttendanceRecord(name="Video Only", roll_no="2401", duration_minutes=45.0)]
+    doc = build_context_document(transcript, imap, roster, attendance, [], None)
+    ctx = doc.present_students["2401"]
+    assert [s.text for s in ctx.present_segments] == ["loop", "distinct", "loop"]
+
+
+# --- name-only attendance resolution (build_context_document) ---
+
+
+def test_roll_less_attendance_name_resolves_to_presence() -> None:
+    transcript = make_transcript([(0, 5, "teacher talk", ["Dr Smith"])], duration=600.0)
+    roster = [make_roster("Ramsha Khan", "2408")]
+    imap = IdentityMap(teacher_name="Nisha")
+    teacher_doc = make_teacher_doc([(0, 600, "today's lesson")])
+    attendance = [AttendanceRecord(name="Ramsha Khan", roll_no=None, duration_minutes=45.0)]
+    doc = build_context_document(transcript, imap, roster, attendance, [], teacher_doc)
+    assert "2408" in doc.present_students
+    ctx = doc.present_students["2408"]
+    assert ATTENDANCE_ONLY_PRESENCE_TAG in ctx.tags
+    assert ctx.attendance_duration_minutes == 45.0
+
+
+def test_roll_less_attendance_below_threshold_stays_absent() -> None:
+    transcript = make_transcript([(0, 5, "teacher talk", ["Dr Smith"])], duration=600.0)
+    roster = [make_roster("Ramsha Khan", "2408")]
+    imap = IdentityMap(teacher_name="Nisha")
+    teacher_doc = make_teacher_doc([(0, 600, "lesson")])
+    attendance = [AttendanceRecord(name="Ramsha Khan", roll_no=None, duration_minutes=3.0)]
+    doc = build_context_document(transcript, imap, roster, attendance, [], teacher_doc)
+    assert "2408" in doc.absent_students
+    assert "2408" not in doc.present_students
+
+
+def test_roll_less_ambiguous_name_denies_presence(caplog: pytest.LogCaptureFixture) -> None:
+    transcript = make_transcript([(0, 5, "teacher talk", ["Dr Smith"])], duration=600.0)
+    roster = [
+        RosterEntry(name="Disha", roll_no="2504", email=""),
+        RosterEntry(name="Disha Rajesh", roll_no="2505", email=""),
+    ]
+    imap = IdentityMap(teacher_name="Nisha")
+    teacher_doc = make_teacher_doc([(0, 600, "lesson")])
+    attendance = [AttendanceRecord(name="Disha", roll_no=None, duration_minutes=45.0)]
+    with caplog.at_level("WARNING"):
+        doc = build_context_document(transcript, imap, roster, attendance, [], teacher_doc)
+    assert "2504" not in doc.present_students
+    assert "2505" not in doc.present_students
+    assert "2504" in doc.absent_students
+    assert "2505" in doc.absent_students
+
+
+def test_originally_rolled_beats_name_resolved_for_same_roll() -> None:
+    transcript = make_transcript([(0, 5, "teacher talk", ["Dr Smith"])], duration=600.0)
+    roster = [make_roster("Ramsha Khan", "2408")]
+    imap = IdentityMap(teacher_name="Nisha")
+    teacher_doc = make_teacher_doc([(0, 600, "lesson")])
+    attendance = [
+        AttendanceRecord(name="Ramsha Khan", roll_no=None, duration_minutes=45.0),
+        AttendanceRecord(name="Ramsha Khan", roll_no="2408", duration_minutes=99.0),
+    ]
+    doc = build_context_document(transcript, imap, roster, attendance, [], teacher_doc)
+    ctx = doc.present_students["2408"]
+    assert ctx.attendance_duration_minutes == 99.0
+
+
+def test_no_roster_skips_name_resolution() -> None:
+    transcript = make_transcript([(0, 5, "teacher talk", ["Dr Smith"])], duration=600.0)
+    imap = IdentityMap(teacher_name="Nisha")
+    attendance = [AttendanceRecord(name="Ramsha Khan", roll_no=None, duration_minutes=45.0)]
+    doc = build_context_document(transcript, imap, [], attendance, [])
+    assert doc.present_students == {}
+    assert doc.absent_students == {}

@@ -243,6 +243,33 @@ def _name_score(file_tokens: list[str], roster_name: str) -> float:
     return matched / len(file_tokens)
 
 
+def resolve_attendance_rolls(
+    records: list[AttendanceRecord], roster: list[RosterEntry]
+) -> list[AttendanceRecord]:
+    resolved: list[AttendanceRecord] = []
+    for record in records:
+        if record.roll_no is not None:
+            resolved.append(record)
+            continue
+        tokens = _normalize_plain_tokens(record.name)
+        if not tokens:
+            resolved.append(record)
+            continue
+        candidates = [e for e in roster if _name_score(tokens, e.name) >= _NAME_MATCH_THRESHOLD]
+        if len(candidates) == 1:
+            resolved.append(record.model_copy(update={"roll_no": candidates[0].roll_no}))
+        elif len(candidates) > 1:
+            logger.warning(
+                "Attendance row %r name-matches multiple roster entries (%s); left unresolved",
+                record.name,
+                ", ".join(f"{c.name}/{c.roll_no}" for c in candidates),
+            )
+            resolved.append(record)
+        else:
+            resolved.append(record)
+    return resolved
+
+
 def _roster_name_match(
     display_name: str, roster: list[RosterEntry]
 ) -> tuple[Literal["none", "unique", "ambiguous"], RosterEntry | None]:

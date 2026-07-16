@@ -14,6 +14,7 @@ from scripts.match_identity import (
     _normalize_plain_tokens,
     load_attendance,
     load_roster,
+    resolve_attendance_rolls,
     resolve_chat_sender,
 )
 from scripts.models.context import (
@@ -134,6 +135,34 @@ def merged_seg_to_context(seg: MergedSegment) -> ContextSegment:
         speakers=seg.speakers,
         source=seg.source,
     )
+
+
+def _normalize_dedup_text(text: str) -> str:
+    return " ".join(text.split()).lower()
+
+
+def _dedup_exact(segments: list[ContextSegment]) -> list[ContextSegment]:
+    seen: set[str] = set()
+    kept: list[ContextSegment] = []
+    for seg in segments:
+        key = _normalize_dedup_text(seg.text)
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(seg)
+    return kept
+
+
+def _collapse_consecutive(segments: list[ContextSegment]) -> list[ContextSegment]:
+    kept: list[ContextSegment] = []
+    previous: str | None = None
+    for seg in segments:
+        key = _normalize_dedup_text(seg.text)
+        if key == previous:
+            continue
+        kept.append(seg)
+        previous = key
+    return kept
 
 
 def full_transcript_text(transcript: MergedTranscriptDocument) -> str:
@@ -267,7 +296,9 @@ def build_attendance_only_context(
     if teacher_segments is not None:
         present_segments = list(teacher_segments)
     else:
-        present_segments = [merged_seg_to_context(s) for s in transcript.segments]
+        present_segments = _collapse_consecutive(
+            [merged_seg_to_context(s) for s in transcript.segments]
+        )
     return StudentContext(
         name=student.name,
         roll_no=student.roll_no,
@@ -328,11 +359,13 @@ def build_present_context(
     # merge_transcripts._cluster_to_merged. Matching on mere membership credited a student
     # with a peer's words on any overlap and duplicated the segment under every speaker.
     # Solo/non-overlapping speech is unaffected (the sole speaker is primary).
-    spoken_segments = [s for s in all_segs if s.speakers and s.speakers[0] == spoken_name]
+    spoken_segments = _dedup_exact(
+        [s for s in all_segs if s.speakers and s.speakers[0] == spoken_name]
+    )
     if teacher_segments is not None:
         class_timeline = sorted(teacher_segments + spoken_segments, key=lambda s: s.start)
     else:
-        class_timeline = all_segs
+        class_timeline = _collapse_consecutive(all_segs)
     present_segments = [s for s in class_timeline if s.start < window_end]
     missed_segments = [s for s in class_timeline if s.start >= window_end]
 
@@ -391,7 +424,9 @@ def build_context_document(
     # Clean class-context source: the teacher's isolated mic when available, else None
     # (each student then falls back to the full merged timeline — pre-teacher behavior).
     teacher_segments = (
-        teacher_segments_from_transcript(teacher_doc, transcript.teacher_name)
+        _collapse_consecutive(
+            teacher_segments_from_transcript(teacher_doc, transcript.teacher_name)
+        )
         if teacher_doc is not None
         else None
     )
@@ -400,9 +435,14 @@ def build_context_document(
         for e in identity_map.entries
         if e.matched_roll_no
     }
-    attendance_by_roll: dict[str, AttendanceRecord] = {
-        a.roll_no: a for a in attendance if a.roll_no
-    }
+    resolved_attendance = resolve_attendance_rolls(attendance, roster) if roster else attendance
+    attendance_by_roll: dict[str, AttendanceRecord] = {}
+    for original, updated in zip(attendance, resolved_attendance):
+        if original.roll_no is None and updated.roll_no is not None:
+            attendance_by_roll[updated.roll_no] = updated
+    for record in attendance:
+        if record.roll_no:
+            attendance_by_roll[record.roll_no] = record
     # PUBLIC chat attributed to each student's own roll (direct messages were dropped at
     # parse time; attribution is roster-gated, so this is empty without a roster).
     roster_by_roll: dict[str, RosterEntry] = {r.roll_no: r for r in roster}
