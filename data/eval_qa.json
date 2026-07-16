@@ -328,7 +328,8 @@
    "question": "What goes in the cue column of Cornell notes?",
    "expected_answer_mode": "grounded_answer",
    "expected_chunk_types": [
-    "class_context"
+    "class_context",
+    "material"
    ],
    "required_concept_groups": [
     [
@@ -341,9 +342,10 @@
     ]
    ],
    "evidence_quotes": [
-    "the cues column is where today you will just put down questions that you have"
+    "the cues column is where today you will just put down questions that you have",
+    "Jot down one to two words that are the main idea/vocab/etc of a passage"
    ],
-   "notes": "English concept case anchored in the teacher's own dictation (class_context) - the Cornell template docx text does not carry the word 'Cornell', so material is not the expected type here. Verified live 2026-07-16 for all three English.04 students."
+   "notes": "Cue-column concept case anchored in BOTH legitimate sources - the teacher's dictation (class_context) and the Cornell template's own instructions (material); either ranking first is a correct retrieval. Rerank scores for this phrasing family are all sub-0.2, so ANN index rebuilds can reorder the near-tie between them."
   },
   {
    "case_id": "monika-concept-fpa",
