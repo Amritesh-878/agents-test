@@ -139,12 +139,14 @@ Errors: `401` bad/missing service token · `403` identity denied / not their stu
 
 #### `GET /students?email=...&lms_role=teacher` — the teacher's student picker
 
-Returns exactly the students in that teacher's sections (students get `403`):
+Returns exactly the students in that teacher's sections (students get `403`). A student's
+`sections` lists only the sections **shared with the requesting teacher** — a teacher never
+learns which other subjects a student takes:
 
 ```json
 [
-  {"student_id": "2301", "student_name": "anshi", "sections": ["Economics.02", "English.04"]},
-  {"student_id": "2302", "student_name": "Bhagyashree", "sections": ["Economics.02", "English.04"]}
+  {"student_id": "2301", "student_name": "anshi", "sections": ["English.04"]},
+  {"student_id": "2302", "student_name": "Bhagyashree", "sections": ["English.04"]}
 ]
 ```
 
