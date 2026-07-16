@@ -579,6 +579,9 @@ def test_is_class_overview_question_accepts_generic_forms() -> None:
         "What topic did we start working on in class?",
         "Can you give me a short summary?",
         "Explain today's topic again in simple words",
+        "can u summarize the class",
+        "pls summarize the lesson",
+        "recap the session",
     ]
     for question in accepted:
         assert is_class_overview_question(question), question
@@ -595,6 +598,7 @@ def test_is_class_overview_question_rejects_content_and_personal_forms() -> None
         "what is photosynthesis",
         "Give me a summary of the supply function",
         "Explain the supply function again",
+        "summarize the speckled band story",
     ]
     for question in rejected:
         assert not is_class_overview_question(question), question
@@ -608,6 +612,7 @@ def test_is_generic_self_question_accepts_generic_forms() -> None:
         "What did I say or ask in class?",
         "Did I say anything in class today?",
         "What were my questions in the session?",
+        "did i answer any questions in class",
     ]
     for question in accepted:
         assert is_generic_self_question(question), question
@@ -620,6 +625,7 @@ def test_is_generic_self_question_rejects_content_tails() -> None:
         "What did I say about the Balance of Payments?",
         "What did I say about the hunted animal quote?",
         "What did the teacher say about supply?",
+        "Did I say the definition of supply correctly?",
     ]
     for question in rejected:
         assert not is_generic_self_question(question), question

@@ -314,7 +314,8 @@ _OVERVIEW_TRIGGER = re.compile(
     r"|i joined late"
     r"|was there any (?:homework|worksheet|assignment)"
     r"|give me (?:one|a|some) practice questions?"
-    r"|(?:can you |please )?(?:give me |send me )?an? ?(?:short |quick |brief )?summary"
+    r"|(?:can (?:you|u) |please |pls )?(?:give me |send me )?an? ?(?:short |quick |brief )?summary"
+    r"|(?:can (?:you|u) |please |pls )?(?:summari[sz]e|recap) (?:the |this |todays )?(?:class|lesson|session)"
     r"|explain (?:todays|the) topic again"
     r")"
     r"(?P<tail>.*)$"
@@ -346,7 +347,7 @@ def is_class_overview_question(question: str) -> bool:
 _GENERIC_SELF_TRIGGER = re.compile(
     r"^(?:"
     r"what did i (?:say|ask|share|answer|contribute)"
-    r"|did i (?:say|ask) anything"
+    r"|did i (?:say|ask|answer)"
     r"|what were my (?:questions|answers|contributions)"
     r")"
     r"(?P<tail>.*)$"
@@ -354,9 +355,9 @@ _GENERIC_SELF_TRIGGER = re.compile(
 
 _GENERIC_SELF_TAIL_TOKENS = frozenset(
     {
-        "anything", "ask", "class", "classes", "did", "i", "in", "or", "say",
-        "session", "sessions", "that", "the", "this", "today", "todays",
-        "yesterday",
+        "any", "anything", "ask", "class", "classes", "did", "i", "in", "or",
+        "question", "questions", "say", "session", "sessions", "that", "the",
+        "this", "today", "todays", "yesterday",
     }
 )
 
