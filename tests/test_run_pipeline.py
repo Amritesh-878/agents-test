@@ -87,7 +87,7 @@ def _stage_attendance_dir_class(tmp_path: Path) -> tuple[Path, RunArgs, Path]:
     )
     attendance_dir = tmp_path / "attendance"
     attendance_dir.mkdir()
-    (attendance_dir / "participants_800_2025_07_07.csv").write_text(
+    (attendance_dir / "participants_800_2025_07_06.csv").write_text(
         "Name (original name),Email,Total duration (minutes),Guest\n"
         "Video Only_2401,vo@example.com,45,No\n",
         encoding="utf-8",
