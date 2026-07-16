@@ -5,7 +5,7 @@ from typing import Sequence
 
 import pytest
 
-from scripts.auth import AuthService
+from scripts.auth import AuthService, CredentialRecord, hash_password
 from scripts.chat import (
     ChatArgs,
     ChatError,
@@ -18,6 +18,19 @@ from scripts.chat import (
     run_login,
 )
 from scripts.retrieval import RetrievalResult
+
+
+def make_auth(student_id: str, password: str) -> AuthService:
+    return AuthService(
+        {
+            student_id: CredentialRecord(
+                username=student_id,
+                role="student",
+                scope=student_id,
+                password_hash=hash_password(password, iterations=1),
+            )
+        }
+    )
 
 
 def make_args(tmp_path: Path) -> ChatArgs:
@@ -76,7 +89,7 @@ class _RecordingBackend:
 
 
 def test_logged_in_retrieval_is_scoped_to_authed_id(tmp_path: Path) -> None:
-    auth = AuthService({"2302": "alpha"})
+    auth = make_auth("2302", "alpha")
     student_id = run_login(
         auth,
         id_provider=lambda _: "2302",
@@ -99,7 +112,7 @@ def test_logged_in_retrieval_is_scoped_to_authed_id(tmp_path: Path) -> None:
 
 
 def test_run_login_loops_until_correct_with_backoff() -> None:
-    auth = AuthService({"2302": "alpha"})
+    auth = make_auth("2302", "alpha")
     passwords = iter(["wrong", "alpha"])
     sleeps: list[float] = []
 
@@ -116,7 +129,7 @@ def test_run_login_loops_until_correct_with_backoff() -> None:
 
 
 def test_run_login_aborts_cleanly_on_eof() -> None:
-    auth = AuthService({"2302": "alpha"})
+    auth = make_auth("2302", "alpha")
 
     def raise_eof(_: str) -> str:
         raise EOFError
