@@ -1,10 +1,10 @@
 {
- "description": "Golden QA set for RAG evaluation, grounded in the CURRENT pgvector store after the 2026-06-07 medium-model re-embed. student_id values are the roll numbers used as the store key. Cases were verified end-to-end (retrieval + Groq) against the live DB. Mix of self-referential (own spoken/chat, tight top_k), wrong-subject refusal, GENERAL class-content questions (non-self-referential, unfiltered so full class context is retrievable), and — added for TASK-021 — CONCEPT/'related' questions that ground on the authoritative 'material' chunks from TASK-019/020. NOTE ON THE CONCEPT CASES: any case with expected_chunk_types=['material'] stays RED until the owner ingests that class's materials (scripts.ingest_materials) into the live store, then GREEN; its required_concept_groups are relationship-level and grounded in determinants already verified in class_context — the owner must reconcile the concept groups + evidence_quotes to the real ingested slide/notes text before relying on the case, without loosening the prompt/top_k just to force a pass. EXTENDED 2026-07-16: +7 English cases (5 concept incl. material-grounded, 2 refusals incl. the Macbeth near-miss trap) drafted from the post-English-embed 4,494-row store; every evidence_quote verbatim-verified against stored chunk text at draft time; owner-approved.",
+ "description": "Golden QA set for RAG evaluation, grounded in the CURRENT pgvector store after the 2026-06-07 medium-model re-embed. student_id values are the roll numbers used as the store key. Cases were verified end-to-end (retrieval + Groq) against the live DB. Mix of self-referential (own spoken/chat, tight top_k), wrong-subject refusal, GENERAL class-content questions (non-self-referential, unfiltered so full class context is retrievable), and — CONCEPT/'related' questions that ground on the authoritative 'material' chunks from materials ingestion. NOTE ON THE CONCEPT CASES: any case with expected_chunk_types=['material'] stays RED until operators ingest that class's materials (scripts.ingest_materials) into the live store, then GREEN; its required_concept_groups are relationship-level and grounded in determinants already verified in class_context — reconcile the concept groups + evidence_quotes to the real ingested slide/notes text before relying on the case, without loosening the prompt/top_k just to force a pass. EXTENDED 2026-07-16: +7 English cases (5 concept incl. material-grounded, 2 refusals incl. the Macbeth near-miss trap) drafted from the post-English-embed 4,494-row store; every evidence_quote verbatim-verified against stored chunk text at draft time; quote-verified.",
  "generated_from": [
   "pgvector store after medium re-embed (docs/TRANSCRIPTION_COMPARISON_RESULTS.md)",
   "scripts/run_pipeline.py --skip-transcribe --model medium with rosters C1 (Economics) / C3 (Math)",
   "general-question expected concepts derived from live retrieved class_context (2026-07-03), not invented",
-  "concept cases (TASK-021) target the 'material' chunks from scripts.ingest_materials; owner reconciles material-grounded expectations against the ingested slide/notes text"
+  "concept cases target the 'material' chunks from scripts.ingest_materials; operators reconcile material-grounded expectations against the ingested slide/notes text"
  ],
  "cases": [
   {
@@ -227,7 +227,7 @@
    "source_artifacts": [
     "materials/<Bhagyashree Economics class>/*.pptx|pdf|docx (ingested via scripts.ingest_materials as chunk_type=material)"
    ],
-   "notes": "THE concept case Nisha broke on in the 2026-07 eval: a 'related' question the noisy transcript alone could not answer, now expected to be answered from the class's authoritative material (TASK-019 ingestion + TASK-020 materials-aware prompt). expected_chunk_types=['material'] makes this a hard regression guard: it stays RED until the owner ingests this class's materials into the live store, then GREEN. required_concept_groups are deliberately relationship-level (a determinant shifts/affects the supply function) and grounded in the determinants already verified in class_context (see bhagyashree-general-determinants), not invented slide text; the owner should tighten the concept groups + evidence_quotes to the real ingested material after the live run, without loosening prompt/top_k to force a pass. A correct answer must ATTRIBUTE the material ('the class material / slides say...') per TASK-020."
+   "notes": "The teacher-eval failure case: a 'related' question the noisy transcript alone could not answer, now expected to be answered from the class's authoritative material (materials ingestion and the materials-aware prompt). expected_chunk_types=['material'] makes this a hard regression guard: it stays RED until operators ingest this class's materials into the live store, then GREEN. required_concept_groups are deliberately relationship-level (a determinant shifts/affects the supply function) and grounded in the determinants already verified in class_context (see bhagyashree-general-determinants), not invented slide text; tighten the concept groups + evidence_quotes to the real ingested material after the live run, without loosening prompt/top_k to force a pass. A correct answer must ATTRIBUTE the material ('the class material / slides say...') with source attribution required."
   },
   {
    "case_id": "bhagyashree-concept-not-in-source-refusal",
@@ -235,7 +235,7 @@
    "student_name": "Bhagyashree",
    "question": "How is GDP calculated, and what are the components of national income?",
    "expected_answer_mode": "insufficient_evidence",
-   "notes": "No-world-knowledge guard for TASK-020: GDP / national income is a real economics concept the model KNOWS from general training but that these supply classes and their materials never covered. The bot must decline ('not enough evidence') rather than fall back to world knowledge, even after materials are ingested. Mirrors the EVAL.md Chatbot-1 Q6 trap. No trust-ack required: a clean not-in-any-source refusal has no low-confidence flags to cite."
+   "notes": "No-world-knowledge guard: GDP / national income is a real economics concept the model KNOWS from general training but that these supply classes and their materials never covered. The bot must decline ('not enough evidence') rather than fall back to world knowledge, even after materials are ingested. Mirrors the teacher review trap question. No trust-ack required: a clean not-in-any-source refusal has no low-confidence flags to cite."
   },
   {
    "case_id": "bhagyashree-exact-term-complementary-goods",
@@ -253,7 +253,7 @@
    "evidence_quotes": [
     "substitute goods, or like, what is the other name, the other one, complementary goods"
    ],
-   "notes": "Exact-term case (TASK-026, for TASK-027 BM25): 'complementary goods' is a rare, distinctive token a single dense vector can under-rank against generic 'determinants of supply' phrasing; the lexical arm should surface it. Reuses the verified determinants class_context quote (see bhagyashree-general-determinants) — real indexed text, not invented. Unfiltered so the exact token must be found across all chunk types."
+   "notes": "Exact-term case (lexical-arm case): 'complementary goods' is a rare, distinctive token a single dense vector can under-rank against generic 'determinants of supply' phrasing; the lexical arm should surface it. Reuses the verified determinants class_context quote (see bhagyashree-general-determinants) — real indexed text, not invented. Unfiltered so the exact token must be found across all chunk types."
   },
   {
    "case_id": "bhagyashree-exact-term-negative-twelve",
@@ -271,7 +271,7 @@
    "evidence_quotes": [
     "Quantity supply is negative 12"
    ],
-   "notes": "Exact-term/number case (TASK-026, for TASK-027 BM25): the exact token 'negative 12' is a strong lexical signal a dense embedder can blur into nearby numbers. Reuses Bhagyashree's verified spoken worked-example quote (see bhagyashree-negative-quantity) — real indexed text. Left unfiltered (not scoped to spoken) so retrieval must locate the exact term across all types."
+   "notes": "Exact-term/number case (lexical-arm case): the exact token 'negative 12' is a strong lexical signal a dense embedder can blur into nearby numbers. Reuses Bhagyashree's verified spoken worked-example quote (see bhagyashree-negative-quantity) — real indexed text. Left unfiltered (not scoped to spoken) so retrieval must locate the exact term across all types."
   },
   {
    "case_id": "saisha-typo-worksheet-count",
@@ -289,7 +289,7 @@
    "evidence_quotes": [
     "I am not going to solve all the 25 problems on the worksheet"
    ],
-   "notes": "Typo case (TASK-026, for TASK-027 pg_trgm): 'workseet' misspells 'worksheet'. Dense embeddings may absorb the typo; an exact FTS lexical arm needs trigram fuzziness to still match. Reuses Saisha's verified class_context quote (see saisha-general-what-covered) — real indexed text; the typo is only in the question, so the quote still resolves against the store."
+   "notes": "Typo case (typo case): 'workseet' misspells 'worksheet'. Dense embeddings may absorb the typo; an exact FTS lexical arm needs trigram fuzziness to still match. Reuses Saisha's verified class_context quote (see saisha-general-what-covered) — real indexed text; the typo is only in the question, so the quote still resolves against the store."
   },
   {
    "case_id": "sanjita-concept-prediction-steps",

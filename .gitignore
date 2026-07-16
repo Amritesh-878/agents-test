@@ -4,41 +4,27 @@ __pycache__/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+.claude/
 data/chroma/
 output/
+scratch/
+orchestrator-temp.md
 
-# Login credentials (holds secrets) — the .example file is tracked
+# secrets and credential files
 data/credentials.csv
-
-# Cloud credential files (OAuth client/token, GCP service-account keys) — never commit.
-# Patterns are name-specific so tracked data json (e.g. data/eval_qa.json) is unaffected.
 client_secret*.json
 token*.json
 *service-account*.json
 *-sa.json
 
-# Zoom recording exports and attendance data (large/sensitive, not tracked)
+# student data (PII) and large recording exports
 *.zip
+*.dump
 participants_*.csv
-
-# Student rosters (PII — names + ids); the .example file stays tracked
 data/*Badge Tracker*.csv
 data/C1.csv
 data/subjectMap.csv
 data/Student Info/
 data/Overall Attendance/
-
-# Teacher corpus drops (videos + class materials — large/sensitive, ingested not tracked)
 data/English/
-
-# Orchestrator temp file
-orchestrator-temp.md
-
-# Throwaway spike scripts
-scratch/
-
-# Transient loop / scheduled-task lock files
-.claude/*.lock
-
-*.dump
 data/teacher_sections.csv

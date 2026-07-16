@@ -1,13 +1,9 @@
 # Adira Academy Learning Assistant
 
-Personalized RAG chatbot backend for ISL students. After every Zoom class, each enrolled
-student gets their own AI assistant grounded in what actually happened in class — what they
-said, what the teacher taught, what the slides say, and what they missed. Teachers get
-section-scoped access to their own students' assistants.
-
-This repository is the **backend only**. The product UI is the Adira LMS
-(`Adira25/AdiraLMS-Frontend` / `AdiraLMS-Backend`); the Streamlit app here is a testing
-harness, not the product.
+Per-student RAG chatbot backend. Each student gets an assistant grounded in their own class
+recordings, chat, and materials; teachers get section-scoped access to their students'
+assistants. Backend only — the product UI is the Adira LMS (`Adira25/AdiraLMS-*`); the
+Streamlit app here is a test harness.
 
 ```
                         ┌──────────────  this repo  ──────────────┐
@@ -27,14 +23,13 @@ Browser ── Firebase ──> Django LMS ──[X-Service-Token]──> FastAP
 3. The `CHATBOT_SERVICE_TOKEN` value (same value goes into Django settings)
 4. A `GROQ_API_KEY` (or create one at console.groq.com)
 
-### The contract in one paragraph
+### Contract
 
-The LMS verifies the Firebase ID token and is the **only** caller of this service. Every
-request carries the already-verified `email` and `lms_role` plus the shared secret in the
-`X-Service-Token` header. This service maps the identity to a `Principal`
-(student → their roll number, parsed from the email; teacher → their sections, from a config
-CSV), authorizes the target student, runs retrieval + generation, and returns the answer
-**with its grounding sources**. No Firebase, no tokens, no passwords live on this side.
+The LMS verifies the Firebase ID token and is the only caller of this service. Every request
+carries the verified `email` and `lms_role` plus the shared secret in the `X-Service-Token`
+header. The service maps the identity to a principal (student → roll from the email;
+teacher → sections from a config CSV), authorizes the target student, and returns the answer
+with its grounding sources. No Firebase, tokens, or passwords on this side.
 
 ### Identity rules (who becomes what)
 
@@ -73,9 +68,8 @@ $env:TEACHER_SECTIONS_CSV  = "data\teacher_sections.csv"
 .venv\Scripts\uvicorn.exe scripts.api:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
-Startup **fails loudly** if `CHATBOT_SERVICE_TOKEN` is empty — a blank secret never means
-"open". First start downloads the embedding and reranker models from HuggingFace
-(~200 MB, no token needed) — one-time, needs internet.
+Startup fails if `CHATBOT_SERVICE_TOKEN` is empty. First start downloads the embedding and
+reranker models from HuggingFace (~200 MB, one-time, no token needed).
 
 Smoke test:
 
@@ -136,17 +130,14 @@ Response:
 }
 ```
 
-**Interpreting the response — important for the UI:**
+Response fields:
 
-- `grade` is the retrieval-confidence tier: `high` / `medium` → a grounded LLM answer;
-  `low` → the system **refused** rather than guess.
-- `answer_source`: `groq` = LLM-generated grounded answer; `fallback` = deterministic
-  refusal text (no LLM call was made). A refusal is correct behavior for
-  off-corpus questions ("what is photosynthesis") — render it normally, don't retry it.
-- `sources` is the trust surface: the exact class records the answer is based on
-  (`chunk_type`: `material` = slides/notes, `class_context` = teacher's speech,
-  `spoken` = the student's own words, `chat` = their typed chat). Show it (expandable) —
-  teachers grade answers by whether the sources support them.
+- `grade`: retrieval-confidence tier. `high`/`medium` = grounded LLM answer; `low` = refusal.
+- `answer_source`: `groq` = LLM answer; `fallback` = deterministic refusal (no LLM call).
+  Refusals are correct for off-corpus questions — render them normally, don't retry.
+- `sources`: the class records the answer is based on (`material` = slides/notes,
+  `class_context` = teacher's speech, `spoken` = the student's own words, `chat` = typed
+  chat). Render expandable.
 
 Errors: `401` bad/missing service token · `403` identity denied / not their student ·
 `400` teacher without `student_id` · `503` + `{"retry_after_seconds": 20}` Groq rate limit
@@ -212,16 +203,13 @@ Same pattern for `/students` and `/sessions` (GET with query params). Add
 over four calls — `principal_from_identity` (`scripts/auth.py`), `can_access_student` /
 `allowed_student_ids` (same), and `answer_for_student` (`scripts/demo_backend.py`).
 
-### Security & privacy notes
+### Security & privacy
 
-- Every chunk in the store is keyed by `student_id`; retrieval is scoped to one student at
-  the SQL layer. Cross-student leakage is structurally prevented, not just filtered.
-- The corpus is **minors' classroom data**. This repo must stay private; `data/` holds PII
-  and is gitignored; never expose the service to the public internet — it is LMS-to-service
-  only, on a private network or localhost.
-- Questions + retrieved excerpts are sent to **Groq** (external US LLM API) to generate
-  answers. Surface this notice to users; retention/consent policy is the school's call.
-- The free Groq tier allows ~8k tokens/minute — bursts return the `503` retry envelope.
+- Retrieval is scoped to one `student_id` at the SQL layer.
+- The corpus is minors' classroom data: repo stays private, `data/` is gitignored, and the
+  service must not be exposed to the public internet — LMS-to-service only.
+- Questions + retrieved excerpts are sent to Groq (external US LLM API); surface this to
+  users. Free tier is ~8k tokens/min — bursts return the `503` retry envelope.
 
 ---
 
@@ -326,9 +314,8 @@ python -m scripts.ingest_materials `
 ```
 
 Materials become authoritative `material` chunks per enrolled student. Re-running replaces
-a class's material chunks; transcript chunks are never touched. Note for the LMS future:
-materials already live in the LMS's storage, so this step is expected to read from there
-eventually — the extractors (`pptx/pdf/docx/txt/md`) are the stable part.
+a class's material chunks; transcript chunks are never touched. Supported: pptx, pdf, docx,
+txt, md.
 
 ### 3. Automated Drive ingestion (optional)
 
@@ -338,24 +325,18 @@ variables; share the Drive folder with the service account's email.
 
 ---
 
-## How Answers Are Made (and why refusals are a feature)
+## Answer Pipeline
 
-1. **Hybrid retrieval**: dense vectors (all-MiniLM, 384-dim) + Postgres full-text, fused
-   with RRF into a 25-candidate pool — always scoped to one `student_id`, optionally to one
-   `class_name`.
-2. **Rerank**: a cross-encoder (`ms-marco-MiniLM-L-6-v2`) reorders the pool; top-k survives.
-3. **Route**: rerank confidence grades the turn `high` / `medium` / `low`. High and medium
-   produce grounded LLM answers (medium uses a softer prompt). **Low produces a
-   deterministic refusal with zero LLM involvement** — the bot never invents answers for
-   topics that were not taught.
-4. Generic meta-questions ("what did we cover?", "what did I say?") are recognized and kept
-   answerable even when they don't lexically match any chunk; content-specific traps
-   ("what did we cover **about GDP**?") stay refusable.
-5. Every answer carries its retrieved sources; the model is instructed to answer only from
-   them.
-
-Model provenance is stamped on every chunk and checked at query time — a store/query
-embedder mismatch fails loudly instead of returning garbage.
+1. Hybrid retrieval: dense (all-MiniLM, 384-dim) + Postgres full-text, RRF-fused into a
+   25-candidate pool, scoped to one `student_id` (optionally one `class_name`).
+2. Rerank: cross-encoder (`ms-marco-MiniLM-L-6-v2`) reorders the pool; top-k survives.
+3. Route: rerank confidence grades the turn `high`/`medium`/`low`. High/medium → grounded
+   LLM answer (medium uses a softer prompt); low → deterministic refusal, no LLM call.
+4. Generic meta-questions ("what did we cover?", "what did I say?") stay answerable even
+   without lexical overlap; content-specific probes ("what did we cover about GDP?") stay
+   refusable.
+5. Embedding-model provenance is stamped per chunk and checked at query time; a mismatch
+   raises instead of returning garbage.
 
 ---
 
@@ -396,8 +377,8 @@ output/<class_name>/
 .venv\Scripts\python.exe -m pytest      # full suite
 ```
 
-The bar is 0 lint errors, 0 type errors, 100% tests passing (600+ tests). No comments or
-docstrings in new code; full type hints everywhere.
+Required before any commit: 0 lint errors, 0 type errors, 100% tests passing. No comments
+or docstrings; full type hints.
 
 ---
 
@@ -418,13 +399,11 @@ docstrings in new code; full type hints everywhere.
 
 ## Known Limitations
 
-- **Whisper hallucinates on silence** — the pipeline dedups looped segments at context-build
-  time, but transcripts of quiet students remain thin.
-- **Indirect instruction questions** ("what were we asked to do while watching the videos")
-  can be refused even when the content exists — a measured cross-encoder blind spot; a
-  stronger reranker is a candidate experiment.
-- **Attendance is day-level** (no join/leave per session) — attendance-based presence is a
+- Whisper hallucinates on silence; looped segments are deduped at context build, but quiet
+  students' transcripts remain thin.
+- Indirect instruction questions ("what were we asked to do while watching the videos") can
+  be refused even when the content exists (cross-encoder blind spot).
+- Attendance is day-level (no per-session join/leave), so attendance-based presence is a
   tagged approximation.
-- **Relative time** ("yesterday") isn't resolved; ask by topic or pick a session.
-- Refusal messages list raw class names (functional, not pretty — wording is coupled to the
-  eval's refusal detection).
+- Relative time ("yesterday") isn't resolved — ask by topic or pick a session.
+- Refusal messages list raw class names.
