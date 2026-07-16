@@ -343,6 +343,33 @@ def is_class_overview_question(question: str) -> bool:
     return all(token in _OVERVIEW_TAIL_TOKENS for token in tail_tokens)
 
 
+_GENERIC_SELF_TRIGGER = re.compile(
+    r"^(?:"
+    r"what did i (?:say|ask|share|answer|contribute)"
+    r"|did i (?:say|ask) anything"
+    r"|what were my (?:questions|answers|contributions)"
+    r")"
+    r"(?P<tail>.*)$"
+)
+
+_GENERIC_SELF_TAIL_TOKENS = frozenset(
+    {
+        "anything", "ask", "class", "classes", "did", "i", "in", "or", "say",
+        "session", "sessions", "that", "the", "this", "today", "todays",
+        "yesterday",
+    }
+)
+
+
+def is_generic_self_question(question: str) -> bool:
+    normalized = " ".join(question.lower().replace("'", "").split())
+    match = _GENERIC_SELF_TRIGGER.match(normalized)
+    if not match:
+        return False
+    tail_tokens = re.findall(r"[a-z0-9]+", match.group("tail"))
+    return all(token in _GENERIC_SELF_TAIL_TOKENS for token in tail_tokens)
+
+
 def select_retrieval_chunk_types(
     question: str, base_chunk_types: Sequence[ChunkType]
 ) -> list[ChunkType]:
@@ -528,7 +555,7 @@ def answer_turn(
     if (
         grade == "low"
         and retrieval_result.retrieved_chunks
-        and is_class_overview_question(question)
+        and (is_class_overview_question(question) or is_generic_self_question(question))
     ):
         grade = "medium"
     asked_at = iso_timestamp(now)

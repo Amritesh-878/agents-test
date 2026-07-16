@@ -600,6 +600,53 @@ def test_is_class_overview_question_rejects_content_and_personal_forms() -> None
         assert not is_class_overview_question(question), question
 
 
+def test_is_generic_self_question_accepts_generic_forms() -> None:
+    from scripts.chat import is_generic_self_question
+
+    accepted = [
+        "What did I say in class?",
+        "What did I say or ask in class?",
+        "Did I say anything in class today?",
+        "What were my questions in the session?",
+    ]
+    for question in accepted:
+        assert is_generic_self_question(question), question
+
+
+def test_is_generic_self_question_rejects_content_tails() -> None:
+    from scripts.chat import is_generic_self_question
+
+    rejected = [
+        "What did I say about the Balance of Payments?",
+        "What did I say about the hunted animal quote?",
+        "What did the teacher say about supply?",
+    ]
+    for question in rejected:
+        assert not is_generic_self_question(question), question
+
+
+def test_generic_self_question_lifts_low_to_medium_when_spoken_chunks_exist() -> None:
+    backend = _CountingBackend()
+    turn = _answer_turn(
+        _routed_result(0.001, chunk_type="spoken"),
+        backend,
+        question="What did I say or ask in class?",
+    )
+    assert turn.grade == "medium"
+    assert turn.answer_source == "groq"
+
+
+def test_content_tailed_self_question_stays_low() -> None:
+    backend = _CountingBackend()
+    turn = _answer_turn(
+        _routed_result(0.001, chunk_type="spoken"),
+        backend,
+        question="What did I say about the Balance of Payments?",
+    )
+    assert turn.grade == "low"
+    assert backend.calls == 0
+
+
 def test_empty_retrieval_routes_low_without_a_model() -> None:
     backend = _CountingBackend()
     empty = RetrievalResult(
