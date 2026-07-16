@@ -17,12 +17,15 @@ from scripts.chat import (
     ChatTurnRecord,
     SupportsGenerate,
     answer_turn,
+    is_class_overview_question,
     resolve_student_classes,
     select_retrieval_chunk_types,
     utc_now,
 )
 from scripts.retrieval import QueryEmbedder, RetrievalResult, retrieve_from_pgvector
 from scripts.utils.class_date import CLASS_DATE_RE
+
+OVERVIEW_TOP_K = 12
 
 _SESSION_SUFFIX_RE = re.compile(r"_s(\d+)$", re.IGNORECASE)
 _SUBJECT_TOKEN_RE = re.compile(r"^[A-Za-z]+\.\d+$")
@@ -127,6 +130,8 @@ def answer_for_student(
     groq_model: str = DEFAULT_GROQ_MODEL,
     max_history_turns: int = 3,
 ) -> ChatTurnRecord:
+    if is_class_overview_question(question):
+        top_k = max(top_k, OVERVIEW_TOP_K)
     retrieval_result = retrieve_from_pgvector(
         student_id=student_id,
         query=question,

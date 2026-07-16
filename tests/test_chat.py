@@ -478,13 +478,17 @@ def _routed_result(rerank_score: float | None, *, chunk_type: str = "class_conte
     )
 
 
-def _answer_turn(result: RetrievalResult, backend: _CountingBackend) -> ChatTurnRecord:
+def _answer_turn(
+    result: RetrievalResult,
+    backend: _CountingBackend,
+    question: str = "What did we cover about supply?",
+) -> ChatTurnRecord:
     from scripts.chat import answer_turn, utc_now
 
     return answer_turn(
         student_id="2302",
         student_name="Bhagyashree",
-        question="What did we cover about supply?",
+        question=question,
         retrieval_result=result,
         llm_backend=backend,
         groq_model="test-model",
@@ -525,6 +529,75 @@ def test_low_tier_makes_no_llm_call_and_refuses_deterministically() -> None:
     assert backend.calls == 0
     assert "not have enough" in turn.answer.casefold()
     assert "Economics.02" in turn.answer
+
+
+def test_overview_question_lifts_low_to_medium_when_chunks_exist() -> None:
+    backend = _CountingBackend()
+    turn = _answer_turn(_routed_result(0.001), backend, question="What did we cover in class?")
+    assert turn.grade == "medium"
+    assert turn.answer_source == "groq"
+    assert backend.calls == 1
+
+
+def test_overview_question_with_content_tail_stays_low() -> None:
+    backend = _CountingBackend()
+    turn = _answer_turn(
+        _routed_result(0.001), backend, question="What did we cover about GDP or national income?"
+    )
+    assert turn.grade == "low"
+    assert turn.answer_source == "fallback"
+    assert backend.calls == 0
+
+
+def test_overview_question_with_empty_retrieval_stays_low() -> None:
+    backend = _CountingBackend()
+    empty = RetrievalResult(
+        context_string="none",
+        embedding_model="m",
+        query="q",
+        result_count=0,
+        retrieved_chunks=[],
+        student_id="2302",
+        top_k=5,
+    )
+    turn = _answer_turn(empty, backend, question="What did we cover in class?")
+    assert turn.grade == "low"
+    assert backend.calls == 0
+
+
+def test_is_class_overview_question_accepts_generic_forms() -> None:
+    from scripts.chat import is_class_overview_question
+
+    accepted = [
+        "What did we cover in class?",
+        "what did we do in class today",
+        "I was absent. Can you give me a short summary?",
+        "I missed the class, what happened in class?",
+        "I joined late, what was the plan for class?",
+        "Was there any homework or worksheet?",
+        "Give me one practice question on today's topic",
+        "What topic did we start working on in class?",
+        "Can you give me a short summary?",
+        "Explain today's topic again in simple words",
+    ]
+    for question in accepted:
+        assert is_class_overview_question(question), question
+
+
+def test_is_class_overview_question_rejects_content_and_personal_forms() -> None:
+    from scripts.chat import is_class_overview_question
+
+    rejected = [
+        "What did we cover about GDP or national income?",
+        "What did we learn about Shakespeare's Macbeth?",
+        "What did we learn about the determinants of supply?",
+        "What did I say in class?",
+        "what is photosynthesis",
+        "Give me a summary of the supply function",
+        "Explain the supply function again",
+    ]
+    for question in rejected:
+        assert not is_class_overview_question(question), question
 
 
 def test_empty_retrieval_routes_low_without_a_model() -> None:

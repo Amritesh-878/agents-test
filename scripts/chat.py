@@ -302,6 +302,47 @@ def is_self_referential_question(question: str) -> bool:
     return bool(_SELF_REFERENTIAL_SPEECH.search(question))
 
 
+_OVERVIEW_TRIGGER = re.compile(
+    r"^(?:"
+    r"what (?:did|do|have) we (?:cover|discuss|learn|study|do)"
+    r"|what (?:was|got) (?:covered|discussed|taught)"
+    r"|what happened in (?:class|todays class|the class)"
+    r"|what was the plan for (?:class|today)"
+    r"|what topic did we (?:start|begin)"
+    r"|i was absent"
+    r"|i missed (?:the |this |todays )?class"
+    r"|i joined late"
+    r"|was there any (?:homework|worksheet|assignment)"
+    r"|give me (?:one|a|some) practice questions?"
+    r"|(?:can you |please )?(?:give me |send me )?an? ?(?:short |quick |brief )?summary"
+    r"|explain (?:todays|the) topic again"
+    r")"
+    r"(?P<tail>.*)$"
+)
+
+_OVERVIEW_TAIL_TOKENS = frozenset(
+    {
+        "a", "again", "an", "and", "any", "assignment", "assignments", "brief",
+        "can", "catch", "class", "classes", "cover", "covered", "did", "do",
+        "for", "give", "happened", "homework", "in", "it", "joined", "last",
+        "late", "me", "of", "on", "or", "plan", "please", "quick", "session",
+        "sessions", "short", "simple", "summary", "that", "the", "there",
+        "these", "this", "those", "to", "today", "todays", "topic", "topics",
+        "up", "was", "we", "what", "words", "working", "worksheet",
+        "worksheets", "yesterday", "you",
+    }
+)
+
+
+def is_class_overview_question(question: str) -> bool:
+    normalized = " ".join(question.lower().replace("'", "").split())
+    match = _OVERVIEW_TRIGGER.match(normalized)
+    if not match:
+        return False
+    tail_tokens = re.findall(r"[a-z0-9]+", match.group("tail"))
+    return all(token in _OVERVIEW_TAIL_TOKENS for token in tail_tokens)
+
+
 def select_retrieval_chunk_types(
     question: str, base_chunk_types: Sequence[ChunkType]
 ) -> list[ChunkType]:
@@ -484,6 +525,12 @@ def answer_turn(
     output_fn: Callable[[str], None] | None = None,
 ) -> ChatTurnRecord:
     grade = grade_retrieval(retrieval_result.retrieved_chunks)
+    if (
+        grade == "low"
+        and retrieval_result.retrieved_chunks
+        and is_class_overview_question(question)
+    ):
+        grade = "medium"
     asked_at = iso_timestamp(now)
     trust_flags = collect_trust_flags(retrieval_result)
     if grade == "low":

@@ -285,6 +285,36 @@ def test_answer_for_student_leaves_class_questions_unfiltered() -> None:
     assert store.search_calls[0][2] == []
 
 
+def test_answer_for_student_widens_top_k_for_overview_questions() -> None:
+    store = FakeStore(search_results=[make_search_result()])
+    backend = FakeChatBackend()
+    turn = answer_for_student(
+        student_id="2302",
+        student_name="Bhagyashree",
+        question="What did we cover in class today?",
+        store=store,
+        embedder=make_embedder(),
+        chat_backend=backend,
+        db_url="postgresql://localhost/db",
+    )
+    assert turn.retrieval_result.top_k == 12
+
+
+def test_answer_for_student_keeps_default_top_k_for_content_questions() -> None:
+    store = FakeStore(search_results=[make_search_result()])
+    backend = FakeChatBackend()
+    turn = answer_for_student(
+        student_id="2302",
+        student_name="Bhagyashree",
+        question="What are the determinants of supply?",
+        store=store,
+        embedder=make_embedder(),
+        chat_backend=backend,
+        db_url="postgresql://localhost/db",
+    )
+    assert turn.retrieval_result.top_k == 5
+
+
 def test_answer_for_student_returns_base_top_k_over_a_hybrid_pool() -> None:
     from scripts.retrieval import HYBRID_POOL_SIZE
 
