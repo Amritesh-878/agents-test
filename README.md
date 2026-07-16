@@ -248,10 +248,22 @@ python -m pip install -r requirements.txt
 **2. Configure `.env`** (copy `.env.example`): `DATABASE_URL`, `GROQ_API_KEY`, `HF_TOKEN`
 (+ the service/Drive variables from the table above as needed).
 
-**3. Create the database and schema:**
+**3. Create the database:**
 
 ```powershell
 # In psql: CREATE DATABASE adira;
+```
+
+Then either restore an existing store dump (preferred for deployments — the evaluated,
+calibrated store; obtain it from the operator, it is never in this repo):
+
+```powershell
+pg_restore -d "postgresql://postgres:<password>@localhost:5432/adira" adira_store.dump
+```
+
+or start empty and run the migration (fresh installs that will ingest their own classes):
+
+```powershell
 python -m scripts.migrate_db --db-url "postgresql://postgres:<password>@localhost:5432/adira"
 ```
 
