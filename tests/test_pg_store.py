@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from scripts.models.pipeline import EmbeddingRecord
 from scripts.utils.pg_store import PgVectorStore
 
@@ -411,3 +413,131 @@ def test_connect_pg_store_is_callable() -> None:
     from scripts.utils.pg_store import connect_pg_store
 
     assert callable(connect_pg_store)
+
+
+# --- log_query / fetch_query_stats (TASK-022 telemetry) ---
+
+
+def _cursor_store() -> tuple[PgVectorStore, MagicMock, MagicMock]:
+    store, mock_conn = make_store()
+    mock_cursor = MagicMock()
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+    return store, mock_conn, mock_cursor
+
+
+def test_log_query_inserts_a_row_and_commits() -> None:
+    store, mock_conn, mock_cursor = _cursor_store()
+
+    assert store.log_query("2409", "high", "groq", "English.03_x", 42) is True
+
+    sql, params = mock_cursor.execute.call_args[0]
+    assert "INSERT INTO query_log" in sql
+    assert params == ("2409", "high", "groq", "English.03_x", 42)
+    mock_conn.commit.assert_called_once()
+
+
+def test_log_query_accepts_an_unscoped_turn() -> None:
+    store, _, mock_cursor = _cursor_store()
+    store.log_query("2409", "low", "fallback", None, 10)
+    assert mock_cursor.execute.call_args[0][1] == ("2409", "low", "fallback", None, 10)
+
+
+def test_log_query_never_stores_question_text() -> None:
+    store, _, mock_cursor = _cursor_store()
+    store.log_query("2409", "high", "groq", None, 63)
+    sql, params = mock_cursor.execute.call_args[0]
+    assert "question_len" in sql
+    assert "text" not in sql.lower()
+    assert all(not isinstance(p, str) or len(p) < 40 for p in params)
+
+
+def test_log_query_degrades_to_a_warning_on_a_raising_connection(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import psycopg
+
+    store, mock_conn = make_store()
+    mock_conn.cursor.side_effect = psycopg.OperationalError("connection gone")
+
+    with caplog.at_level("WARNING"):
+        assert store.log_query("2409", "high", "groq", None, 12) is False
+
+    assert "telemetry" in caplog.text.casefold()
+    mock_conn.commit.assert_not_called()
+
+
+def test_log_query_degrades_when_the_insert_raises(caplog: pytest.LogCaptureFixture) -> None:
+    import psycopg
+
+    store, _, mock_cursor = _cursor_store()
+    mock_cursor.execute.side_effect = psycopg.errors.UndefinedTable("no query_log table")
+
+    with caplog.at_level("WARNING"):
+        assert store.log_query("2409", "high", "groq", None, 12) is False
+    assert "telemetry" in caplog.text.casefold()
+
+
+def test_log_query_does_not_swallow_non_db_errors() -> None:
+    store, mock_conn = make_store()
+    mock_conn.cursor.side_effect = RuntimeError("a real bug")
+    with pytest.raises(RuntimeError, match="a real bug"):
+        store.log_query("2409", "high", "groq", None, 12)
+
+
+def test_fetch_query_stats_unfiltered() -> None:
+    store, _, mock_cursor = _cursor_store()
+    mock_cursor.fetchall.return_value = [("high", "groq", 3), ("low", "fallback", 1)]
+
+    rows = store.fetch_query_stats()
+
+    sql, params = mock_cursor.execute.call_args[0]
+    assert "WHERE" not in sql
+    assert "GROUP BY grade, answer_source" in sql
+    assert params == ()
+    assert rows == [("high", "groq", 3), ("low", "fallback", 1)]
+
+
+def test_fetch_query_stats_filters_by_student_ids() -> None:
+    store, _, mock_cursor = _cursor_store()
+    mock_cursor.fetchall.return_value = []
+
+    store.fetch_query_stats(student_ids=["2409", "2410"])
+
+    sql, params = mock_cursor.execute.call_args[0]
+    assert "student_id = ANY(%s)" in sql
+    assert params == (["2409", "2410"],)
+
+
+def test_fetch_query_stats_filters_by_since() -> None:
+    from datetime import UTC, datetime
+
+    store, _, mock_cursor = _cursor_store()
+    mock_cursor.fetchall.return_value = []
+    since = datetime(2026, 7, 1, tzinfo=UTC)
+
+    store.fetch_query_stats(since=since)
+
+    sql, params = mock_cursor.execute.call_args[0]
+    assert "ts >= %s" in sql
+    assert params == (since,)
+
+
+def test_fetch_query_stats_combines_filters() -> None:
+    from datetime import UTC, datetime
+
+    store, _, mock_cursor = _cursor_store()
+    mock_cursor.fetchall.return_value = []
+    since = datetime(2026, 7, 1, tzinfo=UTC)
+
+    store.fetch_query_stats(student_ids=["2409"], since=since)
+
+    sql, params = mock_cursor.execute.call_args[0]
+    assert "student_id = ANY(%s)" in sql and "ts >= %s" in sql and " AND " in sql
+    assert params == (["2409"], since)
+
+
+def test_fetch_query_stats_with_an_empty_student_filter_skips_the_query() -> None:
+    store, mock_conn = make_store()
+    assert store.fetch_query_stats(student_ids=[]) == []
+    mock_conn.cursor.assert_not_called()

@@ -155,3 +155,53 @@ def test_run_migration_drops_stale_trigram_index() -> None:
     run_migration(conn)
     executed = " ".join(str(call.args[0]) for call in cur.execute.call_args_list)
     assert "DROP INDEX IF EXISTS idx_embeddings_text_trgm" in executed
+
+
+# --- query_log telemetry table (TASK-022) ---
+
+
+def test_ddl_creates_the_query_log_table() -> None:
+    tables = [name for kind, name, _ in get_ddl_statements() if kind == "table"]
+    assert "query_log" in tables
+
+
+def test_query_log_ddl_has_the_specced_columns() -> None:
+    sql = next(s for k, n, s in get_ddl_statements() if k == "table" and n == "query_log")
+    lowered = sql.lower()
+    for column in ("id", "ts", "student_id", "grade", "answer_source", "scoped_class", "question_len"):
+        assert column in lowered
+
+
+def test_query_log_ddl_stores_no_question_text() -> None:
+    sql = next(s for k, n, s in get_ddl_statements() if k == "table" and n == "query_log")
+    columns = {
+        line.strip().split()[0].lower()
+        for line in sql.splitlines()
+        if line.startswith("    ") and line.strip()
+    }
+    assert columns == {
+        "id",
+        "ts",
+        "student_id",
+        "grade",
+        "answer_source",
+        "scoped_class",
+        "question_len",
+    }
+
+
+def test_query_log_ddl_is_created_alongside_embeddings() -> None:
+    tables = [name for kind, name, _ in get_ddl_statements() if kind == "table"]
+    assert "embeddings" in tables and "query_log" in tables
+
+
+def test_run_migration_reports_query_log() -> None:
+    conn = MagicMock()
+    cursor = MagicMock()
+    conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
+    conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    result = run_migration(conn)
+
+    assert isinstance(result, MigrationResult)
+    assert "query_log" in result.tables_created

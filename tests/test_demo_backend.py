@@ -484,3 +484,137 @@ def test_answer_for_student_turn_index_follows_history() -> None:
 
     assert first.turn_index == 1
     assert second.turn_index == 2
+
+
+# --- query telemetry hook (TASK-022) ---
+
+
+class LoggingStore(FakeStore):
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.logged: list[tuple[str, str, str, str | None, int]] = []
+
+    def log_query(
+        self,
+        student_id: str,
+        grade: str,
+        answer_source: str,
+        scoped_class: str | None,
+        question_len: int,
+    ) -> bool:
+        self.logged.append((student_id, grade, answer_source, scoped_class, question_len))
+        return True
+
+
+class RaisingLogStore(FakeStore):
+    def log_query(
+        self,
+        student_id: str,
+        grade: str,
+        answer_source: str,
+        scoped_class: str | None,
+        question_len: int,
+    ) -> bool:
+        raise RuntimeError("telemetry backend is down")
+
+
+def test_answer_for_student_logs_the_turn() -> None:
+    store = LoggingStore(search_results=[make_search_result()])
+
+    turn = answer_for_student(
+        student_id="2302",
+        student_name="Bhagyashree",
+        question="What is the supply function?",
+        store=store,
+        embedder=make_embedder(),
+        chat_backend=FakeChatBackend(),
+        db_url="postgresql://localhost/db",
+    )
+
+    assert store.logged == [("2302", turn.grade, "groq", None, len("What is the supply function?"))]
+
+
+def test_answer_for_student_logs_the_scoped_class() -> None:
+    store = LoggingStore(search_results=[make_search_result()])
+
+    answer_for_student(
+        student_id="2302",
+        student_name="Bhagyashree",
+        question="What did we cover?",
+        store=store,
+        embedder=make_embedder(),
+        chat_backend=FakeChatBackend(),
+        db_url="postgresql://localhost/db",
+        class_name="Economics.02_AY2025-26_Supply Function_16 April",
+    )
+
+    assert store.logged[0][3] == "Economics.02_AY2025-26_Supply Function_16 April"
+
+
+def test_answer_for_student_logs_the_fallback_tier() -> None:
+    store = LoggingStore(search_results=[])
+
+    turn = answer_for_student(
+        student_id="2302",
+        student_name="Bhagyashree",
+        question="What is the supply function?",
+        store=store,
+        embedder=make_embedder(),
+        chat_backend=FakeChatBackend(),
+        db_url="postgresql://localhost/db",
+    )
+
+    assert turn.answer_source == "fallback"
+    assert store.logged[0][1] == "low"
+    assert store.logged[0][2] == "fallback"
+
+
+def test_answer_for_student_logs_no_question_text() -> None:
+    store = LoggingStore(search_results=[make_search_result()])
+    question = "What did I say about the elasticity of supply?"
+
+    answer_for_student(
+        student_id="2302",
+        student_name="Bhagyashree",
+        question=question,
+        store=store,
+        embedder=make_embedder(),
+        chat_backend=FakeChatBackend(),
+        db_url="postgresql://localhost/db",
+    )
+
+    assert question not in [str(v) for row in store.logged for v in row]
+    assert store.logged[0][4] == len(question)
+
+
+def test_answer_survives_a_raising_telemetry_logger() -> None:
+    store = RaisingLogStore(search_results=[make_search_result()])
+
+    turn = answer_for_student(
+        student_id="2302",
+        student_name="Bhagyashree",
+        question="What is the supply function?",
+        store=store,
+        embedder=make_embedder(),
+        chat_backend=FakeChatBackend(),
+        db_url="postgresql://localhost/db",
+    )
+
+    assert turn.answer == "grounded answer"
+    assert turn.answer_source == "groq"
+
+
+def test_answer_survives_a_store_without_a_log_query_method() -> None:
+    store = FakeStore(search_results=[make_search_result()])
+
+    turn = answer_for_student(
+        student_id="2302",
+        student_name="Bhagyashree",
+        question="What is the supply function?",
+        store=store,
+        embedder=make_embedder(),
+        chat_backend=FakeChatBackend(),
+        db_url="postgresql://localhost/db",
+    )
+
+    assert turn.answer == "grounded answer"

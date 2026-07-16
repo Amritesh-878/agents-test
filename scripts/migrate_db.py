@@ -56,6 +56,24 @@ def build_ddl(embedding_dim: int = DEFAULT_EMBEDDING_DIM) -> list[tuple[str, str
     processed_at TIMESTAMPTZ DEFAULT NOW()
 )""",
         ),
+        (
+            "table",
+            "query_log",
+            """CREATE TABLE IF NOT EXISTS query_log (
+    id SERIAL PRIMARY KEY,
+    ts TIMESTAMPTZ DEFAULT NOW(),
+    student_id TEXT,
+    grade TEXT,
+    answer_source TEXT,
+    scoped_class TEXT,
+    question_len INT
+)""",
+        ),
+        (
+            "index",
+            "idx_query_log_student_ts",
+            "CREATE INDEX IF NOT EXISTS idx_query_log_student_ts ON query_log (student_id, ts)",
+        ),
         ("index", "idx_embeddings_hnsw", _HNSW_INDEX_SQL),
         (
             "index",

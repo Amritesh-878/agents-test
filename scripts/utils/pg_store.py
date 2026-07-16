@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from typing import Any, Sequence
 
 from scripts.models.pipeline import EmbeddingRecord, SearchResult
@@ -78,6 +79,28 @@ ORDER BY student_name, student_id, class_name
 """
 
 _COUNT_CHUNKS_SQL = "SELECT COUNT(*) FROM embeddings"
+
+_LOG_QUERY_SQL = """
+INSERT INTO query_log (student_id, grade, answer_source, scoped_class, question_len)
+VALUES (%s, %s, %s, %s, %s)
+"""
+
+_QUERY_STATS_HEAD = """
+SELECT grade, answer_source, COUNT(*)
+FROM query_log
+"""
+_QUERY_STATS_TAIL = """
+GROUP BY grade, answer_source
+ORDER BY grade, answer_source
+"""
+
+
+def db_error_types() -> tuple[type[BaseException], ...]:
+    try:
+        import psycopg
+    except ImportError:
+        return ()
+    return (psycopg.Error,)
 
 
 class PgVectorStore:
@@ -318,6 +341,49 @@ class PgVectorStore:
             cur.execute(_COUNT_CHUNKS_SQL)
             row = cur.fetchone()
         return int(row[0]) if row else 0
+
+    def log_query(
+        self,
+        student_id: str,
+        grade: str,
+        answer_source: str,
+        scoped_class: str | None,
+        question_len: int,
+    ) -> bool:
+        try:
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    _LOG_QUERY_SQL,
+                    (student_id, grade, answer_source, scoped_class, question_len),
+                )
+            self._conn.commit()
+        except db_error_types() as exc:
+            logger.warning("Query telemetry insert failed for %r: %s", student_id, exc)
+            return False
+        return True
+
+    def fetch_query_stats(
+        self,
+        *,
+        student_ids: Sequence[str] | None = None,
+        since: datetime | None = None,
+    ) -> list[tuple[str, str, int]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if student_ids is not None:
+            if not student_ids:
+                return []
+            clauses.append("student_id = ANY(%s)")
+            params.append(list(student_ids))
+        if since is not None:
+            clauses.append("ts >= %s")
+            params.append(since)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        sql = f"{_QUERY_STATS_HEAD}{where}{_QUERY_STATS_TAIL}"
+        with self._conn.cursor() as cur:
+            cur.execute(sql, tuple(params))
+            rows = cur.fetchall()
+        return [(str(grade), str(source), int(count)) for grade, source, count in rows]
 
     def close(self) -> None:
         self._conn.close()

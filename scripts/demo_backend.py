@@ -7,6 +7,7 @@ reimplementing any of it.
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Sequence
 
@@ -24,6 +25,8 @@ from scripts.chat import (
 )
 from scripts.retrieval import QueryEmbedder, RetrievalResult, retrieve_from_pgvector
 from scripts.utils.class_date import CLASS_DATE_RE
+
+logger = logging.getLogger(__name__)
 
 OVERVIEW_TOP_K = 12
 
@@ -115,6 +118,24 @@ def top_score(result: RetrievalResult) -> float | None:
     return max(scores) if scores else None
 
 
+def log_turn(
+    store: Any,
+    *,
+    student_id: str,
+    grade: str,
+    answer_source: str,
+    scoped_class: str | None,
+    question_len: int,
+) -> None:
+    logger_fn = getattr(store, "log_query", None)
+    if not callable(logger_fn):
+        return
+    try:
+        logger_fn(student_id, grade, answer_source, scoped_class, question_len)
+    except Exception as exc:
+        logger.warning("Query telemetry hook failed for %r: %s", student_id, exc)
+
+
 def answer_for_student(
     *,
     student_id: str,
@@ -142,7 +163,7 @@ def answer_for_student(
         store=store,
         embedder=embedder,
     )
-    return answer_turn(
+    turn = answer_turn(
         student_id=student_id,
         student_name=student_name,
         question=question,
@@ -155,3 +176,12 @@ def answer_for_student(
         now=utc_now(),
         turn_index=len(history_turns) + 1,
     )
+    log_turn(
+        store,
+        student_id=student_id,
+        grade=turn.grade,
+        answer_source=turn.answer_source,
+        scoped_class=class_name,
+        question_len=len(question),
+    )
+    return turn
