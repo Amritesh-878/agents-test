@@ -49,12 +49,19 @@ def build_pptx(path: Path, slide_texts: list[str], notes: str | None = None) -> 
     presentation.save(str(path))
 
 
-def build_docx(path: Path, paragraphs: list[str]) -> None:
+def build_docx(
+    path: Path, paragraphs: list[str], table_rows: list[list[str]] | None = None
+) -> None:
     from docx import Document
 
     document = Document()
     for text in paragraphs:
         document.add_paragraph(text)
+    if table_rows:
+        table = document.add_table(rows=len(table_rows), cols=len(table_rows[0]))
+        for r, row in enumerate(table_rows):
+            for c, cell_text in enumerate(row):
+                table.cell(r, c).text = cell_text
     document.save(str(path))
 
 
@@ -193,6 +200,41 @@ def test_docx_drops_boilerplate_only_block(tmp_path: Path) -> None:
     build_docx(path, [GOOD_PARAGRAPH, "", BOILERPLATE])
     blocks = extract_docx(path)
     assert [text for _, text in blocks] == [GOOD_PARAGRAPH]
+
+
+def test_docx_extracts_table_only_document(tmp_path: Path) -> None:
+    path = tmp_path / "cornell.docx"
+    build_docx(
+        path,
+        [],
+        table_rows=[
+            ["Cue column", "Note-taking column records the main lecture ideas."],
+            ["Summary", GOOD_PARAGRAPH],
+        ],
+    )
+    blocks = extract_docx(path)
+    assert len(blocks) == 1
+    assert "Note-taking column records the main lecture ideas." in blocks[0][1]
+    assert GOOD_PARAGRAPH in blocks[0][1]
+
+
+def test_docx_table_blocks_follow_paragraph_blocks(tmp_path: Path) -> None:
+    path = tmp_path / "mixed.docx"
+    build_docx(path, [GOOD_PARAGRAPH], table_rows=[[GOOD_PAGE_TEXT, GOOD_PAGE_TEXT]])
+    blocks = extract_docx(path)
+    assert [text for _, text in blocks] == [GOOD_PARAGRAPH, GOOD_PAGE_TEXT]
+
+
+def test_nul_bytes_stripped_from_blocks(tmp_path: Path) -> None:
+    path = tmp_path / "notes.txt"
+    path.write_text(
+        "Supply \x00shifts with input prices, technology and expectations.",
+        encoding="utf-8",
+    )
+    blocks = extract_txt(path)
+    assert [text for _, text in blocks] == [
+        "Supply shifts with input prices, technology and expectations."
+    ]
 
 
 def test_docx_corrupt_file_raises(tmp_path: Path) -> None:

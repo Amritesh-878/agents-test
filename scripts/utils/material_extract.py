@@ -26,7 +26,7 @@ class MaterialExtractError(ValueError):
 def _finalize_blocks(path: Path, raw_blocks: Iterable[str]) -> list[MaterialBlock]:
     blocks: list[MaterialBlock] = []
     for raw in raw_blocks:
-        text = " ".join(raw.split())
+        text = " ".join(raw.replace("\x00", " ").split())
         if text and is_quality_text(text):
             blocks.append((path.name, text))
     return blocks
@@ -86,6 +86,18 @@ def extract_docx(path: Path) -> list[MaterialBlock]:
             current = []
     if current:
         raw_blocks.append("\n".join(current))
+    for table in document.tables:
+        lines: list[str] = []
+        for row in table.rows:
+            cells: list[str] = []
+            for cell in row.cells:
+                cell_text = cell.text.strip()
+                if cell_text and (not cells or cells[-1] != cell_text):
+                    cells.append(cell_text)
+            if cells:
+                lines.append("\n".join(cells))
+        if lines:
+            raw_blocks.append("\n".join(lines))
     return _finalize_blocks(path, raw_blocks)
 
 
