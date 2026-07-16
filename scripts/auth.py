@@ -18,6 +18,9 @@ Role = Literal["admin", "teacher", "student"]
 
 PBKDF2_ITERATIONS = 600_000
 
+_PASSWORD_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz"
+_PASSWORD_LENGTH = 10
+
 _ROLES: tuple[Role, ...] = ("admin", "teacher", "student")
 _HASH_SCHEME = "pbkdf2_sha256"
 _SALT_BYTES = 16
@@ -191,6 +194,52 @@ def add_user(path: Path, username: str, role_value: str, scope: str, password: s
     return record
 
 
+def generate_password() -> str:
+    return "".join(secrets.choice(_PASSWORD_ALPHABET) for _ in range(_PASSWORD_LENGTH))
+
+
+def bulk_provision(
+    credentials_path: Path,
+    roster_paths: Sequence[Path],
+    handout_path: Path,
+    *,
+    reset_existing: bool = False,
+    iterations: int = PBKDF2_ITERATIONS,
+) -> tuple[int, int]:
+    from scripts.match_identity import load_roster
+
+    credentials = load_credentials(credentials_path) if credentials_path.exists() else {}
+    created: list[tuple[str, str, str]] = []
+    provisioned_this_run: set[str] = set()
+    skipped = 0
+    for roster_path in roster_paths:
+        for entry in load_roster(roster_path):
+            username = entry.roll_no
+            if not username or username in provisioned_this_run:
+                continue
+            if username in credentials and not reset_existing:
+                skipped += 1
+                continue
+            password = generate_password()
+            credentials[username] = build_credential_record(
+                username, "student", username, hash_password(password, iterations=iterations)
+            )
+            provisioned_this_run.add(username)
+            created.append((username, entry.name, password))
+    if not created and not skipped:
+        raise AuthError(
+            f"No roster students found in: {', '.join(str(p) for p in roster_paths)}."
+        )
+    write_credentials(credentials_path, credentials)
+    handout_path.parent.mkdir(parents=True, exist_ok=True)
+    with handout_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["username", "student_name", "password"])
+        for username, student_name, password in created:
+            writer.writerow([username, student_name, password])
+    return len(created), skipped
+
+
 class AuthService:
     def __init__(self, credentials: dict[str, CredentialRecord]) -> None:
         self._credentials = credentials
@@ -254,6 +303,12 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--credentials", type=Path, required=True)
     verify.add_argument("--username", required=True)
 
+    bulk = subparsers.add_parser("bulk-provision")
+    bulk.add_argument("--credentials", type=Path, required=True)
+    bulk.add_argument("--roster", type=Path, action="append", required=True, dest="rosters")
+    bulk.add_argument("--handout", type=Path, required=True)
+    bulk.add_argument("--reset-existing", action="store_true", dest="reset_existing")
+
     return parser
 
 
@@ -275,6 +330,18 @@ def main(
             password = read_new_password(prompt_fn)
             record = add_user(args.credentials, args.username, args.role, args.scope, password)
             output_fn(f"Saved {record.role} '{record.username}' to {args.credentials}.")
+            return 0
+
+        if args.command == "bulk-provision":
+            created, skipped = bulk_provision(
+                args.credentials, args.rosters, args.handout,
+                reset_existing=args.reset_existing,
+            )
+            output_fn(
+                f"Provisioned {created} student account(s); {skipped} existing kept. "
+                f"Plaintext handout written to {args.handout} - distribute the passwords, "
+                "then DELETE that file."
+            )
             return 0
 
         principal = AuthService.from_csv(args.credentials).authenticate(

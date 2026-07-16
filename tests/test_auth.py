@@ -574,3 +574,132 @@ def test_verify_reports_a_missing_file(tmp_path: Path) -> None:
     )
     assert exit_code == 1
     assert "not found" in messages[0]
+
+
+# --- bulk provisioning ---
+
+
+def write_roster(path: Path, rows: list[tuple[str, str]]) -> Path:
+    body = "STUDENT NAME,STUDENT ID\n" + "".join(f"{name},{roll}\n" for name, roll in rows)
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+def test_generate_password_length_and_alphabet() -> None:
+    from scripts.auth import _PASSWORD_ALPHABET, generate_password
+
+    password = generate_password()
+    assert len(password) == 10
+    assert all(ch in _PASSWORD_ALPHABET for ch in password)
+    assert not set("01ilo") & set(password)
+
+
+def test_bulk_provision_creates_verifiable_student_accounts(tmp_path: Path) -> None:
+    from scripts.auth import bulk_provision
+
+    roster = write_roster(tmp_path / "c1.csv", [("anshi", "2301"), ("Ranu Suthar", "2306")])
+    creds = tmp_path / "credentials.csv"
+    handout = tmp_path / "handout.csv"
+
+    created, skipped = bulk_provision(creds, [roster], handout, iterations=1)
+
+    assert (created, skipped) == (2, 0)
+    service = AuthService.from_csv(creds)
+    lines = handout.read_text(encoding="utf-8").strip().splitlines()
+    assert lines[0] == "username,student_name,password"
+    for line in lines[1:]:
+        username, student_name, password = line.split(",")
+        principal = service.authenticate(username, password)
+        assert principal is not None
+        assert principal.role == "student"
+        assert principal.student_id == username
+    assert "anshi" in lines[1]
+
+
+def test_bulk_provision_skips_existing_users_by_default(tmp_path: Path) -> None:
+    from scripts.auth import bulk_provision
+
+    roster = write_roster(tmp_path / "c1.csv", [("anshi", "2301")])
+    creds = write_csv(tmp_path / "credentials.csv", HEADER + row("2301", "student", "2301", "keepme"))
+    before = load_credentials(creds)["2301"].password_hash
+
+    created, skipped = bulk_provision(creds, [roster], tmp_path / "handout.csv", iterations=1)
+
+    assert (created, skipped) == (0, 1)
+    assert load_credentials(creds)["2301"].password_hash == before
+
+
+def test_bulk_provision_reset_existing_regenerates(tmp_path: Path) -> None:
+    from scripts.auth import bulk_provision
+
+    roster = write_roster(tmp_path / "c1.csv", [("anshi", "2301")])
+    creds = write_csv(tmp_path / "credentials.csv", HEADER + row("2301", "student", "2301", "old"))
+    before = load_credentials(creds)["2301"].password_hash
+
+    created, skipped = bulk_provision(
+        creds, [roster], tmp_path / "handout.csv", reset_existing=True, iterations=1
+    )
+
+    assert (created, skipped) == (1, 0)
+    assert load_credentials(creds)["2301"].password_hash != before
+
+
+def test_bulk_provision_duplicate_roll_across_rosters_provisioned_once(tmp_path: Path) -> None:
+    from scripts.auth import bulk_provision
+
+    first = write_roster(tmp_path / "a.csv", [("anshi", "2301")])
+    second = write_roster(tmp_path / "b.csv", [("anshi again", "2301")])
+    handout = tmp_path / "handout.csv"
+
+    created, skipped = bulk_provision(
+        tmp_path / "credentials.csv", [first, second], handout, iterations=1
+    )
+
+    assert (created, skipped) == (1, 0)
+    assert len(handout.read_text(encoding="utf-8").strip().splitlines()) == 2
+
+
+def test_bulk_provision_preserves_teacher_and_admin_rows(tmp_path: Path) -> None:
+    from scripts.auth import bulk_provision
+
+    roster = write_roster(tmp_path / "c1.csv", [("anshi", "2301")])
+    creds = write_csv(
+        tmp_path / "credentials.csv",
+        HEADER + row("owner", "admin", "", "alpha") + row("arista", "teacher", "English.03", "beta"),
+    )
+
+    bulk_provision(creds, [roster], tmp_path / "handout.csv", iterations=1)
+
+    loaded = load_credentials(creds)
+    assert set(loaded) == {"owner", "arista", "2301"}
+    assert loaded["arista"].role == "teacher"
+
+
+def test_bulk_provision_empty_roster_fails_loud(tmp_path: Path) -> None:
+    from scripts.auth import bulk_provision
+
+    roster = write_roster(tmp_path / "c1.csv", [])
+    with pytest.raises(AuthError, match="No roster students"):
+        bulk_provision(tmp_path / "credentials.csv", [roster], tmp_path / "handout.csv", iterations=1)
+
+
+def test_cli_bulk_provision_reports_and_warns(tmp_path: Path) -> None:
+    roster = write_roster(tmp_path / "c1.csv", [("anshi", "2301")])
+    handout = tmp_path / "handout.csv"
+    messages: list[str] = []
+
+    exit_code = main(
+        [
+            "bulk-provision",
+            "--credentials", str(tmp_path / "credentials.csv"),
+            "--roster", str(roster),
+            "--handout", str(handout),
+        ],
+        prompt_fn=prompter(),
+        output_fn=messages.append,
+    )
+
+    assert exit_code == 0
+    assert "1 student account(s)" in messages[0]
+    assert "DELETE" in messages[0]
+    assert handout.exists()
