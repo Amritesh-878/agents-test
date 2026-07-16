@@ -46,7 +46,7 @@ def test_query_embedder_loads_model_once(monkeypatch: pytest.MonkeyPatch) -> Non
     assert embedder.encode("hello") == [0.1, 0.2]
     assert embedder.encode("world") == [0.1, 0.2]
 
-    assert counters["init"] == 1  # model loaded from disk only once
+    assert counters["init"] == 1
     assert counters["encode"] == 2
 
 
@@ -83,7 +83,7 @@ def test_retrieval_backend_reuses_connection(monkeypatch: pytest.MonkeyPatch) ->
     backend.retrieve(args, "first question")
     backend.retrieve(args, "second question")
 
-    assert connect_calls["n"] == 1  # connection opened once, reused across turns
+    assert connect_calls["n"] == 1
 
     backend.close()
     assert store.closed is True
@@ -101,7 +101,7 @@ def test_retrieval_backend_does_not_close_injected_store() -> None:
     )
     backend.close()
 
-    assert store.closed is False  # caller owns an injected store
+    assert store.closed is False
 
 
 def _result(
@@ -124,21 +124,16 @@ def _result(
 
 
 def test_class_context_speaker_not_attributed_to_student() -> None:
-    # class_context / missed have no stored speaker (teacher narration); it must NOT be
-    # labeled with the student's name, or the LLM quotes the teacher back as the student.
     assert search_result_to_chunk(_result("class_context", None), 1).source_speaker == "teacher"
     assert search_result_to_chunk(_result("missed", None), 1).source_speaker == "teacher"
 
 
 def test_spoken_speaker_preserved_else_student_name() -> None:
     assert search_result_to_chunk(_result("spoken", "Bhagyashree"), 1).source_speaker == "Bhagyashree"
-    # spoken with no stored speaker still falls back to the student (their own words)
     assert search_result_to_chunk(_result("spoken", None), 1).source_speaker == "Bhagyashree"
 
 
 def test_material_chunk_surfaces_provenance_and_speaker() -> None:
-    # Material chunks carry speaker="material" (never labeled "teacher") and their source
-    # filename must flow from metadata into the chunk so the prompt can attribute it.
     result = _result("material", "material", metadata={"source_file": "supply_deck.pptx"})
     chunk = search_result_to_chunk(result, 1)
     assert chunk.chunk_type == "material"

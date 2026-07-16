@@ -37,9 +37,6 @@ def resolve(email: str, lms_role: str) -> Principal | None:
     )
 
 
-# --- roll extraction ---
-
-
 def test_roll_email_re_extracts_roll_from_localpart() -> None:
     match = ROLL_EMAIL_RE.search("bhagyashree_2302@islorg.com")
     assert match is not None
@@ -61,9 +58,6 @@ def test_roll_email_re_extracts_roll_from_localpart() -> None:
 )
 def test_extract_roll(email: str, expected: str | None) -> None:
     assert extract_roll(email) == expected
-
-
-# --- principal_from_identity ---
 
 
 def test_admin_lms_role_is_denied() -> None:
@@ -144,9 +138,6 @@ def test_no_teachers_configured_still_resolves_students() -> None:
     )
     assert principal is not None
     assert principal.student_id == "2302"
-
-
-# --- load_teacher_sections ---
 
 
 def test_load_teacher_sections_success(tmp_path: Path) -> None:
@@ -246,9 +237,6 @@ def test_loaded_teacher_sections_feed_principal_from_identity(tmp_path: Path) ->
     assert allowed_student_ids(principal, pairs_fixture()) == {"2402", "2403", "2405"}
 
 
-# --- parse_sections ---
-
-
 def test_parse_sections_splits_and_trims() -> None:
     assert parse_sections(" English.03 ; English.04 ") == ["English.03", "English.04"]
 
@@ -256,9 +244,6 @@ def test_parse_sections_splits_and_trims() -> None:
 def test_parse_sections_of_empty_scope() -> None:
     assert parse_sections("") == []
     assert parse_sections(" ; ") == []
-
-
-# --- authorization ---
 
 
 def pairs_fixture() -> list[tuple[str, str, str]]:

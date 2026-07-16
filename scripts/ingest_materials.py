@@ -1,11 +1,3 @@
-"""Ingest class materials (PPT/PDF/notes) into pgvector as ``material`` chunks.
-
-Expected folder layout: ``materials/<class_name>/*.pptx|pdf|docx|txt|md`` — pass
-that class folder as ``--materials-dir``. Chunks are embedded once and stored
-per-student-in-class (mirroring ``class_context``), so retrieval and per-student
-isolation are unchanged. Re-running replaces a class's ``material`` chunks;
-spoken/chat/class_context chunks are never touched.
-"""
 
 from __future__ import annotations
 
@@ -126,9 +118,6 @@ def validate_inputs(args: IngestArgs) -> None:
 
 
 def enrolled_students(identity_map: IdentityMap) -> list[MaterialStudent]:
-    """Enrolled students from the identity map, with ids derived exactly as
-    ``embed_and_store`` derives them (roll_no, else lowercased name slug) so the
-    material chunks land under the same student_id as the transcript chunks."""
     students: list[MaterialStudent] = []
     seen: set[str] = set()
     for entry in identity_map.entries:
@@ -151,8 +140,6 @@ def resolve_students(args: IngestArgs) -> list[MaterialStudent]:
         )
         students.extend(enrolled_students(identity_map))
         if identity_map.roster_students_without_audio:
-            # Their roll numbers are not in the identity map, so a name-derived id
-            # could mismatch the roster-derived id their other chunks use.
             logger.warning(
                 "%d roster students without audio were skipped (%s); pass their ids "
                 "via --student-id to include them.",

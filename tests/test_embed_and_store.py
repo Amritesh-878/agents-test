@@ -63,9 +63,6 @@ def make_doc(
     )
 
 
-# --- stable_chunk_id ---
-
-
 def test_stable_chunk_id_deterministic() -> None:
     id1 = stable_chunk_id("2301", "spoken", "hello world")
     id2 = stable_chunk_id("2301", "spoken", "hello world")
@@ -83,9 +80,6 @@ def test_stable_chunk_id_unique() -> None:
 def test_stable_chunk_id_is_hex() -> None:
     chunk_id = stable_chunk_id("2301", "spoken", "text")
     assert all(c in "0123456789abcdef" for c in chunk_id)
-
-
-# --- chunk_student_context ---
 
 
 def test_chunk_context_produces_records() -> None:
@@ -115,7 +109,7 @@ def test_chunk_context_chat_type_isolated_to_student() -> None:
     records = chunk_student_context(ctx, "CS101")
     chat_records = [r for r in records if r.chunk_type == "chat"]
     assert len(chat_records) == 1
-    assert chat_records[0].student_id == "2301"  # scoped to this student only
+    assert chat_records[0].student_id == "2301"
     assert "supply curve always upward" in chat_records[0].text
     assert chat_records[0].speaker == "Anshi_2301"
 
@@ -131,7 +125,6 @@ def test_chunk_context_chat_quality_filter_drops_junk() -> None:
         ),
     ]
     records = chunk_student_context(ctx, "CS101")
-    # Short one-word answer and a bare link are dropped by is_quality_text.
     assert [r for r in records if r.chunk_type == "chat"] == []
 
 
@@ -164,9 +157,6 @@ def test_chunk_context_class_name_set() -> None:
     assert all(r.class_name == "CS101" for r in records)
 
 
-# --- chunk_absent_summary ---
-
-
 def test_chunk_absent_summary_produces_record() -> None:
     summary = make_absent()
     records = chunk_absent_summary(summary, "CS101")
@@ -185,9 +175,6 @@ def test_chunk_absent_summary_contains_topics() -> None:
     assert "recursion" in records[0].text or "loops" in records[0].text
 
 
-# --- collect_all_records ---
-
-
 def test_collect_all_records_includes_present_and_absent() -> None:
     ctx = make_context()
     absent = make_absent()
@@ -202,9 +189,6 @@ def test_collect_all_records_empty_doc() -> None:
     doc = make_doc()
     records = collect_all_records(doc)
     assert records == []
-
-
-# --- validate_inputs ---
 
 
 def test_validate_inputs_missing_file(tmp_path: object) -> None:
@@ -234,9 +218,6 @@ def test_validate_inputs_no_db_url(tmp_path: object) -> None:
         validate_inputs(args)
 
 
-# --- is_quality_text ---
-
-
 def test_quality_text_good() -> None:
     from scripts.embed_and_store import is_quality_text
     text = "today we will build our foundation of time and work scaffolding"
@@ -258,38 +239,30 @@ def test_quality_text_phrase_repetition() -> None:
 
 def test_quality_text_short_loop_rejected() -> None:
     from scripts.embed_and_store import is_quality_text
-    # Short loop: a 4-word phrase repeated 3× (12 words, 4 unique). Ducks the
-    # trigram-≥4 rule and has no nukta, but the distinct-token ratio (0.33) catches it.
     phrase = "माज्यारा पास्ता वेन्द सप्लाइट्रू "
     assert is_quality_text(phrase * 3) is False
 
 
 def test_quality_text_no_space_loop_rejected() -> None:
     from scripts.embed_and_store import is_quality_text
-    # No-space loop: the Hindi pass emits one unbroken run with no spaces, which reads
-    # as a single very long Devanagari token and ducks the word-based repetition checks.
     text = "अच्छा " + "पाइ" * 60 + " अच्छा"
     assert is_quality_text(text) is False
 
 
 def test_quality_text_long_ascii_token_kept() -> None:
     from scripts.embed_and_store import is_quality_text
-    # A genuine answer containing one long ASCII token (e.g. a URL) must NOT be rejected
-    # by the no-space-loop guard, which only targets non-ASCII runs.
     text = "see the worksheet at https://adira.example.com/math/time-and-work/unit-four-problems today"
     assert is_quality_text(text) is True
 
 
 def test_quality_text_nukta_dense_garble_rejected() -> None:
     from scripts.embed_and_store import is_quality_text
-    # Hindi-pass hallucination on bilingual speech: nukta-dense garbled Devanagari.
     text = "ःखा क्या वसुद आई भागास्ँन्से श्याईदुँग़ा रव्दिश्या कर्क्बित्त्प्या और देश्ड़ी कचादाशाना रव्दिश्याईगच़ोग़ा"
     assert is_quality_text(text) is False
 
 
 def test_quality_text_genuine_hindi_kept() -> None:
     from scripts.embed_and_store import is_quality_text
-    # Real Hinglish answer with a few legitimate nukta letters must NOT be rejected.
     text = "market supply ka matlab hai total quantity jo sab producers बेचते हैं different price पर"
     assert is_quality_text(text) is True
 

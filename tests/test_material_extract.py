@@ -30,9 +30,6 @@ GOOD_PARAGRAPH = (
 BOILERPLATE = "Thank You"
 
 
-# --- fixture builders ---
-
-
 def build_pptx(path: Path, slide_texts: list[str], notes: str | None = None) -> None:
     from pptx import Presentation
     from pptx.util import Inches
@@ -66,7 +63,6 @@ def build_docx(
 
 
 def build_pdf_bytes(page_texts: list[str]) -> bytes:
-    """Hand-assemble a minimal valid PDF (pypdf reads but cannot author PDFs)."""
     header = b"%PDF-1.4\n"
     objects: list[bytes] = []
     page_count = len(page_texts)
@@ -112,9 +108,6 @@ def build_pdf(path: Path, page_texts: list[str]) -> None:
     path.write_bytes(build_pdf_bytes(page_texts))
 
 
-# --- extract_pptx ---
-
-
 def test_pptx_extracts_slide_text(tmp_path: Path) -> None:
     path = tmp_path / "supply.pptx"
     build_pptx(path, [GOOD_SLIDE_TEXT])
@@ -148,9 +141,6 @@ def test_pptx_corrupt_file_raises(tmp_path: Path) -> None:
         extract_pptx(path)
 
 
-# --- extract_pdf ---
-
-
 def test_pdf_extracts_per_page(tmp_path: Path) -> None:
     path = tmp_path / "notes.pdf"
     build_pdf(path, [GOOD_PAGE_TEXT, GOOD_PARAGRAPH])
@@ -173,9 +163,6 @@ def test_pdf_corrupt_file_raises(tmp_path: Path) -> None:
         extract_pdf(path)
 
 
-# --- extract_docx ---
-
-
 def test_docx_groups_paragraphs_into_blocks(tmp_path: Path) -> None:
     path = tmp_path / "module.docx"
     build_docx(
@@ -189,7 +176,6 @@ def test_docx_groups_paragraphs_into_blocks(tmp_path: Path) -> None:
     )
     blocks = extract_docx(path)
     assert len(blocks) == 2
-    # Short heading lines survive because they are grouped with their section body.
     assert "Determinants of supply" in blocks[0][1]
     assert "expectations shift supply" in blocks[0][1]
     assert blocks[1][1] == GOOD_PARAGRAPH
@@ -244,9 +230,6 @@ def test_docx_corrupt_file_raises(tmp_path: Path) -> None:
         extract_docx(path)
 
 
-# --- extract_txt ---
-
-
 def test_txt_splits_blocks_on_blank_lines(tmp_path: Path) -> None:
     path = tmp_path / "notes.txt"
     path.write_text(f"{GOOD_PAGE_TEXT}\n\n{GOOD_PARAGRAPH}\n", encoding="utf-8")
@@ -265,9 +248,6 @@ def test_txt_empty_file_returns_no_blocks(tmp_path: Path) -> None:
     path = tmp_path / "empty.txt"
     path.write_text("", encoding="utf-8")
     assert extract_txt(path) == []
-
-
-# --- extract_material_file ---
 
 
 def test_extract_material_file_dispatches_md(tmp_path: Path) -> None:
@@ -292,9 +272,6 @@ def test_extract_material_file_missing_raises(tmp_path: Path) -> None:
 
 def test_supported_extensions_cover_spec_formats() -> None:
     assert {".pptx", ".pdf", ".docx", ".txt", ".md"} <= set(SUPPORTED_EXTENSIONS)
-
-
-# --- extract_materials_dir ---
 
 
 def test_extract_materials_dir_combines_files_sorted(tmp_path: Path) -> None:

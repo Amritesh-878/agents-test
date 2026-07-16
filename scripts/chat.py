@@ -40,8 +40,6 @@ class ChatArgs(BaseModel):
     student_id: str = ""
     student_name: str = ""
     chunk_types: list[ChunkType] = Field(default_factory=list)
-    # Optional per-session scope: when set, retrieval is restricted to this class_name
-    # (one session) instead of all of the student's sessions. None = all sessions.
     class_name: str | None = None
     embedding_model: str = DEFAULT_EMBEDDING_MODEL
     groq_model: str = DEFAULT_GROQ_MODEL
@@ -227,12 +225,6 @@ def build_history_messages(
     return history
 
 
-# First-person contribution verbs: the student asking what THEY personally said,
-# asked, answered, worked out, got, contributed, submitted, solved, wrote, or typed.
-# Multi-word forms ("work out") and tense variants are included so natural phrasings
-# like "what numbers did I work out" scope to the student's own chunks too. Deliberately
-# excludes neutral verbs ("learn", "do", "miss", "join") that signal a question about the
-# class content rather than the student's own contribution.
 _OWN_CONTRIBUTION_VERB = (
     r"(?:say|said|saying|ask|asked|asking|answer|answered|answering|"
     r"mention|mentioned|speak|spoke|speaking|contribute|contributed|contributing|"
@@ -241,11 +233,6 @@ _OWN_CONTRIBUTION_VERB = (
     r"write|wrote|writing)"
 )
 
-# Questions where the student asks what THEY personally said / asked / contributed.
-# The subject of the contribution verb must be the first-person-singular student
-# ("did I say", "what I worked out", "my answer") — passive "what was said" or
-# "I missed ..." are deliberately NOT matched, since those ask about the teacher's
-# class content, not the student's own.
 _SELF_REFERENTIAL_SPEECH = re.compile(
     r"\b(?:"
     r"did i\b[^.?!]*\b" + _OWN_CONTRIBUTION_VERB
@@ -258,11 +245,6 @@ _SELF_REFERENTIAL_SPEECH = re.compile(
 
 
 def is_self_referential_question(question: str) -> bool:
-    """True when the student is asking what THEY personally said/asked/contributed.
-
-    Such questions must be answered from the student's own ``spoken`` chunks, not the
-    teacher's class context — see ``select_retrieval_chunk_types``.
-    """
     return bool(_SELF_REFERENTIAL_SPEECH.search(question))
 
 
@@ -338,18 +320,9 @@ def is_generic_self_question(question: str) -> bool:
 def select_retrieval_chunk_types(
     question: str, base_chunk_types: Sequence[ChunkType]
 ) -> list[ChunkType]:
-    """Pick the chunk-type filter for a question.
-
-    An explicit caller-provided filter always wins. Otherwise a self-referential
-    "what did I say" question is scoped to ``spoken`` (the student's own words) so the
-    teacher's ``class_context`` cannot outrank and get mis-attributed to the student;
-    every other question stays unfiltered (full class context remains available).
-    """
     if base_chunk_types:
         return list(base_chunk_types)
     if is_self_referential_question(question):
-        # Both the student's spoken words AND their typed chat are their own contributions;
-        # a quiet student who only typed must still surface here.
         return ["spoken", "chat"]
     return []
 
@@ -597,15 +570,6 @@ def write_session_record(record: ChatSessionRecord, path: Path) -> None:
 
 
 def normalize_answer_text(text: str) -> str:
-    """Normalize typographic characters the prompt asks the model to avoid.
-
-    Even with a plain-language instruction, some models reach for em/en-dashes
-    (e.g. writing negative numbers as ``-12`` with an en-dash) and curly quotes.
-    This deterministic pass guarantees answers never carry the tell: em-dashes
-    become commas (their usual clause-separator role), en-dashes / minus signs
-    become plain hyphens (their usual minus/range role), and curly quotes become
-    straight ASCII quotes. Runs on every generated answer.
-    """
     text = text.replace(" — ", ", ").replace("—", ", ")
     text = text.replace("–", "-").replace("−", "-")
     text = text.replace("’", "'").replace("‘", "'")

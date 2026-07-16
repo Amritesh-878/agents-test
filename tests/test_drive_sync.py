@@ -17,9 +17,6 @@ from scripts.models.pipeline import ClassSessionReport, DriveFile
 from scripts.run_pipeline import RunArgs
 
 
-# --- GoogleDriveClient.list_zip_files ---
-
-
 def _fake_service(pages: list[dict]) -> MagicMock:
     service = MagicMock()
     service.files.return_value.list.return_value.execute.side_effect = pages
@@ -58,9 +55,6 @@ def test_list_zip_files_follows_pagination() -> None:
     files = client.list_zip_files("folder-1")
 
     assert [f.id for f in files] == ["1", "2"]
-
-
-# --- DriveSyncService.sync ---
 
 
 def make_config(tmp_path: Path) -> RunArgs:
@@ -121,7 +115,6 @@ def test_sync_processes_and_records_new_file(tmp_path: Path) -> None:
         report = make_service(tmp_path, drive, store).sync()
 
     drive.download.assert_called_once()
-    # The download target lives under a temp dir and is named after the Drive file.
     file_id, dest = drive.download.call_args.args
     assert file_id == "42"
     assert dest.name == "Economics.02.zip"
@@ -166,15 +159,11 @@ def test_sync_isolates_exception_and_continues(tmp_path: Path) -> None:
     with patch("scripts.drive_sync.process_single_class", side_effect=proc):
         report = make_service(tmp_path, drive, store).sync()
 
-    # Bad file failed and was not recorded; the batch still processed the good one.
     assert report.failed == 1
     assert report.processed == 1
     store.mark_processed.assert_called_once_with("good", "Math.01")
     statuses = {r.name: r.status for r in report.results}
     assert statuses == {"collide.zip": "failed", "Math.01.zip": "processed"}
-
-
-# --- validate_inputs ---
 
 
 def _args(tmp_path: Path, **overrides: object) -> DriveSyncArgs:
@@ -192,7 +181,7 @@ def _args(tmp_path: Path, **overrides: object) -> DriveSyncArgs:
 
 
 def test_validate_inputs_ok(tmp_path: Path) -> None:
-    validate_inputs(_args(tmp_path))  # should not raise
+    validate_inputs(_args(tmp_path))
 
 
 def test_validate_inputs_missing_service_account(tmp_path: Path) -> None:
@@ -215,9 +204,6 @@ def test_validate_inputs_missing_teacher(tmp_path: Path) -> None:
         validate_inputs(_args(tmp_path, teacher=[]))
 
 
-# --- build_run_config ---
-
-
 def test_build_run_config_carries_pipeline_settings(tmp_path: Path) -> None:
     roster = tmp_path / "roster.csv"
     config = build_run_config(_args(tmp_path, roster_path=roster, model="medium"))
@@ -226,9 +212,6 @@ def test_build_run_config_carries_pipeline_settings(tmp_path: Path) -> None:
     assert config.roster_path == roster
     assert config.model == "medium"
     assert config.db_url == "postgresql://localhost/adira"
-
-
-# --- resolve_roster_path ---
 
 
 def test_resolve_roster_path_prefers_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

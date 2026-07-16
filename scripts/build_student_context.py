@@ -40,10 +40,6 @@ from scripts.utils.topics import extract_topics
 
 logger = logging.getLogger(__name__)
 
-# Tag attached when no usable attendance window is known for a present student.
-# Without a per-class attendance duration, window_end == class_duration, so
-# missed_segments is ALWAYS empty — which means "missed is unknown", not "nothing
-# was missed". This flag makes that ambiguity explicit instead of silent.
 MISSED_UNKNOWN_TAG = "missed_unknown_no_attendance"
 
 ATTENDANCE_ONLY_PRESENCE_TAG = "attendance_only_presence"
@@ -172,12 +168,6 @@ def full_transcript_text(transcript: MergedTranscriptDocument) -> str:
 def teacher_segments_from_transcript(
     teacher_doc: PerStudentTranscript, teacher_name: str
 ) -> list[ContextSegment]:
-    """Convert the teacher's isolated-M4A transcript into class-context segments.
-
-    The teacher's mic captures only her voice, so this is far cleaner than the mixed
-    session MP4. Segments are attributed to the teacher and tagged ``source="teacher"``
-    so downstream chunking treats them as clean class content, not noisy fallback.
-    """
     segments: list[ContextSegment] = []
     for seg in teacher_doc.transcript.segments:
         if not seg.text.strip():
@@ -198,11 +188,6 @@ def class_context_text(
     transcript: MergedTranscriptDocument,
     teacher_doc: PerStudentTranscript | None,
 ) -> str:
-    """Return the text used for TF-IDF topic extraction.
-
-    Prefer the teacher's clean isolated-mic transcript when available; fall back to the
-    full merged timeline (driven by the noisy session MP4) when no teacher M4A exists.
-    """
     if teacher_doc is not None:
         return " ".join(
             s.text for s in teacher_doc.transcript.segments if s.text.strip()
@@ -211,7 +196,6 @@ def class_context_text(
 
 
 def chat_message_to_segment(message: ChatMessage) -> ContextSegment:
-    """A student's own public chat message as a context segment (source ``chat``)."""
     return ContextSegment(
         start=message.timestamp_seconds,
         end=message.timestamp_seconds,
@@ -226,12 +210,6 @@ def attribute_chat_to_students(
     roster: list[RosterEntry],
     roster_by_roll: dict[str, RosterEntry],
 ) -> dict[str, list[ContextSegment]]:
-    """Group PUBLIC chat messages by the roster roll of their sender.
-
-    Each message is attributed to exactly one student (or dropped if the sender can't be
-    confidently/uniquely matched), so a student's chat only ever lands in their own
-    bucket — never another student's. Requires a roster; without one, returns empty.
-    """
     by_roll: dict[str, list[ContextSegment]] = {}
     for message in messages:
         roll = resolve_chat_sender(message.sender, roster, roster_by_roll)
@@ -248,12 +226,6 @@ def build_chat_only_context(
     topics: list[str],
     teacher_segments: list[ContextSegment] | None,
 ) -> StudentContext:
-    """Context for a student who participated only by typing (no audio = never unmuted).
-
-    They still get the teacher's class context (what was taught) plus their OWN chat. This
-    is the point of chat ingestion: quiet students get a personal bot from their typed
-    contributions instead of being treated as fully absent.
-    """
     present_segments = list(teacher_segments) if teacher_segments is not None else []
     return StudentContext(
         name=student.name,
@@ -325,22 +297,6 @@ def build_present_context(
     teacher_segments: list[ContextSegment] | None = None,
     chat_segments: list[ContextSegment] | None = None,
 ) -> StudentContext:
-    """Build a present student's context.
-
-    Class-context source: when ``teacher_segments`` is provided (a teacher M4A was
-    identified), present/missed are built from the teacher's clean isolated-mic speech
-    PLUS this student's own spoken segments — peer students and the noisy session-MP4
-    fallback are excluded. When it is ``None``, the full merged timeline is used
-    (pre-teacher-M4A behavior). ``spoken_segments`` always come from the merged
-    timeline and are unaffected by this choice.
-
-    ALIGNMENT ASSUMPTION: combining ``teacher_segments`` with the student's spoken
-    segments on one shared clock and splitting on ``window_end`` assumes the teacher
-    M4A starts at session start (offset 0.0) — the same "Zoom per-student M4As are
-    always session-aligned" assumption documented in
-    ``merge_transcripts.detect_alignment`` (finding #10). No teacher-track offset is
-    derived; a non-session-aligned source would break this the same way #10's does.
-    """
     att = attendance_by_roll.get(student.roll_no or "")
     class_duration = transcript.duration_seconds
     attendance_known = bool(att and att.duration_minutes)
@@ -353,13 +309,8 @@ def build_present_context(
     all_segs = [merged_seg_to_context(s) for s in transcript.segments]
     spoken_name = entry.matched_name or student.name
 
-    # Attribute a spoken segment to a student ONLY when they are the PRIMARY speaker
-    # (speakers[0]). Overlapping clusters carry every overlapping speaker in `speakers`,
-    # but the segment's TEXT is only the primary (longest-overlap) speaker's words — see
-    # merge_transcripts._cluster_to_merged. Matching on mere membership credited a student
-    # with a peer's words on any overlap and duplicated the segment under every speaker.
-    # Solo/non-overlapping speech is unaffected (the sole speaker is primary).
     spoken_segments = _dedup_exact(
+        # speakers[0] is the primary speaker; membership alone would credit peers' overlap words
         [s for s in all_segs if s.speakers and s.speakers[0] == spoken_name]
     )
     if teacher_segments is not None:
@@ -421,8 +372,6 @@ def build_context_document(
     attendance_presence_threshold: float = ATTENDANCE_PRESENCE_THRESHOLD_MINUTES,
 ) -> StudentContextDocument:
     class_name = transcript.class_name
-    # Clean class-context source: the teacher's isolated mic when available, else None
-    # (each student then falls back to the full merged timeline — pre-teacher behavior).
     teacher_segments = (
         _collapse_consecutive(
             teacher_segments_from_transcript(teacher_doc, transcript.teacher_name)
@@ -443,8 +392,6 @@ def build_context_document(
     for record in attendance:
         if record.roll_no:
             attendance_by_roll[record.roll_no] = record
-    # PUBLIC chat attributed to each student's own roll (direct messages were dropped at
-    # parse time; attribution is roster-gated, so this is empty without a roster).
     roster_by_roll: dict[str, RosterEntry] = {r.roll_no: r for r in roster}
     chat_by_roll = attribute_chat_to_students(chat_messages or [], roster, roster_by_roll)
 
@@ -473,7 +420,6 @@ def build_context_document(
                 teacher_segments, student_chat,
             )
         elif student_chat:
-            # Typed but never unmuted: a chat-only present student, not absent.
             covered_roll_nos.add(roll)
             present_students[key] = build_chat_only_context(
                 student, student_chat, transcript, topics, teacher_segments
@@ -492,8 +438,6 @@ def build_context_document(
             elif not skip_absent_summaries:
                 absent_students[key] = build_absent_summary(student, transcript, topics)
 
-    # Students matched via attendance (or other means) but absent from the roster CSV.
-    # This handles the no-roster case: every matched entry still gets a context object.
     for entry in identity_map.entries:
         if entry.is_unmatched or entry.is_teacher:
             continue
@@ -512,10 +456,6 @@ def build_context_document(
             teacher_segments, chat_by_roll.get(roll, []),
         )
 
-    # Unmatched M4A entries (no roster, and no roll/attendance match — e.g. a filename
-    # with no parseable roll, or a roll-collision casualty) have no usable student_id, so
-    # they are NOT embedded (a filename-keyed chatbot can't be logged into). They are
-    # counted and logged so the omission is visible for manual review, not silent.
     unmatched_count = len(identity_map.unmatched_entries)
     for entry in identity_map.unmatched_entries:
         logger.warning(

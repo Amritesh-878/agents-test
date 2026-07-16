@@ -122,9 +122,6 @@ def write_identity_map(tmp_path: Path) -> Path:
     return path
 
 
-# --- enrolled_students ---
-
-
 def test_enrolled_students_skips_teacher_and_unmatched() -> None:
     students = enrolled_students(make_identity_map())
     assert [s.student_id for s in students] == ["2301", "kabir_rao"]
@@ -149,9 +146,6 @@ def test_enrolled_students_dedupes_repeated_roll_no() -> None:
     )
     students = enrolled_students(identity_map)
     assert [s.student_id for s in students] == ["2301", "kabir_rao"]
-
-
-# --- resolve_students ---
 
 
 def test_resolve_students_from_identity_map_file(tmp_path: Path) -> None:
@@ -183,9 +177,6 @@ def test_resolve_students_merges_explicit_ids_without_duplicates(tmp_path: Path)
     args = make_args(tmp_path, identity_map_path=identity_path, student_ids=["2301", "9999"])
     students = resolve_students(args)
     assert [s.student_id for s in students] == ["2301", "kabir_rao", "9999"]
-
-
-# --- chunk_material_blocks / build_material_records ---
 
 
 def test_material_records_have_material_type_and_provenance() -> None:
@@ -242,9 +233,6 @@ def test_build_material_records_fans_out_per_student() -> None:
     assert all(record.chunk_type == "material" for record in records)
 
 
-# --- embed_records_deduped ---
-
-
 def test_embed_records_deduped_encodes_each_distinct_text_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -287,9 +275,6 @@ def test_embed_records_deduped_empty_is_noop() -> None:
     assert embed_records_deduped([], "fake-model") == []
 
 
-# --- run_ingest_materials ---
-
-
 def test_run_ingest_purges_then_upserts_per_student(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -318,8 +303,6 @@ def test_run_ingest_is_idempotent_replace(monkeypatch: pytest.MonkeyPatch) -> No
     second = run_ingest_materials(
         [("supply.pptx", GOOD_BLOCK)], students, "CS101", second_store, "fake-model"
     )
-    # Same stable ids on every run, and the purge runs each time: upsert replaces,
-    # never duplicates.
     assert [record.id for record in first] == [record.id for record in second]
     assert second_store.deleted == [("CS101", "2301")]
 
@@ -330,12 +313,8 @@ def test_run_ingest_only_touches_material_chunks(
     monkeypatch.setattr("scripts.ingest_materials.embed_records_deduped", fake_embed)
     store = FakeStore()
     students = [MaterialStudent(student_id="2301", student_name="Anshi Verma")]
-    # FakeStore.delete_class_chunks raises if the whole-class purge is ever used.
     run_ingest_materials([("supply.pptx", GOOD_BLOCK)], students, "CS101", store, "fake-model")
     assert all(record.chunk_type == "material" for record in store.upserted)
-
-
-# --- parse_args / validate_inputs ---
 
 
 def test_parse_args_collects_repeatable_student_ids() -> None:
@@ -384,9 +363,6 @@ def test_validate_inputs_requires_class_name(tmp_path: Path) -> None:
         validate_inputs(args)
 
 
-# --- main ---
-
-
 def test_main_end_to_end_with_mocked_store(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -413,7 +389,7 @@ def test_main_end_to_end_with_mocked_store(
     )
 
     assert fake_store.closed is True
-    assert len(fake_store.upserted) == 2  # one chunk for each of the two enrolled students
+    assert len(fake_store.upserted) == 2
     assert {record.student_id for record in fake_store.upserted} == {"2301", "kabir_rao"}
     assert review_path.exists()
     assert "Ingested 2 material chunks" in capsys.readouterr().out

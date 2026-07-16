@@ -291,12 +291,6 @@ def load_eval_dataset(path: Path) -> EvalDataset:
 
 
 def load_indexed_chunks(store: Any, case: EvalCase) -> list[RetrievedChunk]:
-    """Load a case's full indexed chunk universe from the store (the model-independent
-    "is the expected evidence even in the DB" check), scoped to ``case.chunk_types`` if set.
-
-    Shared by the evaluation harness and the A/B model comparison so both apply the same
-    indexed-evidence check.
-    """
     raw_results = store.get_student_chunks(case.student_id)
     if case.chunk_types:
         raw_results = [r for r in raw_results if r.chunk_type in case.chunk_types]

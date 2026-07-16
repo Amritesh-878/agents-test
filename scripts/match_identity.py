@@ -89,11 +89,6 @@ def validate_inputs(args: MatchArgs) -> None:
 
 
 def parse_attendance_name(raw_name: str) -> tuple[str, str | None]:
-    """Parse attendance CSV name → (clean_name, roll_no_4digit).
-
-    Strips parenthetical info, then extracts a trailing _DDDD roll number.
-    Handles optional space between underscore and digits (e.g. 'Name_ 2302').
-    """
     name = _PAREN_PATTERN.sub("", raw_name).strip()
     match = _ROLL_NO_PATTERN.search(name)
     if match:
@@ -112,13 +107,6 @@ def _find_column(headers: list[str], *patterns: str) -> str | None:
 
 
 def load_roster(path: Path) -> list[RosterEntry]:
-    """Load a roster CSV, fuzzy-matching headers like ``load_attendance`` does.
-
-    The real cohort rosters use ``STUDENT NAME, STUDENT ID`` headers (not
-    ``Name, RollNo``), contain blank separator rows, and a stray trailing empty
-    column. Resolve the name/roll columns by fuzzy header match, skip rows missing
-    a name or roll, and ignore empty/extra columns.
-    """
     entries: list[RosterEntry] = []
     with path.open(encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
@@ -138,7 +126,6 @@ def load_roster(path: Path) -> list[RosterEntry]:
 
 
 def _parse_duration_minutes(raw: str) -> float:
-    """Parse a duration value to minutes. Accepts plain numbers or H:MM:SS."""
     raw = raw.strip()
     try:
         return float(raw)
@@ -200,9 +187,6 @@ def _best_teacher_score(display_name: str, teacher_names: list[str]) -> tuple[fl
     return best_score, best_name
 
 
-# Roster NAME-fallback tuning. Confidence is below the 1.0 of an exact roll match so a
-# name-corrected identity is distinguishable. The per-token threshold (0.88) is kept high
-# enough that "Nisha" (teacher) does NOT match the student "Disha" (ratio ~0.8).
 _NAME_MATCH_THRESHOLD = 0.6
 _NAME_TOKEN_EQ_RATIO = 0.88
 _FUZZY_NAME_CONFIDENCE = 0.7
@@ -211,12 +195,6 @@ _CAMEL_BOUNDARY_RE = re.compile(r"(?<=[a-z])(?=[A-Z])")
 
 
 def _normalize_display_tokens(display_name: str) -> list[str]:
-    """Tokenize an M4A display name for roster matching.
-
-    Strips a leading section prefix ("A_", "B_"), splits underscores and camelCase
-    ("JagrutiJadhav" -> "jagruti jadhav", "A_Nishkarsha" -> "nishkarsha"), drops
-    non-letters, and lowercases.
-    """
     s = _SECTION_PREFIX_RE.sub("", display_name or "")
     s = s.replace("_", " ")
     s = _CAMEL_BOUNDARY_RE.sub(" ", s)
@@ -233,7 +211,6 @@ def _token_eq(a: str, b: str) -> bool:
 
 
 def _name_score(file_tokens: list[str], roster_name: str) -> float:
-    """Fraction of the file's name tokens that appear in the roster name."""
     if not file_tokens:
         return 0.0
     roster_tokens = _normalize_plain_tokens(roster_name)
@@ -273,12 +250,6 @@ def resolve_attendance_rolls(
 def _roster_name_match(
     display_name: str, roster: list[RosterEntry]
 ) -> tuple[Literal["none", "unique", "ambiguous"], RosterEntry | None]:
-    """Match a display name against roster names by token overlap.
-
-    Returns ("unique", entry) for a single best match above threshold, ("ambiguous",
-    None) when two or more roster names tie for the best score (e.g. two "Disha"s — do
-    not guess), or ("none", None) when nothing clears the threshold.
-    """
     file_tokens = _normalize_display_tokens(display_name)
     if not file_tokens:
         return ("none", None)
@@ -298,14 +269,6 @@ def resolve_chat_sender(
     roster: list[RosterEntry],
     roster_by_roll: dict[str, RosterEntry],
 ) -> str | None:
-    """Resolve a Zoom chat sender display name to a roster roll, or None.
-
-    Reuses the same roster matching as audio files: parse any embedded ``_DDDD`` roll
-    from the display name, then roll-validate / name-fallback against the roster. Returns
-    None for the teacher, non-roster senders, or ambiguous names — those chats are dropped
-    rather than guessed, so a message is only ever attributed to a confidently-identified
-    student.
-    """
     clean_name, roll = parse_attendance_name(sender)
     kind, entry = _resolve_roster_identity(roll, clean_name, roster, roster_by_roll)
     if kind in ("roll", "name") and entry is not None:
@@ -319,29 +282,17 @@ def _resolve_roster_identity(
     roster: list[RosterEntry],
     roster_by_roll: dict[str, RosterEntry],
 ) -> tuple[Literal["roll", "name", "ambiguous", "none"], RosterEntry | None]:
-    """Decide a file's roster identity (only called when a roster is loaded).
-
-    - ("roll", entry): trust the parsed roll — its roster name agrees with the file, or
-      the name is inconclusive (legacy behavior, preserves the collision guard).
-    - ("name", entry): the parsed roll is missing or points to a DIFFERENT roster student
-      while the file's name uniquely matches one entry — a mis-parse, corrected by name.
-    - ("ambiguous", None): the name matches multiple roster students and the roll can't
-      disambiguate; refuse to guess.
-    - ("none", None): no roster identity (fall through to teacher / unmatched).
-    """
     status, entry = _roster_name_match(display_name, roster)
     roll_entry = roster_by_roll.get(roll_no_4digit) if roll_no_4digit else None
     file_tokens = _normalize_display_tokens(display_name)
     if roll_entry is not None:
-        # Exact roll wins when the file's name is consistent with that roll's roster name.
         if _name_score(file_tokens, roll_entry.name) >= _NAME_MATCH_THRESHOLD:
             return ("roll", roll_entry)
-        # Name disagrees with the parsed roll: a unique name match elsewhere is a mis-parse.
         if status == "unique" and entry is not None and entry.roll_no != roll_no_4digit:
             return ("name", entry)
         if status == "ambiguous":
             return ("ambiguous", None)
-        return ("roll", roll_entry)  # name inconclusive -> trust the parsed roll
+        return ("roll", roll_entry)
     if status == "unique" and entry is not None:
         return ("name", entry)
     if status == "ambiguous":
@@ -410,7 +361,6 @@ def match_files(
     teacher_names: list[str],
     short_duration_threshold: float = 5.0,
 ) -> IdentityMap:
-    # Check for duplicate roll numbers in roster
     roll_nos = [r.roll_no for r in roster]
     seen: set[str] = set()
     duplicates: set[str] = set()
@@ -437,11 +387,6 @@ def match_files(
         roll_no_4digit = audio_file.roll_no_4digit
         display_name = audio_file.display_name or ""
 
-        # Step 1a: Roster identity — name-validated roll match + NAME fallback. Only when a
-        # roster is loaded. A unique roster name match corrects a mis-parsed/absent roll
-        # (e.g. a file mis-parsed to another student's roll), an exact roll whose name agrees
-        # still wins, and an inconclusive name trusts the parsed roll (keeping the collision
-        # guard). Ambiguous names (e.g. two "Disha"s) are left unmatched for review.
         if roster:
             kind, entry = _resolve_roster_identity(
                 roll_no_4digit, display_name, roster, roster_by_roll
@@ -456,9 +401,6 @@ def match_files(
             if kind in ("roll", "name") and entry is not None:
                 adopted_roll = entry.roll_no
                 if adopted_roll in roll_to_audio:
-                    # Same roster student already matched (rejoin / mis-parsed-roll second
-                    # file): keep the first, ignore the rest. A DIFFERENT display name that
-                    # still trusts this roll is a genuine collision -> fail loud (audit #4).
                     same_student = (
                         kind == "name"
                         or roll_to_display.get(adopted_roll, "").casefold()
@@ -491,16 +433,10 @@ def match_files(
                     )
                 )
                 continue
-            # kind == "none": fall through to teacher / unmatched below.
 
-        # Step 1b: No-roster roll match (attendance fallback, then filename-trust). Unchanged.
         elif roll_no_4digit is not None:
             roster_entry = roster_by_roll.get(roll_no_4digit)
             attendance_record = attendance_by_roll.get(roll_no_4digit)
-            # Two DISTINCT per-student M4As resolving to the same 4-digit roll would
-            # co-mingle both students under one id (build_student_context silently
-            # drops the second). Refuse to ingest an ambiguous identity. This guard
-            # fires in BOTH the roster and the no-roster/attendance-only paths.
             if roster_entry is not None or attendance_record is not None:
                 if roll_no_4digit in roll_to_audio:
                     raise ValueError(
@@ -522,7 +458,6 @@ def match_files(
                 )
                 continue
             if attendance_record is not None:
-                # No roster — synthesise a minimal entry from attendance data.
                 synthetic = RosterEntry(
                     name=attendance_record.name,
                     roll_no=attendance_record.roll_no or roll_no_4digit,
@@ -541,19 +476,10 @@ def match_files(
                 )
                 continue
             if not roster and not attendance:
-                # No roster AND no attendance: the M4A filename's 4-digit roll is the
-                # only identity source, and per-student M4As are ground truth. Trust it
-                # so present students still get a roll-keyed context (student_id = roll)
-                # and spoken attribution, instead of being dropped as "unmatched".
                 prior = roll_to_audio.get(roll_no_4digit)
                 if prior is not None:
                     prior_name = roll_to_display.get(roll_no_4digit, "")
                     if prior_name.strip().casefold() != display_name.strip().casefold():
-                        # Distinct students parsing to the same 4-digit roll: the filename
-                        # heuristic is ambiguous and there is no roster to disambiguate.
-                        # Don't co-mingle them under one id (audit #4) and don't abort the
-                        # whole class — keep the first, flag this one as a roll collision
-                        # so the other present students still ingest fine.
                         logger.warning(
                             "Roll collision %s: keeping %s (%s); flagging %s (%s) unmatched",
                             roll_no_4digit, prior, prior_name, audio_file.filename, display_name,
@@ -562,8 +488,6 @@ def match_files(
                             _build_unmatched_entry(audio_file, ["roll_collision"])
                         )
                         continue
-                    # Same display name = one student recorded across multiple files
-                    # (rejoin / multi-session zip): keep the first, ignore the rest.
                     logger.warning(
                         "Additional audio file for %s (roll %s) ignored: %s",
                         display_name or roll_no_4digit,
@@ -591,7 +515,6 @@ def match_files(
                 )
                 continue
 
-        # Step 2: Teacher fuzzy match (raised to 0.75 to avoid short-name collisions)
         teacher_score, _matched_teacher = _best_teacher_score(display_name, teacher_names)
         if teacher_score >= 0.75:
             if teacher_audio_file is None:
@@ -603,11 +526,9 @@ def match_files(
                 )
             continue
 
-        # Step 3: Unmatched
         logger.warning("No match for audio file: %s", audio_file.filename)
         unmatched_entries.append(_build_unmatched_entry(audio_file))
 
-    # Roster students with no audio file
     roster_students_without_audio = [
         r.roll_no for r in roster if r.roll_no not in matched_roll_nos
     ]

@@ -20,8 +20,6 @@ ON CONFLICT (id) DO UPDATE SET
     metadata = EXCLUDED.metadata
 """
 
-# Fixed SELECT/ORDER/LIMIT around a WHERE clause assembled from static fragments only
-# (never user text), so the query stays fully parameterized — values go through %s.
 _SEARCH_SQL_HEAD = """
 SELECT id, student_id, student_name, class_name, chunk_type, text,
        start_time, end_time, speaker, metadata,
@@ -140,11 +138,6 @@ class PgVectorStore:
         return count
 
     def delete_student_material_chunks(self, class_name: str, student_id: str) -> int:
-        """Purge one student's ``material`` chunks for a class before re-upserting.
-
-        Scoped to chunk_type='material' so spoken/chat/class_context/missed chunks
-        are never touched by a materials re-ingest.
-        """
         with self._conn.cursor() as cur:
             cur.execute(_DELETE_STUDENT_MATERIAL_SQL, (class_name, student_id))
             count = cur.rowcount
@@ -160,7 +153,6 @@ class PgVectorStore:
         class_name: str | None = None,
     ) -> list[SearchResult]:
         types = list(chunk_types or [])
-        # Build the WHERE clause from static fragments; every value is bound via %s.
         conditions = ["student_id = %s"]
         filter_params: list[Any] = [student_id]
         if types:
@@ -305,11 +297,6 @@ class PgVectorStore:
         return name if isinstance(name, str) and name else None
 
     def list_students(self) -> list[tuple[str, str]]:
-        """Return distinct ``(student_id, student_name)`` pairs present in the store.
-
-        Used by the demo UI to populate the teacher's student picker. Names may
-        repeat across ids, so the id is the stable selector.
-        """
         with self._conn.cursor() as cur:
             cur.execute(_LIST_STUDENTS_SQL)
             rows = cur.fetchall()
@@ -326,11 +313,6 @@ class PgVectorStore:
         ]
 
     def list_student_classes(self, student_id: str) -> list[str]:
-        """Return the distinct ``class_name`` (session) values for one student, ordered.
-
-        Used by the demo to populate the per-session picker so a student can scope a
-        question to a single class instead of all their sessions at once.
-        """
         with self._conn.cursor() as cur:
             cur.execute(_LIST_STUDENT_CLASSES_SQL, (student_id,))
             rows = cur.fetchall()

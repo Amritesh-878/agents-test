@@ -110,8 +110,6 @@ def _timed_step(name: str, fn: object, *a: object, **kw: object) -> StepResult:
         )
     except Exception as exc:
         elapsed = time.monotonic() - t0
-        # Per-step isolation is intentional (one class failing must not abort the
-        # batch); log the full traceback at debug so real defects stay diagnosable.
         logger.error("Step %s failed: %s", name, exc)
         logger.debug("Step %s traceback", name, exc_info=True)
         return StepResult(
@@ -137,7 +135,6 @@ def process_single_class(zip_path: Path, config: RunArgs) -> ClassSessionReport:
 
     step_results: dict[str, StepResult] = {}
 
-    # Step 1: ingest zip
     sr = _timed_step("ingest_zip", process_zip, zip_path, config.output_dir)
     step_results["ingest_zip"] = sr
     if not sr.success:
@@ -148,7 +145,6 @@ def process_single_class(zip_path: Path, config: RunArgs) -> ClassSessionReport:
         )
     manifest_path = output_dir / "manifest.json"
 
-    # Step 2: identity matching
     from scripts.models.identity import ZoomFileManifest
 
     manifest = ZoomFileManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
@@ -177,7 +173,6 @@ def process_single_class(zip_path: Path, config: RunArgs) -> ClassSessionReport:
         (output_dir / "identity_map.json").read_text(encoding="utf-8")
     )
 
-    # Step 3: transcription (optional skip for faster testing)
     if not config.skip_transcribe:
         def _transcribe() -> Path:
             from scripts.transcribe_dual import main as tdmain
@@ -203,7 +198,6 @@ def process_single_class(zip_path: Path, config: RunArgs) -> ClassSessionReport:
                 success=False, error=sr.error,
             )
 
-    # Step 4: transcript merge
     session_transcript_path = transcripts_dir / "session.json"
 
     def _merge() -> Path:
@@ -239,11 +233,7 @@ def process_single_class(zip_path: Path, config: RunArgs) -> ClassSessionReport:
         (output_dir / "transcript_merged.json").read_text(encoding="utf-8")
     )
 
-    # Step 5: student context building
     def _build_context() -> Path:
-        # The teacher's isolated M4A is the primary, clean source of class_context/missed.
-        # It was transcribed alongside the students to transcripts_dir/{file}.json. When it
-        # is absent or its transcript is missing, fall back to the merged session timeline.
         teacher_doc: PerStudentTranscript | None = None
         if identity_map.teacher_audio_file:
             teacher_tf = transcripts_dir / f"{identity_map.teacher_audio_file}.json"
@@ -256,8 +246,6 @@ def process_single_class(zip_path: Path, config: RunArgs) -> ClassSessionReport:
                     "Teacher transcript not found: %s - class context falls back to session MP4",
                     teacher_tf.name,
                 )
-        # Public Zoom chat (private DMs dropped at parse time). Attributed to students via
-        # the roster, so quiet students who only typed still get a personal bot.
         chat_messages = (
             parse_chat_file(manifest.chat_file) if manifest.chat_file is not None else []
         )
@@ -280,7 +268,6 @@ def process_single_class(zip_path: Path, config: RunArgs) -> ClassSessionReport:
             success=False, error=sr.error,
         )
 
-    # Step 6: embed and store (optional skip)
     if not config.skip_embed and config.db_url:
         def _embed() -> None:
             from scripts.embed_and_store import main as emain

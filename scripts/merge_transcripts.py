@@ -21,12 +21,7 @@ from scripts.models.transcript import (
 
 logger = logging.getLogger(__name__)
 
-_GAP_EPSILON = 0.05          # seconds: ignore gaps smaller than this
-
-
-# ---------------------------------------------------------------------------
-# Internal data structure
-# ---------------------------------------------------------------------------
+_GAP_EPSILON = 0.05
 
 
 @dataclass
@@ -38,18 +33,7 @@ class SpeechEvent:
     words: list[DualLanguageWord] = field(default_factory=list)
 
 
-# ---------------------------------------------------------------------------
-# Pure helper functions — fully testable without I/O
-# ---------------------------------------------------------------------------
-
-
 def _word_overlap_ratio(text_a: str, text_b: str) -> float:
-    """Dice-coefficient word overlap between two strings.
-
-    Currently unused in production (text-based offset detection was removed from
-    detect_alignment); retained as a tested helper for the future Drive-phase, where a
-    validated offset/alignment check may be restored.
-    """
     words_a = set(text_a.lower().split())
     words_b = set(text_b.lower().split())
     if not words_a or not words_b:
@@ -62,28 +46,12 @@ def detect_alignment(
     session_segments: list[TranscriptSegment],
     duration_match_tolerance: float = 0.05,
 ) -> AlignmentResult:
-    """Return the alignment between per-student M4A timestamps and the session timeline.
-
-    HARD ASSUMPTION: Zoom cloud per-student M4As ALWAYS start at session start, so the
-    offset is ALWAYS 0.0 and the mode is ALWAYS ``session_aligned``. Text-based offset
-    detection was deliberately removed because it produced false 987.5s offsets on real
-    data, leaving the offset machinery dead by design. The only value this computes is
-    the ``uncertain`` flag: clear when the student and session durations match (within
-    ``duration_match_tolerance``), set otherwise — or when either side is empty — to
-    signal a low-confidence but still session-aligned merge.
-
-    If a non-session-aligned source is ever introduced (e.g. the Drive phase), this
-    assumption breaks and a real, *validated* offset check must be restored here.
-    """
     if not student_segments or not session_segments:
         return AlignmentResult(mode="session_aligned", offset=0.0, uncertain=True)
 
     student_end = student_segments[-1].end
     session_end = session_segments[-1].end
 
-    # Same total span → confident session-aligned. Duration mismatch (student stopped
-    # speaking early) is still session-aligned, just flagged uncertain. Offset is 0.0
-    # either way per the hard assumption above.
     if session_end > 0 and abs(student_end - session_end) / session_end <= duration_match_tolerance:
         return AlignmentResult(mode="session_aligned", offset=0.0)
     return AlignmentResult(mode="session_aligned", offset=0.0, uncertain=True)
@@ -94,7 +62,6 @@ def build_speech_events(
     doc: PerStudentTranscript,
     alignment: AlignmentResult,
 ) -> list[SpeechEvent]:
-    """Convert a student transcript into time-corrected SpeechEvents."""
     offset = alignment.offset
     events: list[SpeechEvent] = []
     for seg in doc.transcript.segments:
@@ -102,7 +69,6 @@ def build_speech_events(
             continue
         adj_start = seg.start + offset
         adj_end = seg.end + offset
-        # Carry words that fall within this segment's original time range
         seg_words = [
             DualLanguageWord(
                 start=w.start + offset,
@@ -127,7 +93,6 @@ def build_speech_events(
 
 
 def _cluster_events(events: list[SpeechEvent]) -> list[list[SpeechEvent]]:
-    """Group overlapping SpeechEvents into clusters (maximal overlapping sets)."""
     if not events:
         return []
     sorted_events = sorted(events, key=lambda e: e.start)
@@ -142,11 +107,9 @@ def _cluster_events(events: list[SpeechEvent]) -> list[list[SpeechEvent]]:
 
 
 def _cluster_to_merged(cluster: list[SpeechEvent]) -> MergedSegment:
-    """Convert a cluster of overlapping events into a single MergedSegment."""
     c_start = min(e.start for e in cluster)
     c_end = max(e.end for e in cluster)
 
-    # Sort by overlap duration with the full cluster window (primary speaker first)
     ranked = sorted(
         cluster,
         key=lambda e: min(e.end, c_end) - max(e.start, c_start),
@@ -170,7 +133,6 @@ def _fill_gap_with_session(
     gap_start: float,
     gap_end: float,
 ) -> list[MergedSegment]:
-    """Return session-fallback MergedSegments for the gap [gap_start, gap_end]."""
     result: list[MergedSegment] = []
     for seg in session_segments:
         overlap_start = max(seg.start, gap_start)
@@ -193,13 +155,6 @@ def build_merged_segments(
     session_segments: list[TranscriptSegment],
     speech_events: list[SpeechEvent],
 ) -> list[MergedSegment]:
-    """Merge per-student speech events with session transcript into a unified timeline.
-
-    - Per-student speech is canonical wherever available.
-    - Gaps between student events are filled with session-transcript fallback.
-    - Overlapping student events produce multi-speaker segments.
-    - Non-overlapping sequential student events within one session segment are split.
-    """
     if not speech_events:
         return [
             MergedSegment(
@@ -225,13 +180,11 @@ def build_merged_segments(
         cluster_start = min(e.start for e in cluster)
         cluster_end = max(e.end for e in cluster)
 
-        # Clamp to session timeline
         cluster_start = max(cluster_start, timeline_start)
         cluster_end = min(cluster_end, timeline_end)
         if cluster_end <= cluster_start:
             continue
 
-        # Fill gap before this cluster
         if cluster_start - covered_until > _GAP_EPSILON:
             result.extend(
                 _fill_gap_with_session(session_segments, covered_until, cluster_start)
@@ -240,7 +193,6 @@ def build_merged_segments(
         result.append(_cluster_to_merged(cluster))
         covered_until = cluster_end
 
-    # Fill gap after last cluster
     if timeline_end - covered_until > _GAP_EPSILON:
         result.extend(_fill_gap_with_session(session_segments, covered_until, timeline_end))
 
@@ -315,9 +267,6 @@ def merge_all(
 ) -> MergedTranscriptDocument:
     session_segments = session_doc.transcript.segments
 
-    # detect_alignment always returns session_aligned with offset=0.0 by design (see its
-    # docstring — Zoom per-student M4As start at session start). This loop exists only to
-    # surface each student's `uncertain` flag, not to compute a real time offset.
     alignment_results: dict[str, AlignmentResult] = {}
     for name, doc in student_docs.items():
         result = detect_alignment(doc.transcript.segments, session_segments)
@@ -330,7 +279,6 @@ def merge_all(
             result.uncertain,
         )
 
-    # Build speech events with offset correction applied
     all_events: list[SpeechEvent] = []
     for name, doc in student_docs.items():
         events = build_speech_events(name, doc, alignment_results[name])
@@ -359,11 +307,6 @@ def merge_all(
         alignment_results=alignment_results,
         metadata=metadata,
     )
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 
 
 class MergeArgs(BaseModel):

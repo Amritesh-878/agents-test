@@ -231,7 +231,6 @@ over four calls — `principal_from_identity` (`scripts/auth.py`), `can_access_s
 | `app.py` | Streamlit **testing harness** (teacher review rounds) — not the product UI |
 | `data/eval_qa.json` | Golden QA set the eval runs against |
 | `data/teacher_sections.example.csv` | Template for the teacher→sections config |
-| — | Planning docs, task files, and review sheets live outside this repo (`AdiraChatbot-Plans`) |
 
 ---
 
@@ -334,7 +333,7 @@ embedder mismatch fails loudly instead of returning garbage.
 
 - **Streamlit harness** (`streamlit run app.py`): class → student → session pickers, chat
   with a Grounding expander per answer. Optional `DEMO_ACCESS_CODE` gate for tunneling to a
-  reviewer. Used for the teacher review rounds (review sheets live in `AdiraChatbot-Plans`).
+  reviewer. Used for the teacher review rounds.
 - **CLI chat** (`python -m scripts.chat`): dev tool; prompts for a student id (no auth) and
   scopes retrieval to it.
 - **Evaluation**: `python -m scripts.evaluate` runs the golden set

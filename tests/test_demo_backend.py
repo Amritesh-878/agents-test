@@ -101,9 +101,6 @@ def make_search_result(
     )
 
 
-# --- student_summary ---
-
-
 def test_student_summary_counts_chunks_and_dedups_classes() -> None:
     chunks = [
         make_search_result(chunk_id="a", class_name="Economics.02"),
@@ -125,9 +122,6 @@ def test_student_summary_falls_back_to_id_when_empty() -> None:
     assert summary.student_name == "9999"
     assert summary.chunk_count == 0
     assert summary.class_names == []
-
-
-# --- top_score ---
 
 
 def make_chunk(score: float | None, rank: int) -> RetrievedChunk:
@@ -207,9 +201,6 @@ def test_students_by_section_dedups_repeated_pairs() -> None:
     assert grouped == {"English.04": [("2301", "anshi")]}
 
 
-# --- answer_for_student ---
-
-
 def test_answer_for_student_groq_path_is_scoped_and_grounded() -> None:
     store = FakeStore(search_results=[make_search_result()])
     backend = FakeChatBackend()
@@ -229,7 +220,6 @@ def test_answer_for_student_groq_path_is_scoped_and_grounded() -> None:
     assert turn.model is not None
     assert turn.retrieval_result.result_count == 1
     assert len(backend.calls) == 1
-    # retrieval was scoped to the selected student
     assert store.search_calls[0][0] == "2302"
 
 
@@ -249,13 +239,11 @@ def test_answer_for_student_fallback_skips_llm_when_no_context() -> None:
 
     assert turn.answer_source == "fallback"
     assert turn.model is None
-    assert backend.calls == []  # never invents an answer via the LLM
+    assert backend.calls == []
     assert "Bhagyashree" in turn.answer
 
 
 def test_answer_for_student_scopes_self_referential_to_spoken() -> None:
-    # "What did I say" must retrieve only the student's own spoken chunks, so the teacher's
-    # class_context can't outrank and get mis-attributed to the student (eval Finding A).
     store = FakeStore(search_results=[make_search_result()])
     backend = FakeChatBackend()
     answer_for_student(
@@ -351,7 +339,6 @@ def test_answer_for_student_keeps_top_k_tight_for_self_referential() -> None:
 
 
 def test_answer_for_student_scopes_to_selected_class() -> None:
-    # Picking one session restricts retrieval to that class_name (per-session scoping).
     store = FakeStore(search_results=[make_search_result()])
     backend = FakeChatBackend()
     answer_for_student(
@@ -368,7 +355,6 @@ def test_answer_for_student_scopes_to_selected_class() -> None:
 
 
 def test_answer_for_student_all_sessions_is_unfiltered() -> None:
-    # No class_name (the "All sessions" default) leaves retrieval unscoped — current behavior.
     store = FakeStore(search_results=[make_search_result()])
     backend = FakeChatBackend()
     answer_for_student(
@@ -399,7 +385,6 @@ def test_session_display_label_parses_topic_and_date() -> None:
     assert session_display_label(
         "Math.01_A _AY2025-26_Linear Equation Scaffolding Time and Work_05_08 Apr"
     ).startswith("Linear Equation Scaffolding Time and Work")
-    # Unparseable input falls back to the raw value rather than raising.
     assert session_display_label("freeform-name") == "freeform-name"
 
 
@@ -418,8 +403,6 @@ def _chat_service(store: FakeStore, backend: FakeChatBackend, tmp_path: Path) ->
 
 
 def test_cli_and_demo_route_identically_on_the_same_retrieval(tmp_path: Path) -> None:
-    # One shared answer routine: the CLI (ChatService) and the demo wrapper must produce the
-    # same grade and the same answer path for identical retrieval.
     question = "What did the class cover about supply?"
     demo_store = FakeStore(search_results=[make_search_result()])
     demo_backend = FakeChatBackend()
@@ -484,9 +467,6 @@ def test_answer_for_student_turn_index_follows_history() -> None:
 
     assert first.turn_index == 1
     assert second.turn_index == 2
-
-
-# --- query telemetry hook (TASK-022) ---
 
 
 class LoggingStore(FakeStore):

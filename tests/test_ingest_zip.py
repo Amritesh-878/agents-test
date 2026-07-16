@@ -36,9 +36,6 @@ def _zinfo(name: str, size: int) -> zipfile.ZipInfo:
     return info
 
 
-# --- check_zip_safety (zip-bomb guard) ---
-
-
 def test_check_zip_safety_entry_count_cap() -> None:
     infos = [_zinfo(f"f{i}.bin", 1) for i in range(5)]
     with pytest.raises(ZipSafetyError, match="entries"):
@@ -59,10 +56,7 @@ def test_check_zip_safety_default_size_cap_trips() -> None:
 
 def test_check_zip_safety_within_limits_ok() -> None:
     infos = [_zinfo("session.mp4", 1024), _zinfo("a.m4a", 2048)]
-    check_zip_safety(cast(zipfile.ZipFile, _FakeZip(infos)))  # should not raise
-
-
-# --- Helpers ---
+    check_zip_safety(cast(zipfile.ZipFile, _FakeZip(infos)))
 
 
 def make_zoom_zip(zip_path: Path, nested: bool = False) -> None:
@@ -72,9 +66,6 @@ def make_zoom_zip(zip_path: Path, nested: bool = False) -> None:
         zf.writestr(f"{prefix}mixed.m4a", "fake mixed audio")
         zf.writestr(f"{prefix}Audio Record/audioAnshi_23013186578705.m4a", "fake student audio")
         zf.writestr(f"{prefix}recording.conf", "meetingId=99999\nhost=Dr Smith\n")
-
-
-# --- Filename Parsing ---
 
 
 def test_parse_m4a_standard() -> None:
@@ -112,14 +103,10 @@ def test_parse_m4a_not_audio_prefix() -> None:
 
 
 def test_parse_m4a_no_underscore_teacher_style() -> None:
-    # e.g. audioNisha11031110282.m4a — teacher file with no roll, no underscore
     name, number, roll = parse_m4a_filename("audioNisha11031110282.m4a")
     assert name == "Nisha"
     assert number is None
     assert roll is None
-
-
-# --- File Classification ---
 
 
 def test_classify_files_standard_layout(tmp_path: Path) -> None:
@@ -194,9 +181,6 @@ def test_classify_files_roll_numbers_parsed(tmp_path: Path) -> None:
     assert student.display_name == "Anshi"
 
 
-# --- Manifest Generation ---
-
-
 def test_manifest_round_trip(tmp_path: Path) -> None:
     raw_dir = tmp_path / "raw"
     audio_dir = raw_dir / "Audio Record"
@@ -234,9 +218,6 @@ def test_manifest_recording_conf_absent(tmp_path: Path) -> None:
     assert manifest.recording_conf is None
 
 
-# --- parse_recording_conf ---
-
-
 def test_parse_recording_conf_key_value(tmp_path: Path) -> None:
     conf = tmp_path / "recording.conf"
     conf.write_text("meetingId=12345\nhost=Dr Smith\nduration=3600\n", encoding="utf-8")
@@ -256,9 +237,6 @@ def test_parse_recording_conf_skips_comments(tmp_path: Path) -> None:
 
     assert "key" in result
     assert len(result) == 1
-
-
-# --- Zip Extraction + process_zip ---
 
 
 def test_process_zip_creates_manifest(tmp_path: Path) -> None:
@@ -299,9 +277,6 @@ def test_process_zip_nested_dir(tmp_path: Path) -> None:
     assert len(manifest.per_student_m4as) == 1
 
 
-# --- Batch Mode ---
-
-
 def test_process_batch_two_zips(tmp_path: Path) -> None:
     zips_dir = tmp_path / "zips"
     zips_dir.mkdir()
@@ -323,9 +298,6 @@ def test_process_batch_no_zips_raises(tmp_path: Path) -> None:
         process_batch(empty_dir, tmp_path / "output")
 
 
-# --- validate_inputs ---
-
-
 def test_validate_inputs_missing_path(tmp_path: Path) -> None:
     args = IngestArgs(input_path=tmp_path / "nonexistent.zip", output_dir=tmp_path)
     with pytest.raises(ValueError, match="does not exist"):
@@ -342,4 +314,4 @@ def test_validate_inputs_wrong_extension(tmp_path: Path) -> None:
 
 def test_validate_inputs_directory_accepted(tmp_path: Path) -> None:
     args = IngestArgs(input_path=tmp_path, output_dir=tmp_path)
-    validate_inputs(args)  # should not raise
+    validate_inputs(args)

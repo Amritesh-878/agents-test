@@ -18,9 +18,6 @@ def _bind_cursor(mock_conn: MagicMock) -> MagicMock:
     return mock_cursor
 
 
-# --- is_processed ---
-
-
 def test_is_processed_true_when_row_exists() -> None:
     store, mock_conn = make_store()
     mock_cursor = _bind_cursor(mock_conn)
@@ -38,9 +35,6 @@ def test_is_processed_false_when_no_row() -> None:
     mock_cursor.fetchone.return_value = None
 
     assert store.is_processed("file-404") is False
-
-
-# --- mark_processed ---
 
 
 def test_mark_processed_inserts_and_commits() -> None:
@@ -63,12 +57,8 @@ def test_mark_processed_uses_parameters_not_fstring() -> None:
     store.mark_processed("'; DROP TABLE embeddings; --", "X")
 
     sql, params = mock_cursor.execute.call_args.args
-    # The malicious value travels as a bound parameter, never interpolated.
     assert "DROP TABLE" not in sql
     assert params[0] == "'; DROP TABLE embeddings; --"
-
-
-# --- processed_ids ---
 
 
 def test_processed_ids_returns_set() -> None:
@@ -85,9 +75,6 @@ def test_processed_ids_empty() -> None:
     mock_cursor.fetchall.return_value = []
 
     assert store.processed_ids() == set()
-
-
-# --- close / connect ---
 
 
 def test_close_calls_connection_close() -> None:

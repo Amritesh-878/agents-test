@@ -79,9 +79,6 @@ class FakeStore:
         return list(self._stats)
 
 
-# --- presence-mode table (one test per row) ---
-
-
 def test_presence_mode_absent_wins_over_everything() -> None:
     assert derive_presence_mode({"spoken": 3, "class_context": 1}, True) == "absent"
 
@@ -104,9 +101,6 @@ def test_presence_mode_materials_only_when_material_alone() -> None:
 
 def test_presence_mode_unknown_when_no_chunks() -> None:
     assert derive_presence_mode({}, False) == "unknown"
-
-
-# --- presence mode end-to-end from store chunks ---
 
 
 def test_ramsha_shaped_absent_student_is_absent() -> None:
@@ -217,9 +211,6 @@ def test_chunks_without_class_name_are_skipped() -> None:
     assert student_metrics(store, "2409").sessions == []
 
 
-# --- dual-subject + section scoping ---
-
-
 def dual_subject_store() -> FakeStore:
     return FakeStore(
         chunks=[
@@ -272,9 +263,6 @@ def test_section_metrics_lists_every_student_in_the_section() -> None:
 
 def test_section_metrics_for_unknown_section_is_empty() -> None:
     assert section_metrics(dual_subject_store(), "History.09") == []
-
-
-# --- tier rates ---
 
 
 def test_build_tier_rates_computes_counts_and_rates() -> None:
@@ -342,9 +330,6 @@ def test_tier_rates_unfiltered_passes_no_student_ids() -> None:
     assert store.stats_calls == [(None, None)]
 
 
-# --- rendering ---
-
-
 def test_render_students_markdown_is_a_plain_table_without_verdicts() -> None:
     rendered = render_students_markdown(section_metrics(dual_subject_store(), "Economics.02"))
     assert rendered.splitlines()[0].startswith("| student_id | student_name | session |")
@@ -365,9 +350,6 @@ def test_render_tier_markdown_shows_grades_and_sources() -> None:
     assert "Answered turns: 4" in rendered
     assert "| low | 1 | 0.2500 |" in rendered
     assert "| fallback | 1 | 0.2500 |" in rendered
-
-
-# --- CLI ---
 
 
 def run(argv: list[str], store: Any) -> tuple[int, str]:
@@ -457,9 +439,6 @@ def test_cli_never_touches_llm_or_embedder(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_main_uses_an_injected_store() -> None:
     assert main(["--student", "2405", "--json"], store=dual_subject_store()) == 0
-
-
-# --- PII ---
 
 
 def test_no_question_text_reaches_the_metrics_surface() -> None:

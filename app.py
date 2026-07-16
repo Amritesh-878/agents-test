@@ -1,14 +1,3 @@
-"""Streamlit teacher-evaluation demo for the Adira Academy Learning Assistant.
-
-Teachers/leads pick a student, ask questions, and inspect the retrieved source
-chunks behind every answer — the point being to confirm answers are *grounded*
-in that student's real class transcripts, not invented.
-
-Thin UI glue only: all testable logic lives in ``scripts.demo_backend`` and the
-committed pipeline modules. Run with:
-
-    streamlit run app.py
-"""
 
 from __future__ import annotations
 
@@ -63,12 +52,6 @@ def render_sources(turn: ChatTurnRecord) -> None:
 
 
 def require_access_code() -> None:
-    """Optional shared-secret gate for exposing the demo over a public tunnel.
-
-    Disabled by default so local ``streamlit run app.py`` is unchanged; set the
-    ``DEMO_ACCESS_CODE`` env var before tunnelling to require the code before any
-    student data renders. A leaked/preview-fetched tunnel URL alone is then useless.
-    """
     expected = os.environ.get("DEMO_ACCESS_CODE", "").strip()
     if not expected or st.session_state.get("access_ok"):
         return
@@ -110,8 +93,6 @@ def main() -> None:
     selected_label = st.selectbox("Student", list(labels.keys()))
     student_id, student_name = labels[selected_label]
 
-    # Per-session scope. "All sessions" = no class filter (current behavior). The dropdown
-    # SHOWS a cleaned label but FILTERS on the real class_name value.
     all_sessions = "All sessions"
     class_options: dict[str, str | None] = {all_sessions: None}
     for class_name in store.list_student_classes(student_id):

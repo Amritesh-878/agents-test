@@ -1,9 +1,3 @@
-"""Non-UI logic for the Streamlit teacher-evaluation demo (``app.py``).
-
-Everything here is plain, tested, and Streamlit-free so the UI layer stays a
-thin glue shell. It reuses the committed pipeline (retrieval + chat) rather than
-reimplementing any of it.
-"""
 
 from __future__ import annotations
 
@@ -55,12 +49,6 @@ def students_by_section(
 
 
 def session_display_label(class_name: str) -> str:
-    """Best-effort human label for a ``class_name`` (topic + date) for the session picker.
-
-    Presentation only: the picker still FILTERS on the raw ``class_name``. Strips the
-    "Subject.NN", section, and "AY2025-26" tokens, pulls the trailing date out, and keeps
-    a trailing ``_s1``/``_s2`` meeting marker. Falls back to the raw value if unparseable.
-    """
     raw = class_name
     session_suffix = ""
     suffix_match = _SESSION_SUFFIX_RE.search(raw)
@@ -72,7 +60,7 @@ def session_display_label(class_name: str) -> str:
     for token in (t.strip() for t in raw.split("_")):
         if not token or _AY_TOKEN_RE.match(token) or _SUBJECT_TOKEN_RE.match(token):
             continue
-        if len(token) == 1 and token.isalpha():  # stray section letter, e.g. Math "A"
+        if len(token) == 1 and token.isalpha():
             continue
         kept.append(token)
 
@@ -96,11 +84,6 @@ class StudentSummary(BaseModel):
 
 
 def student_summary(store: Any, student_id: str, student_name: str = "") -> StudentSummary:
-    """Summarize a student's stored corpus: class name(s) and chunk count.
-
-    Drives the per-student header in the demo so the teacher sees how much
-    grounding data exists before asking anything.
-    """
     chunks = store.get_student_chunks(student_id)
     class_names = sorted({c.class_name for c in chunks if c.class_name})
     resolved_name = student_name or (chunks[0].student_name if chunks else student_id)
@@ -113,7 +96,6 @@ def student_summary(store: Any, student_id: str, student_name: str = "") -> Stud
 
 
 def top_score(result: RetrievalResult) -> float | None:
-    """Highest similarity score among retrieved chunks, or None if unscored/empty."""
     scores = [c.score for c in result.retrieved_chunks if c.score is not None]
     return max(scores) if scores else None
 

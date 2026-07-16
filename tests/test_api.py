@@ -160,9 +160,6 @@ def ask_body(**overrides: Any) -> dict[str, Any]:
     return body
 
 
-# --- service token ---
-
-
 def test_ask_without_token_is_401(client: TestClient) -> None:
     assert client.post("/ask", json=ask_body()).status_code == 401
 
@@ -229,9 +226,6 @@ def test_env_service_token_is_used_when_not_injected(monkeypatch: pytest.MonkeyP
     with TestClient(app) as c:
         assert c.post("/ask", json=ask_body(), headers={SERVICE_TOKEN_HEADER: "from-env"}).status_code == 200
         assert c.post("/ask", json=ask_body(), headers=auth()).status_code == 401
-
-
-# --- /ask identity + isolation ---
 
 
 def test_student_is_answered_as_themselves(client: TestClient) -> None:
@@ -356,9 +350,6 @@ def test_ask_passes_class_name_scope(client: TestClient) -> None:
     assert response.status_code == 200
 
 
-# --- failure mapping ---
-
-
 def test_groq_rate_limit_maps_to_503_with_retry_after() -> None:
     with build_client(chat_backend=RateLimitBackend()) as c:
         response = c.post("/ask", json=ask_body(), headers=auth())
@@ -374,9 +365,6 @@ def test_other_failures_map_to_502_without_leaking_internals() -> None:
     assert "sup3rsecret" not in body
     assert "postgresql://" not in body
     assert response.json()["detail"] == "Upstream answer generation failed."
-
-
-# --- /students ---
 
 
 def test_students_lists_exactly_the_teachers_sections(client: TestClient) -> None:
@@ -433,9 +421,6 @@ def test_students_unknown_teacher_is_403(client: TestClient) -> None:
         "/students", params={"email": "newteacher@islorg.com", "lms_role": "teacher"}, headers=auth()
     )
     assert response.status_code == 403
-
-
-# --- /sessions ---
 
 
 def test_sessions_are_scoped_and_labeled(client: TestClient) -> None:

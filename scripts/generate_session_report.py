@@ -52,10 +52,6 @@ def parse_args(argv: Sequence[str] | None = None) -> ReportArgs:
     return ReportArgs.model_validate(vars(namespace))
 
 
-# ---------------------------------------------------------------------------
-# Text helpers
-# ---------------------------------------------------------------------------
-
 def _clean(text: str) -> str:
     text = re.sub(r"\s{2,}", " ", text).strip()
     text = re.sub(r"([A-Za-z])\s+([A-Za-z])", r"\1 \2", text)
@@ -97,10 +93,6 @@ def _engagement_level(quality_count: int) -> str:
     return "Silent"
 
 
-# ---------------------------------------------------------------------------
-# Attendance CSV
-# ---------------------------------------------------------------------------
-
 def _load_attendance_csv(path: Path) -> list[dict]:
     rows: list[dict] = []
     with path.open(encoding="utf-8", newline="") as f:
@@ -136,16 +128,11 @@ def _load_attendance_csv(path: Path) -> list[dict]:
     return sorted(rows, key=lambda r: -r["duration"])
 
 
-# ---------------------------------------------------------------------------
-# Dialogue reconstruction
-# ---------------------------------------------------------------------------
-
 def _build_dialogue(
     segments: list[dict],
     teacher_name: str,
-    student_names: dict[str, str],  # source label -> display name
+    student_names: dict[str, str],
 ) -> list[dict]:
-    """Return time-sorted list of {time, speaker, text, source} dicts, quality-filtered."""
     result: list[dict] = []
     seen: set[str] = set()
 
@@ -179,7 +166,6 @@ def _split_into_parts(
     duration_sec: float,
     n_parts: int = 5,
 ) -> list[tuple[str, list[dict]]]:
-    """Split dialogue into N time-based parts, return (label, entries) pairs."""
     if not dialogue or duration_sec <= 0:
         return []
 
@@ -191,7 +177,6 @@ def _split_into_parts(
         start = i * slot
         end = (i + 1) * slot
         entries = [d for d in dialogue if start <= d["time"] < end]
-        # Deduplicate within a part
         seen: set[str] = set()
         unique: list[dict] = []
         for e in entries:
@@ -203,16 +188,15 @@ def _split_into_parts(
             start_min = round(start / 60)
             end_min = round(end / 60)
             label = f"{labels[i]} ({start_min}–{end_min} min)"
-            parts.append((label, unique[:8]))  # cap at 8 exchanges per part
+            parts.append((label, unique[:8]))
 
     return parts
 
 
 def _detect_homework(segments: list[dict]) -> list[str]:
-    """Find segments where homework or next-class instructions are given."""
     results: list[str] = []
     seen: set[str] = set()
-    for seg in reversed(segments):  # check from end of class
+    for seg in reversed(segments):
         txt = _clean(seg.get("text", ""))
         key = txt[:80].lower()
         if key in seen:
@@ -226,7 +210,6 @@ def _detect_homework(segments: list[dict]) -> list[str]:
 
 
 def _extract_definitions(segments: list[dict]) -> list[str]:
-    """Pull definitional sentences from student and teacher segments."""
     seen: set[str] = set()
     student_defns: list[tuple[float, str]] = []
     teacher_defns: list[tuple[float, str]] = []
@@ -270,7 +253,6 @@ def _session_type(segments: list[dict]) -> str:
 
 
 def _overview_sentence(segments: list[dict]) -> str:
-    """First meaningful teacher sentence — sets session context."""
     for seg in segments:
         if seg.get("source") != "session_fallback":
             continue
@@ -279,10 +261,6 @@ def _overview_sentence(segments: list[dict]) -> str:
             return txt[:300]
     return ""
 
-
-# ---------------------------------------------------------------------------
-# Main report builder
-# ---------------------------------------------------------------------------
 
 def generate_report(class_dir: Path, attendance_path: Path | None = None) -> str:
     import json
@@ -300,19 +278,16 @@ def generate_report(class_dir: Path, attendance_path: Path | None = None) -> str
 
     session_type = _session_type(all_segs)
 
-    # Build student map: roll_no/name -> display name
     student_names: dict[str, str] = {}
     for s in present.values():
         student_names[s.get("name", "")] = s.get("name", "")
 
-    # Student participation data
     m4a_students: list[dict] = []
     for key, s in present.items():
         name = s.get("name", key)
         spoken_segs = s.get("spoken_segments", [])
         quality_segs = [sg for sg in spoken_segs if _is_meaningful(sg.get("text", ""))]
 
-        # Richer quotes — up to 8 clean quality contributions (English-dominant only)
         quotes: list[str] = []
         for sg in quality_segs:
             cleaned = _clean(sg.get("text", ""))
@@ -321,7 +296,6 @@ def generate_report(class_dir: Path, attendance_path: Path | None = None) -> str
             if len(quotes) >= 8:
                 break
 
-        # Engagement metrics
         defns_answered = sum(
             1 for sg in quality_segs
             if _DEFN_RE.search(_clean(sg.get("text", "")))
@@ -348,27 +322,20 @@ def generate_report(class_dir: Path, attendance_path: Path | None = None) -> str
         })
     m4a_students.sort(key=lambda r: -r["quality"])
 
-    # Dialogue reconstruction
     dialogue = _build_dialogue(all_segs, teacher, student_names)
     parts = _split_into_parts(dialogue, duration_sec, n_parts=min(5, max(3, int(duration_min // 10))))
 
-    # Key definitions and overview
     definitions = _extract_definitions(all_segs)
     overview = _overview_sentence(all_segs)
     homework = _detect_homework(all_segs)
 
-    # Attendance CSV
     attendance_rows: list[dict] = []
     recorded_rolls: set[str] = {s.get("roll_no", "") for s in present.values() if s.get("roll_no")}
     if attendance_path and attendance_path.exists():
         attendance_rows = _load_attendance_csv(attendance_path)
 
-    # ---------------------------------------------------------------------------
-    # Build markdown
-    # ---------------------------------------------------------------------------
     lines: list[str] = []
 
-    # Header
     student_str = (
         m4a_students[0]["name"] if len(m4a_students) == 1
         else f"{len(m4a_students)} students"
@@ -389,13 +356,11 @@ def generate_report(class_dir: Path, attendance_path: Path | None = None) -> str
         "",
     ]
 
-    # Session overview
     if overview:
         lines += [
             "## Session Overview",
             "",
         ]
-        # Auto-generate a brief narrative
         overview_clean = overview[:200]
         if m4a_students:
             active = [s for s in m4a_students if s["level"] in ("Active", "Moderate")]
@@ -418,7 +383,6 @@ def generate_report(class_dir: Path, attendance_path: Path | None = None) -> str
             "",
         ]
 
-    # Key concepts / definitions
     if definitions:
         lines += [
             "## Key Concepts Covered",
@@ -430,7 +394,6 @@ def generate_report(class_dir: Path, attendance_path: Path | None = None) -> str
             lines.append(f"- {d}")
         lines += ["", "---", ""]
 
-    # Session dialogue — the main body
     if parts:
         lines += ["## Session — Detailed Dialogue", ""]
         for label, exchanges in parts:
@@ -442,14 +405,12 @@ def generate_report(class_dir: Path, attendance_path: Path | None = None) -> str
             lines += []
         lines += ["---", ""]
 
-    # Homework
     if homework:
         lines += ["## Homework / Next Steps", ""]
         for h in homework:
             lines.append(f"> {h}")
         lines += ["", "---", ""]
 
-    # Student engagement summary
     lines += [
         "## Student Engagement Summary",
         "",
@@ -466,7 +427,6 @@ def generate_report(class_dir: Path, attendance_path: Path | None = None) -> str
             )
         lines += [""]
 
-        # All student quotes
         active = [r for r in m4a_students if r["quotes"]]
         if active:
             lines += ["### What Students Said", ""]
@@ -482,14 +442,12 @@ def generate_report(class_dir: Path, attendance_path: Path | None = None) -> str
         ]
     lines += ["---", ""]
 
-    # Absent students
     if absent:
         lines += ["## Absent Students (Enrolled, No Recording)", ""]
         for key, s in absent.items():
             lines.append(f"- **{s.get('name', key)}** (roll {s.get('roll_no', '—')})")
         lines += ["", "---", ""]
 
-    # Attendance appendix
     if attendance_rows:
         avg_dur = sum(r["duration"] for r in attendance_rows) / len(attendance_rows)
         is_multiclass = avg_dur > duration_min * 1.5
@@ -515,7 +473,6 @@ def generate_report(class_dir: Path, attendance_path: Path | None = None) -> str
             lines.append(f"| {row['display']} | {roll} | {dur} | {in_class} |")
         lines += [""]
 
-    # Footer
     lines += [
         "---",
         "",

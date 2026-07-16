@@ -64,14 +64,6 @@ def validate_inputs(args: EmbedArgs) -> None:
 
 
 def is_quality_text(text: str, min_chars: int = 20) -> bool:
-    """Return False for garbled, repetitive, or too-short text — don't embed junk.
-
-    Catches:
-    - Single-word or phrase repetitions (Whisper hallucination on silence)
-    - Replacement-character-dense output (model failure on noisy audio)
-    - Nukta-dense Devanagari (the Hindi pass hallucinating garbled transliterations)
-    - Chunks too short to contain useful information
-    """
     from collections import Counter
 
     stripped = text.strip()
@@ -82,36 +74,22 @@ def is_quality_text(text: str, min_chars: int = 20) -> bool:
     if len(words) < 4:
         return False
 
-    # Trigram repetition: any 3-word phrase appearing 4+ times → hallucinated
     if len(words) >= 12:
         trigrams = [" ".join(words[i : i + 3]) for i in range(len(words) - 2)]
         if Counter(trigrams).most_common(1)[0][1] >= 4:
             return False
 
-    # Distinct-token ratio: short loops (a 3-5 word phrase repeated 2-3 times)
-    # duck the trigram rule but collapse to very few unique tokens.
-    # e.g. "A B C D A B C D A B C D" → 4 unique / 12 total = 0.33. Genuine answers
-    # of 8+ words run well above 0.5, so this drops loops without touching real speech.
     if len(words) >= 8 and len(set(words)) / len(words) < 0.5:
         return False
 
-    # No-space loop hallucination: the Hindi pass sometimes emits one unbroken run
-    # with no spaces (e.g. "पाइपाइपाइ…"×100). That reads as a single very long token,
-    # so the word-based checks above miss it. Real words are short; flag an over-long
-    # token only when it is mostly non-ASCII (don't touch long ASCII like URLs).
     longest = max(words, key=len)
     if len(longest) > 40 and sum(c > "\x7f" for c in longest) > len(longest) / 2:
         return False
 
-    # Unicode replacement chars → garbled audio segment
     replacement_ratio = stripped.count("�") / max(len(stripped), 1)
     if replacement_ratio > 0.02:
         return False
 
-    # Nukta-dense Devanagari → the Hindi pass hallucinating on bilingual speech
-    # (e.g. "तो आड़़ क्वान्टी अप गुड़"). Genuine Hindi runs ~15-40 nukta tokens per
-    # 1k words; these loops run 200-400+, so a generous cap drops the garble without
-    # touching real Hindi (a Devanagari-ratio cap would wrongly delete genuine Hindi).
     nukta_per_1k = (stripped.count("़") / len(words)) * 1000
     if nukta_per_1k > 120:
         return False
@@ -166,9 +144,6 @@ def chunk_student_context(
             )
 
     for seg in ctx.chat_segments:
-        # The student's own PUBLIC chat messages (typed contributions). Same student_id
-        # scope and quality filter as spoken; a lower min_chars keeps short-but-real typed
-        # answers ("answer is 20/3 days") while is_quality_text still drops junk/links.
         if seg.text.strip() and is_quality_text(seg.text, min_chars=8):
             records.append(
                 EmbeddingRecord(
@@ -202,8 +177,6 @@ def chunk_student_context(
                 )
             )
 
-    # Filter individual segments first, then concatenate — keeps garbled/short
-    # segments from polluting otherwise-good chunks when split.
     quality_segs = [
         s.text for s in ctx.present_segments
         if s.text.strip() and is_quality_text(s.text, min_chars=15)
@@ -234,12 +207,6 @@ def chunk_material_blocks(
     student_name: str,
     class_name: str,
 ) -> list[EmbeddingRecord]:
-    """Chunk extracted ``(source_filename, block_text)`` material blocks for one student.
-
-    Materials are authoritative class content, not speech: no timestamps, and the
-    speaker is set to "material" so retrieval never mis-labels them as the teacher's
-    spoken words. The source filename is kept as provenance for TASK-020 labeling.
-    """
     records: list[EmbeddingRecord] = []
     for source_filename, block_text in blocks:
         for chunk_text in _split_text(block_text, _MAX_CHUNK_CHARS):
@@ -306,11 +273,6 @@ def embed_records(
 def embed_records_deduped(
     records: list[EmbeddingRecord], model_name: str
 ) -> list[EmbeddingRecord]:
-    """Embed each distinct text once and share the vector across duplicates.
-
-    Material chunks are identical for every enrolled student of a class, so
-    encoding the per-student copies would redo the same work N times.
-    """
     if not records:
         return records
     from sentence_transformers import SentenceTransformer

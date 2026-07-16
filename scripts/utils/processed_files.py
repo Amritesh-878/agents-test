@@ -17,12 +17,6 @@ _GET_ALL_SQL = "SELECT drive_file_id FROM processed_files"
 
 
 class ProcessedFilesStore:
-    """Idempotent dedup ledger for Drive ingestion, keyed by Drive file id.
-
-    Mirrors :class:`scripts.utils.pg_store.PgVectorStore`'s raw-SQL pattern: every
-    query is parameterized (``%s`` placeholders, no f-string SQL) and the caller
-    owns the connection lifecycle.
-    """
 
     def __init__(self, conn: Any) -> None:
         self._conn = conn

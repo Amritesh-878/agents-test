@@ -157,9 +157,6 @@ def test_run_migration_drops_stale_trigram_index() -> None:
     assert "DROP INDEX IF EXISTS idx_embeddings_text_trgm" in executed
 
 
-# --- query_log telemetry table (TASK-022) ---
-
-
 def test_ddl_creates_the_query_log_table() -> None:
     tables = [name for kind, name, _ in get_ddl_statements() if kind == "table"]
     assert "query_log" in tables

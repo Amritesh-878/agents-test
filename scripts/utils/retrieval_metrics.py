@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 Tier = Literal["high", "medium", "low"]
 CaseMetricStatus = Literal["scorable", "refusal", "quote_not_indexed"]
 
-# Frozen for cross-run comparability — do NOT tune mid-initiative (see TASK-026).
 HIGH_SCORE_THRESHOLD = 0.60
 MEDIUM_SCORE_THRESHOLD = 0.45
 HIGH_GAP_THRESHOLD = 0.05

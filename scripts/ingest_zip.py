@@ -14,13 +14,8 @@ from scripts.models.identity import PerStudentAudioFile, ZoomFileManifest
 
 logger = logging.getLogger(__name__)
 
-# Resource-exhaustion (zip-bomb) guards applied BEFORE extraction. A Zoom class
-# export is a session MP4 plus a handful of per-student M4As, so these caps are
-# generous for legitimate data while refusing decompression bombs. (Classic Zip
-# Slip path traversal is already mitigated by CPython's zipfile; this is only the
-# decompression-bomb / disk-exhaustion half of the guard.)
 MAX_ZIP_ENTRY_COUNT = 1000
-MAX_ZIP_UNCOMPRESSED_BYTES = 10 * 1024 * 1024 * 1024  # 10 GiB
+MAX_ZIP_UNCOMPRESSED_BYTES = 10 * 1024 * 1024 * 1024
 
 
 class ZipSafetyError(RuntimeError):
@@ -62,12 +57,6 @@ def validate_inputs(args: IngestArgs) -> None:
 
 
 def parse_m4a_filename(filename: str) -> tuple[str | None, str | None, str | None]:
-    """Parse an M4A filename → (display_name, extracted_number, roll_no_4digit).
-
-    Expected format: audioDisplayName_<digits>.m4a
-    The last underscore before a pure-digit sequence is the split point, so names
-    with internal underscores (e.g. audioA_Disha_25043186578705.m4a) work correctly.
-    """
     stem = filename[:-4] if filename.lower().endswith(".m4a") else filename
     if not stem.startswith("audio"):
         return None, None, None
@@ -77,8 +66,6 @@ def parse_m4a_filename(filename: str) -> tuple[str | None, str | None, str | Non
 
     last_underscore = rest.rfind("_")
     if last_underscore == -1:
-        # No underscore — try to strip trailing digit block (participant index + meeting ID)
-        # e.g. "Nisha11031110282" → name="Nisha", no roll number
         m = re.match(r"^(.*?)(\d{9,})$", rest)
         if m:
             name_part = m.group(1).rstrip("0123456789") or None
@@ -130,8 +117,6 @@ def classify_files(raw_dir: Path, class_name: str) -> ZoomFileManifest:
             else:
                 logger.warning("Multiple MP4 files found; using first: %s", session_mp4)
         elif suffix == ".m4a":
-            # Per-student M4As live inside an "Audio Record" subdirectory.
-            # Session-level mixed M4As sit at the top level even if they start with "audio".
             in_audio_record = "audio record" in str(file_path.parent).lower()
             if name.startswith("audio") and in_audio_record:
                 display_name, extracted_number, roll_no_4digit = parse_m4a_filename(name)
@@ -150,8 +135,6 @@ def classify_files(raw_dir: Path, class_name: str) -> ZoomFileManifest:
                 else:
                     logger.warning("Multiple non-audio M4A files found; using first: %s", mixed_m4a)
         elif suffix == ".txt" and "chat" in name.lower():
-            # Zoom saved chat ("chat.txt" / "meeting_saved_chat.txt"). Parsed later;
-            # private direct messages are dropped at parse time (privacy).
             if chat_file is None:
                 chat_file = file_path
             else:
@@ -190,7 +173,6 @@ def check_zip_safety(
     max_entries: int = MAX_ZIP_ENTRY_COUNT,
     max_uncompressed_bytes: int = MAX_ZIP_UNCOMPRESSED_BYTES,
 ) -> None:
-    """Reject decompression bombs before extracting an untrusted archive."""
     infos = zf.infolist()
     if len(infos) > max_entries:
         raise ZipSafetyError(

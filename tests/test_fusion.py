@@ -29,7 +29,6 @@ def test_order_depends_only_on_rank_not_score_scale() -> None:
     arm_one = ["a", "b", "c"]
     arm_two = ["b", "c", "a"]
     baseline = reciprocal_rank_fusion([arm_one, arm_two])
-    # Same rank order, any hypothetical underlying score scale — fusion sees only ranks.
     assert reciprocal_rank_fusion([list(arm_one), list(arm_two)]) == baseline
     assert baseline == ["b", "a", "c"]
 

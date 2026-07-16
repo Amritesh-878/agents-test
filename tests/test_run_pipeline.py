@@ -34,12 +34,6 @@ def _write_transcript(
 
 
 def _stage_class(tmp_path: Path, *, stage_teacher_transcript: bool) -> tuple[Path, RunArgs]:
-    """Stage a class zip + pre-built transcripts for a --skip-transcribe run.
-
-    The student (Anshi, roll 2301) speaks once; the session MP4 transcript is noisy
-    UNKNOWN filler; the teacher (Nisha) M4A has clean class content. Returns the zip
-    path and a RunArgs configured to skip transcription and embedding.
-    """
     roster = tmp_path / "roster.csv"
     roster.write_text("Name,RollNo,Email\nAnshi Kumar,2301,anshi@example.com\n", encoding="utf-8")
 
@@ -138,9 +132,6 @@ def _stage_attendance_dir_class(tmp_path: Path) -> tuple[Path, RunArgs, Path]:
     return zip_path, args, out / class_name
 
 
-# --- validate_inputs ---
-
-
 def test_validate_inputs_missing_input(tmp_path: Path) -> None:
     args = RunArgs(
         input_path=tmp_path / "nonexistent.zip",
@@ -200,10 +191,7 @@ def test_attendance_and_attendance_dir_are_mutually_exclusive(tmp_path: Path) ->
 
 def test_validate_inputs_directory_ok(tmp_path: Path) -> None:
     args = RunArgs(input_path=tmp_path, output_dir=tmp_path / "out", teacher=["Dr Smith"])
-    validate_inputs(args)  # should not raise
-
-
-# --- PipelineReport model ---
+    validate_inputs(args)
 
 
 def test_pipeline_report_model() -> None:
@@ -237,9 +225,6 @@ def test_class_session_report_model() -> None:
     )
     assert report.success
     assert "ingest_zip" in report.step_results
-
-
-# --- run_pipeline batch ---
 
 
 def test_run_pipeline_no_zips_raises(tmp_path: Path) -> None:
@@ -332,7 +317,7 @@ def test_run_pipeline_failed_class_continues(tmp_path: Path) -> None:
         args = RunArgs(input_path=zips_dir, output_dir=tmp_path / "out", teacher=["T"])
         report = run_pipeline(args)
 
-    assert call_count == 2  # both processed even though ClassA failed
+    assert call_count == 2
     assert report.failed_classes == 1
     assert report.successful_classes == 1
 
@@ -387,9 +372,6 @@ def test_default_speed_flags_not_forwarded(tmp_path: Path) -> None:
     assert "--beam-size" not in argv
 
 
-# --- teacher M4A as primary class-context source (process_single_class wiring) ---
-
-
 def test_process_single_class_uses_teacher_transcript(tmp_path: Path) -> None:
     import json
 
@@ -405,8 +387,8 @@ def test_process_single_class_uses_teacher_transcript(tmp_path: Path) -> None:
     present = contexts["present_students"]["2301"]["present_segments"]
     texts = [s["text"] for s in present]
     assert "teacher explains supply and demand clearly" in texts
-    assert "anshi own answer" in texts  # student's own contribution kept
-    assert not any("noisy session" in t for t in texts)  # session fallback excluded
+    assert "anshi own answer" in texts
+    assert not any("noisy session" in t for t in texts)
 
 
 def test_process_single_class_falls_back_without_teacher_transcript(tmp_path: Path) -> None:
@@ -414,8 +396,6 @@ def test_process_single_class_falls_back_without_teacher_transcript(tmp_path: Pa
 
     from scripts.run_pipeline import process_single_class
 
-    # teacher_audio_file is still detected, but its transcript JSON is absent ->
-    # warn + fall back to the full merged (session-MP4-driven) timeline.
     zip_path, args = _stage_class(tmp_path, stage_teacher_transcript=False)
     report = process_single_class(zip_path, args)
     assert report.success, report.error
@@ -425,7 +405,7 @@ def test_process_single_class_falls_back_without_teacher_transcript(tmp_path: Pa
     )
     present = contexts["present_students"]["2301"]["present_segments"]
     texts = [s["text"] for s in present]
-    assert any("noisy session" in t for t in texts)  # fallback uses session timeline
+    assert any("noisy session" in t for t in texts)
 
 
 def test_process_single_class_attendance_dir_creates_attendance_only_student(
@@ -447,9 +427,6 @@ def test_process_single_class_attendance_dir_creates_attendance_only_student(
     assert vo["attendance_duration_minutes"] == 45.0
     assert vo["spoken_segments"] == []
     assert any("water cycle" in s["text"] for s in vo["present_segments"])
-
-
-# --- retrieval layer ---
 
 
 def test_distance_to_score() -> None:
@@ -476,9 +453,6 @@ def test_retrieve_validate_inputs_no_db_url() -> None:
     args = RetrievalArgs(student_id="2301", query="hello", db_url="")
     with pytest.raises(ValueError, match="db-url"):
         validate_inputs(args)
-
-
-# --- deprecation check ---
 
 
 def test_old_scripts_renamed_to_txt() -> None:

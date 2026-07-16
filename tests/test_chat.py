@@ -28,9 +28,6 @@ def make_args(tmp_path: Path) -> ChatArgs:
     )
 
 
-# --- #1: session traces hold no secrets ---
-
-
 def test_session_trace_excludes_db_secret(tmp_path: Path) -> None:
     service = ChatService(make_args(tmp_path))
     contents = service.session_path.read_text(encoding="utf-8")
@@ -43,9 +40,6 @@ def test_session_record_has_no_db_url_field() -> None:
     from scripts.chat import ChatSessionRecord
 
     assert "db_url" not in ChatSessionRecord.model_fields
-
-
-# --- #3/#4 access half: the queried student_id comes from the prompt, not the CLI ---
 
 
 def test_parse_args_rejects_student_id_flag() -> None:
@@ -84,9 +78,6 @@ def test_retrieval_is_scoped_to_the_prompted_id(tmp_path: Path) -> None:
     service.ask_question("what did I miss?")
 
     assert backend.seen_student_id == "2302"
-
-
-# --- prompt_student_id behavior ---
 
 
 def test_prompt_student_id_strips_whitespace() -> None:
@@ -136,9 +127,6 @@ def test_prompt_student_id_aborts_cleanly_on_interrupt() -> None:
         prompt_student_id(raise_interrupt)
 
 
-# --- resolve_display_name ---
-
-
 class _NameStore:
     def __init__(self, name: str | None) -> None:
         self._name = name
@@ -155,38 +143,27 @@ def test_resolve_display_name_falls_back_to_id() -> None:
     assert resolve_display_name(_NameStore(None), "2302") == "2302"
 
 
-# --- RetrievalBackend still does not leak an injected store on close ---
-
-
 def test_retrieval_backend_close_is_safe_without_store() -> None:
     backend = RetrievalBackend()
-    backend.close()  # should not raise even though no store was ever opened
+    backend.close()
 
 
 def test_normalize_answer_text_strips_typographic_dashes() -> None:
-    # en-dash used as a minus sign (the gpt-oss-20b habit) becomes a plain hyphen
     assert normalize_answer_text("quantity is –12 at price one") == "quantity is -12 at price one"
-    # minus sign (U+2212) is also normalized to a hyphen
     assert normalize_answer_text("value −5") == "value -5"
-    # em-dash clause separator becomes a comma, no double spaces or space-before-comma
     assert normalize_answer_text("the intercept is negative — about minus three") == (
         "the intercept is negative, about minus three"
     )
 
 
 def test_normalize_answer_text_straightens_curly_quotes() -> None:
-    # curly apostrophe in a contraction becomes straight ASCII (keeps refusal matchers robust)
     assert normalize_answer_text("I don’t have enough evidence.") == "I don't have enough evidence."
-    # curly double quotes are straightened too
     assert normalize_answer_text("she said “yes”") == 'she said "yes"'
 
 
 def test_normalize_answer_text_leaves_plain_text_unchanged() -> None:
     plain = "You said the intercept should be negative. For example, minus three."
     assert normalize_answer_text(plain) == plain
-
-
-# --- #5: Groq egress disclosure surfaced in the banner ---
 
 
 def test_banner_includes_groq_egress_notice(tmp_path: Path) -> None:
@@ -199,9 +176,6 @@ def test_banner_includes_groq_egress_notice(tmp_path: Path) -> None:
     assert GROQ_EGRESS_NOTICE in "\n".join(captured)
 
 
-# --- Finding A: "what did I say" must not surface the teacher's class context ---
-
-
 def test_is_self_referential_question_matches_own_speech() -> None:
     from scripts.chat import is_self_referential_question
 
@@ -210,7 +184,6 @@ def test_is_self_referential_question_matches_own_speech() -> None:
     assert is_self_referential_question("What did I ask the teacher?")
     assert is_self_referential_question("Did I contribute anything today?")
     assert is_self_referential_question("What was my answer to the supply question?")
-    # Broadened contribution phrasings beyond the canonical "what did I say".
     assert is_self_referential_question("What numbers did I work out in class?")
     assert is_self_referential_question("What answer did I get for the worksheet?")
     assert is_self_referential_question("Did I submit anything in the chat?")
@@ -221,18 +194,15 @@ def test_is_self_referential_question_matches_own_speech() -> None:
 def test_is_self_referential_question_ignores_class_and_passive_questions() -> None:
     from scripts.chat import is_self_referential_question
 
-    # "we"/topic questions are about class content, not the student's own words.
     assert not is_self_referential_question("What did we cover in class today?")
     assert not is_self_referential_question(
         "What's the difference between a supply schedule and a supply curve?"
     )
     assert not is_self_referential_question("What were Jagruti and Kalyani being asked about?")
-    # First-person but NOT about the student's own speech (passive / "I missed").
     assert not is_self_referential_question(
         "I missed the part about why quantity supplied can be negative — what was said?"
     )
     assert not is_self_referential_question("I joined late — what was the plan for today's class?")
-    # Neutral first-person verbs ask about class content, not the student's contribution.
     assert not is_self_referential_question("What did I learn in class today?")
     assert not is_self_referential_question("What did I do in class today?")
 
@@ -240,12 +210,8 @@ def test_is_self_referential_question_ignores_class_and_passive_questions() -> N
 def test_select_retrieval_chunk_types_scopes_self_referential_to_own_contributions() -> None:
     from scripts.chat import select_retrieval_chunk_types
 
-    # Both spoken AND chat are the student's own words — a quiet student who only typed
-    # must still surface for "what did I say".
     assert select_retrieval_chunk_types("What did I say today?", ()) == ["spoken", "chat"]
-    # Non-self-referential questions stay unfiltered (full class context available).
     assert select_retrieval_chunk_types("What did we cover today?", ()) == []
-    # An explicit caller filter always wins, even for a self-referential question.
     assert select_retrieval_chunk_types("What did I say today?", ["missed"]) == ["missed"]
 
 
@@ -312,13 +278,10 @@ def test_system_prompt_teaches_material_semantics_and_no_world_knowledge() -> No
         max_history_turns=0,
     )
     system = messages[0].content.casefold()
-    # Material is named as authoritative and may be synthesized for concept questions.
     assert "type=material" in system
     assert "authoritative" in system
     assert "synthesize" in system
-    # The no-world-knowledge binding must be explicit.
     assert "world knowledge" in system or "outside knowledge" in system
-    # Attribution requirement present.
     assert "class material" in system
 
 
@@ -340,7 +303,6 @@ def test_prompt_carries_material_chunks_into_user_context() -> None:
 
 
 class _AttributingBackend:
-    """Fake LLM that echoes an attributed answer only if material is in the prompt."""
 
     def generate(self, *, messages: Sequence[object], model: str) -> str:
         joined = "\n".join(getattr(m, "content", "") for m in messages)
@@ -365,7 +327,6 @@ def test_concept_question_produces_attributed_answer(tmp_path: Path) -> None:
 
 
 def test_no_support_question_refuses_via_fallback(tmp_path: Path) -> None:
-    # result_count == 0 → no LLM call, deterministic refusal fallback (no world knowledge).
     service = ChatService(make_args(tmp_path), retrieval_backend=_RecordingBackend())
     turn = service.ask_question("What is the capital of France?")
     assert turn.answer_source == "fallback"
@@ -376,7 +337,6 @@ def test_self_referential_question_excludes_material(tmp_path: Path) -> None:
     store = _CapturingStore()
     backend = RetrievalBackend(store=store, embedder=_FixedEmbedder())  # type: ignore[arg-type]
     backend.retrieve(make_args(tmp_path), "What did I say about determinants today?")
-    # Self-referential scope is the student's own words only — material must not appear.
     assert store.search_chunk_types == ["spoken", "chat"]
     assert "material" not in (store.search_chunk_types or [])
 
@@ -436,7 +396,7 @@ def test_retrieval_backend_returns_base_top_k_over_a_hybrid_pool(tmp_path: Path)
 
     store = _CapturingStore()
     backend = RetrievalBackend(store=store, embedder=_FixedEmbedder())  # type: ignore[arg-type]
-    args = make_args(tmp_path)  # base top_k defaults to 5
+    args = make_args(tmp_path)
 
     general = backend.retrieve(args, "What did we cover in class today?")
     assert general.top_k == args.top_k
@@ -445,9 +405,6 @@ def test_retrieval_backend_returns_base_top_k_over_a_hybrid_pool(tmp_path: Path)
     self_referential = backend.retrieve(args, "What did I say during class today?")
     assert self_referential.top_k == args.top_k
     assert store.search_top_k == HYBRID_POOL_SIZE
-
-
-# --- TASK-031: confidence routing ---
 
 
 class _CountingBackend:
@@ -745,6 +702,5 @@ def test_medium_prompt_is_strictly_additive_over_high() -> None:
     assert MEDIUM_USER_INSTRUCTION not in high[-1].content
     assert MEDIUM_SYSTEM_INSTRUCTION in medium[0].content
     assert MEDIUM_USER_INSTRUCTION in medium[-1].content
-    # the high content is preserved verbatim as the prefix of the medium content
     assert medium[0].content.startswith(high[0].content)
     assert medium[-1].content.startswith(high[-1].content)

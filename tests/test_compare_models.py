@@ -111,14 +111,10 @@ def write_eval_file(tmp_path: Path, cases: list[dict]) -> Path:
     return eval_file
 
 
-# --- classifier (no live model needed) ---
-
-
 def test_classify_case_covers_all_transitions() -> None:
     assert classify_case(True, False) == "REGRESSION"
     assert classify_case(False, True) == "IMPROVEMENT"
     assert classify_case(True, True) == "UNCHANGED"
-    # both fail (e.g. a shared retrieval miss) is not a model regression
     assert classify_case(False, False) == "UNCHANGED"
 
 
@@ -165,9 +161,6 @@ def test_markdown_reports_summary_and_classifications() -> None:
     assert "REGRESSION" in md
 
 
-# --- retrieve-once / generate-twice ---
-
-
 def test_compare_case_retrieves_once_and_scores_both_models(tmp_path: Path) -> None:
     eval_file = write_eval_file(
         tmp_path,
@@ -203,20 +196,16 @@ def test_compare_case_retrieves_once_and_scores_both_models(tmp_path: Path) -> N
 
     comparison = service.compare_case(service.selected_cases[0])
 
-    # retrieval ran exactly once; both models generated against that same retrieval
     assert len(store.search_calls) == 1
     assert len(backend.calls) == 2
     assert [model for _, model in backend.calls] == ["old-model", "new-model"]
     assert comparison.baseline.model == "old-model"
     assert comparison.candidate.model == "new-model"
-    # the shared FakeBackend answer contains "supply", so both models pass -> UNCHANGED
     assert comparison.classification == "UNCHANGED"
     assert comparison.retrieval_result_count == 1
 
 
 def test_compare_case_zero_retrieval_uses_shared_fallback_no_generate(tmp_path: Path) -> None:
-    # No retrieved context: both models get the identical deterministic fallback, so the
-    # LLM is never called and the case is UNCHANGED (never a spurious regression).
     eval_file = write_eval_file(
         tmp_path,
         [
@@ -247,12 +236,9 @@ def test_compare_case_zero_retrieval_uses_shared_fallback_no_generate(tmp_path: 
 
     comparison = service.compare_case(service.selected_cases[0])
 
-    assert backend.calls == []  # deterministic fallback, no model call
+    assert backend.calls == []
     assert comparison.baseline.answer == comparison.candidate.answer
     assert comparison.classification == "UNCHANGED"
-
-
-# --- golden-set expansion ---
 
 
 def test_general_golden_cases_load_and_validate() -> None:
@@ -264,5 +250,5 @@ def test_general_golden_cases_load_and_validate() -> None:
         if case.case_id in GENERAL_GOLDEN_IDS:
             assert not is_self_referential_question(case.question)
             assert case.expected_answer_mode == "grounded_answer"
-            assert case.required_concept_groups  # concept-grounded, not empty
-            assert not case.chunk_types  # unfiltered: full class context available
+            assert case.required_concept_groups
+            assert not case.chunk_types

@@ -20,12 +20,10 @@ from scripts.utils.processed_files import (
 
 logger = logging.getLogger(__name__)
 
-# Read-only: the sync only ever lists and downloads; it never writes to Drive.
 _DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 
 
 class DriveClient(Protocol):
-    """The slice of a Drive client the sync depends on (mockable in tests)."""
 
     def list_zip_files(self, folder_id: str) -> list[DriveFile]: ...
 
@@ -33,12 +31,6 @@ class DriveClient(Protocol):
 
 
 class GoogleDriveClient:
-    """Thin wrapper over the Google Drive v3 API resource.
-
-    Google's client libraries ship no type stubs, so the ``google*`` imports are
-    lazy (kept out of import time / test collection) and the resource is held as
-    ``Any``; the public method surface here is fully typed.
-    """
 
     def __init__(self, service: Any) -> None:
         self._service = service
@@ -90,16 +82,6 @@ def build_drive_client(service_account_json: Path) -> GoogleDriveClient:
 
 
 class DriveSyncService:
-    """Poll a Drive folder for Zoom ``.zip`` exports and feed new ones to the pipeline.
-
-    Idempotent via the ``processed_files`` ledger: a zip whose Drive file id is
-    already recorded is skipped. Each new zip is downloaded to a temp dir, processed
-    by :func:`scripts.run_pipeline.process_single_class`, and recorded **only on
-    success**. A failed file -- including the two guard rejections the pipeline now
-    raises, the zip-bomb guard (oversized / too-many-entry archives) and the
-    colliding-roll guard (two M4As sharing a 4-digit roll) -- is left UNrecorded so a
-    fixed re-upload can be retried, and one bad zip never aborts the batch.
-    """
 
     def __init__(
         self,
@@ -143,8 +125,6 @@ class DriveSyncService:
                 self._drive.download(drive_file.id, local_zip)
                 session = process_single_class(local_zip, self._config)
         except Exception as exc:
-            # Per-file isolation: one bad zip must not abort the batch, and an
-            # errored file is deliberately left UNrecorded so it can be retried.
             logger.error("Error processing %s: %s", drive_file.name, exc)
             logger.debug("Drive file %s traceback", drive_file.name, exc_info=True)
             return DriveFileResult(
@@ -190,12 +170,6 @@ _DEFAULT_ROSTER_PATH = Path("data/roster.csv")
 
 
 def resolve_roster_path(flag_value: Path | None) -> Path | None:
-    """Resolve the roster CSV (Name, RollNo, Email) for absent-student context.
-
-    Precedence: an explicit ``--roster`` flag, then the ``ROSTER_CSV`` env var, then
-    a ``data/roster.csv`` default if it exists. Returns ``None`` when no roster is
-    available, in which case absent students simply get no context object.
-    """
     if flag_value is not None:
         return flag_value
     env_val = os.getenv("ROSTER_CSV", "").strip()
@@ -222,11 +196,8 @@ def parse_args(argv: Sequence[str] | None = None) -> DriveSyncArgs:
     parser.add_argument("--allow-cpu", action="store_true", dest="allow_cpu")
     namespace = parser.parse_args(argv)
 
-    # Load .env first so GOOGLE_* below resolve from it on the local-scheduler path
-    # (the CI path sets them as real env vars, which take precedence either way).
     load_dotenv()
 
-    # Secrets / infra identifiers come from the environment, never CLI flags.
     service_account_json = Path(os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip())
     folder_id = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "").strip()
 
@@ -259,8 +230,6 @@ def validate_inputs(args: DriveSyncArgs) -> None:
 
 
 def build_run_config(args: DriveSyncArgs) -> RunArgs:
-    # input_path is unused by process_single_class (it takes the zip explicitly); set
-    # it to the output dir so the RunArgs contract is satisfied without a sentinel.
     return RunArgs(
         input_path=args.output_dir,
         output_dir=args.output_dir,

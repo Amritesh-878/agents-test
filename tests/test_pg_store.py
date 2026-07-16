@@ -32,9 +32,6 @@ def make_record(
     )
 
 
-# --- upsert_chunks ---
-
-
 def test_upsert_calls_execute_for_each_record() -> None:
     store, mock_conn = make_store()
     mock_cursor = MagicMock()
@@ -55,9 +52,6 @@ def test_upsert_empty_returns_zero() -> None:
     mock_conn.cursor.assert_not_called()
 
 
-# --- delete_class_chunks ---
-
-
 def test_delete_class_chunks_executes_delete() -> None:
     store, mock_conn = make_store()
     mock_cursor = MagicMock()
@@ -75,9 +69,6 @@ def test_delete_class_chunks_executes_delete() -> None:
     mock_conn.commit.assert_called_once()
 
 
-# --- delete_student_material_chunks ---
-
-
 def test_delete_student_material_chunks_scoped_to_material() -> None:
     store, mock_conn = make_store()
     mock_cursor = MagicMock()
@@ -93,9 +84,6 @@ def test_delete_student_material_chunks_scoped_to_material() -> None:
     assert "student_id = %s" in sql
     assert params == ("CS101", "2301")
     mock_conn.commit.assert_called_once()
-
-
-# --- search ---
 
 
 def test_search_returns_search_results() -> None:
@@ -128,7 +116,6 @@ def test_search_pushes_chunk_type_filter_into_sql() -> None:
 
     sql, params = mock_cursor.execute.call_args.args
     assert "chunk_type = ANY(%s)" in sql
-    # types array is passed as a parameter (not interpolated), preserving the LIMIT.
     assert params == ([0.1, 0.2, 0.3], "2301", ["spoken"], 5)
 
 
@@ -157,7 +144,6 @@ def test_search_pushes_class_name_filter_into_sql() -> None:
 
     sql, params = mock_cursor.execute.call_args.args
     assert "class_name = %s" in sql
-    # class_name is bound as a parameter (between student_id and the LIMIT).
     assert params == ([0.1, 0.2, 0.3], "2301", "CS101", 5)
 
 
@@ -265,9 +251,6 @@ def test_search_lexical_pushes_class_name_filter() -> None:
     assert params == ("2301", "CS101", "worksheet", "worksheet", 5)
 
 
-# --- get_student_chunks ---
-
-
 def test_get_student_chunks_no_distance() -> None:
     import json
 
@@ -283,9 +266,6 @@ def test_get_student_chunks_no_distance() -> None:
     assert len(chunks) == 1
     assert chunks[0].distance == 0.0
     assert chunks[0].chunk_type == "missed"
-
-
-# --- get_student_name ---
 
 
 def test_get_student_name_returns_name() -> None:
@@ -309,9 +289,6 @@ def test_get_student_name_missing_returns_none() -> None:
     mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
 
     assert store.get_student_name("9999") is None
-
-
-# --- list_students ---
 
 
 def test_list_students_returns_distinct_pairs() -> None:
@@ -369,9 +346,6 @@ def test_list_student_class_pairs_skips_null_class() -> None:
     assert store.list_student_class_pairs() == []
 
 
-# --- list_student_classes ---
-
-
 def test_list_student_classes_returns_ordered_class_names() -> None:
     store, mock_conn = make_store()
     mock_cursor = MagicMock()
@@ -397,25 +371,16 @@ def test_list_student_classes_empty_returns_empty_list() -> None:
     assert store.list_student_classes("9999") == []
 
 
-# --- close ---
-
-
 def test_close_calls_connection_close() -> None:
     store, mock_conn = make_store()
     store.close()
     mock_conn.close.assert_called_once()
 
 
-# --- connect_pg_store (import check) ---
-
-
 def test_connect_pg_store_is_callable() -> None:
     from scripts.utils.pg_store import connect_pg_store
 
     assert callable(connect_pg_store)
-
-
-# --- log_query / fetch_query_stats (TASK-022 telemetry) ---
 
 
 def _cursor_store() -> tuple[PgVectorStore, MagicMock, MagicMock]:

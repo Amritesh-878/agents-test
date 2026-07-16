@@ -1,9 +1,3 @@
-"""Student-scoped pgvector retrieval.
-
-Note: this module's CLI is an unauthenticated *local dev/debug tool* that trusts
-``--student-id`` directly. The authenticated entry point for students is
-``scripts.chat`` (which derives the id from login); do not expose this CLI.
-"""
 
 from __future__ import annotations
 
@@ -199,11 +193,6 @@ def build_context_string(
 
 
 class QueryEmbedder:
-    """Lazily load a sentence-transformer once and reuse it across queries.
-
-    Constructing ``SentenceTransformer`` reloads ~80 MB from disk, so a long-lived
-    embedder (e.g. one per chat session) avoids paying that cost on every turn.
-    """
 
     def __init__(self, model_name: str = DEFAULT_EMBEDDING_MODEL) -> None:
         self.model_name = model_name

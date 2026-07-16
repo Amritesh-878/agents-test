@@ -29,11 +29,6 @@ from scripts.models.transcript import (
 )
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
 def seg(start: float, end: float, text: str) -> TranscriptSegment:
     return TranscriptSegment(start=start, end=end, text=text)
 
@@ -54,11 +49,6 @@ def dummy_identity_map(teacher: str = "Teacher") -> IdentityMap:
     return IdentityMap(teacher_name=teacher)
 
 
-# ---------------------------------------------------------------------------
-# _word_overlap_ratio
-# ---------------------------------------------------------------------------
-
-
 def test_word_overlap_ratio_identical() -> None:
     assert _word_overlap_ratio("hello world", "hello world") == 1.0
 
@@ -77,11 +67,6 @@ def test_word_overlap_ratio_empty() -> None:
     assert _word_overlap_ratio("hello", "") == 0.0
 
 
-# ---------------------------------------------------------------------------
-# detect_alignment
-# ---------------------------------------------------------------------------
-
-
 def test_alignment_session_aligned() -> None:
     student_segs = [seg(10.0, 15.0, "hello world")]
     session_segs = [seg(10.5, 15.0, "hello world")]
@@ -92,9 +77,6 @@ def test_alignment_session_aligned() -> None:
 
 
 def test_alignment_duration_mismatch_still_session_aligned() -> None:
-    # Duration mismatch (student only has 5s of segments, session is 305s)
-    # Text-matching produced false 987.5s offsets on real data, so we now
-    # conservatively assume session_aligned with uncertain=True.
     student_segs = [seg(0.0, 5.0, "hello world")]
     session_segs = [seg(0.0, 305.0, "hello world")]
     result = detect_alignment(student_segs, session_segs)
@@ -116,17 +98,11 @@ def test_alignment_empty_student_uncertain() -> None:
 
 
 def test_alignment_blank_text_session_aligned_by_duration() -> None:
-    # Same duration -> session_aligned via duration check (doesn't need text)
     student_segs = [seg(0.0, 5.0, "   ")]
     session_segs = [seg(0.0, 5.0, "something")]
     result = detect_alignment(student_segs, session_segs)
     assert result.mode == "session_aligned"
     assert result.offset == 0.0
-
-
-# ---------------------------------------------------------------------------
-# build_speech_events
-# ---------------------------------------------------------------------------
 
 
 def test_build_speech_events_no_offset() -> None:
@@ -161,11 +137,6 @@ def test_build_speech_events_muted_student() -> None:
     assert events == []
 
 
-# ---------------------------------------------------------------------------
-# _cluster_events
-# ---------------------------------------------------------------------------
-
-
 def test_cluster_no_overlap() -> None:
     events = [event(0.0, 5.0, "A"), event(6.0, 10.0, "B")]
     clusters = _cluster_events(events)
@@ -184,15 +155,9 @@ def test_cluster_empty() -> None:
 
 
 def test_cluster_adjacent_not_merged() -> None:
-    # End of A == start of B → no overlap → separate clusters
     events = [event(0.0, 5.0, "A"), event(5.0, 10.0, "B")]
     clusters = _cluster_events(events)
     assert len(clusters) == 2
-
-
-# ---------------------------------------------------------------------------
-# build_merged_segments — speaker attribution + text replacement
-# ---------------------------------------------------------------------------
 
 
 def test_merged_single_student() -> None:
@@ -228,7 +193,7 @@ def test_merged_gap_filled_with_session() -> None:
     per_student = [s for s in result if s.source == "per_student"]
     fallbacks = [s for s in result if s.source == "session_fallback"]
     assert len(per_student) == 2
-    assert len(fallbacks) >= 1  # gap [3,7] filled with session
+    assert len(fallbacks) >= 1
 
 
 def test_merged_session_spans_two_sequential_events() -> None:
@@ -250,7 +215,6 @@ def test_merged_muted_student_no_crash() -> None:
 
 def test_merged_multi_speaker_primary_has_most_overlap() -> None:
     session_segs = [seg(0.0, 10.0, "session")]
-    # Alice covers 0-8 (8s), Bob covers 7-10 (3s) — Alice is primary
     events = [event(0.0, 8.0, "Alice", "alice text"), event(7.0, 10.0, "Bob", "bob text")]
     result = build_merged_segments(session_segs, events)
     multi = [s for s in result if s.source == "per_student"]
@@ -266,11 +230,6 @@ def test_merged_session_fallback_text_used_for_gaps() -> None:
     assert any("session text" in s.text for s in fallbacks)
 
 
-# ---------------------------------------------------------------------------
-# compute_merge_metadata
-# ---------------------------------------------------------------------------
-
-
 def test_compute_metadata_counts() -> None:
     from scripts.models.transcript import MergedSegment
 
@@ -284,11 +243,6 @@ def test_compute_metadata_counts() -> None:
     assert meta.per_student_segments == 2
     assert meta.session_fallback_segments == 1
     assert meta.multi_speaker_segments == 1
-
-
-# ---------------------------------------------------------------------------
-# format_review_md
-# ---------------------------------------------------------------------------
 
 
 def _make_merged_doc() -> MergedTranscriptDocument:
@@ -330,11 +284,6 @@ def test_review_md_contains_stats() -> None:
     assert "Per-student" in md
 
 
-# ---------------------------------------------------------------------------
-# merge_all integration
-# ---------------------------------------------------------------------------
-
-
 def test_merge_all_single_student() -> None:
     session = doc([seg(0.0, 10.0, "hello world"), seg(10.0, 20.0, "goodbye")])
     student = doc([seg(0.0, 10.0, "hello world")])
@@ -352,11 +301,6 @@ def test_merge_all_no_students() -> None:
     result = merge_all(session, {}, imap, "TestClass")
     assert all(s.source == "session_fallback" for s in result.segments)
     assert result.speakers == []
-
-
-# ---------------------------------------------------------------------------
-# validate_inputs
-# ---------------------------------------------------------------------------
 
 
 def test_validate_inputs_missing_session(tmp_path: Path) -> None:
@@ -383,19 +327,12 @@ def test_validate_inputs_missing_identity_map(tmp_path: Path) -> None:
         validate_inputs(args)
 
 
-# ---------------------------------------------------------------------------
-# Hallucination filter (is_hallucinated_segment)
-# ---------------------------------------------------------------------------
-
-
 def test_hallucination_detected_repeated_word() -> None:
-    # "अपने" repeated 10 times — classic Whisper silence artifact
     words = ["अपने"] * 10
     assert is_hallucinated_segment(words) is True
 
 
 def test_hallucination_not_triggered_short_segment() -> None:
-    # Fewer than 8 words — too short to call hallucination
     assert is_hallucinated_segment(["yes"] * 5) is False
 
 
@@ -405,13 +342,11 @@ def test_hallucination_not_triggered_real_speech() -> None:
 
 
 def test_hallucination_real_repetition_edge() -> None:
-    # 8 of 10 identical = 80% > threshold(0.7) → hallucination
     words = ["yes"] * 8 + ["okay", "right"]
     assert is_hallucinated_segment(words) is True
 
 
 def test_alignment_real_world_same_duration() -> None:
-    # Simulate Zoom cloud recording: both student and session end at ~1027s
     student_segs = [seg(0.0, 1027.6, "kya karein aur kaise")]
     session_segs = [seg(0.0, 1027.6, "completely different text here")]
     result = detect_alignment(student_segs, session_segs)

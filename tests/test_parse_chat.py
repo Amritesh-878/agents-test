@@ -20,11 +20,10 @@ def test_public_messages_are_parsed(tmp_path: Path) -> None:
     assert [m.sender for m in messages] == ["A_Kalyani_2511", "A_Siddhi_2524"]
     assert messages[0].text == "can I get the code please"
     assert messages[0].timestamp_seconds == 0.0
-    assert messages[1].timestamp_seconds == 10.0  # 14:14:51 - 14:14:41
+    assert messages[1].timestamp_seconds == 10.0
 
 
 def test_direct_messages_are_dropped(tmp_path: Path) -> None:
-    # THE privacy invariant: a private DM must never be returned.
     chat = write_chat(
         tmp_path / "chat.txt",
         "14:44:34\t From A_Swarnima_2527  to  Nisha(direct message) : my private answer 25 litres\n"
@@ -38,7 +37,6 @@ def test_direct_messages_are_dropped(tmp_path: Path) -> None:
 
 
 def test_direct_message_continuation_lines_are_also_dropped(tmp_path: Path) -> None:
-    # A multi-line DM: the continuation line has no header and must not leak.
     chat = write_chat(
         tmp_path / "chat.txt",
         "10:00:00\t From A_Disha_2504  to  A_Sanaya(direct message) : secret line one\n"

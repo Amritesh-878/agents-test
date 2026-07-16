@@ -82,7 +82,6 @@ def test_cross_encoder_reorders_by_score_and_loads_once(monkeypatch: pytest.Monk
     first = reranker.rerank("q1", candidates)
     assert [c.result.chunk_id for c in first] == ["b", "c", "a"]
     assert {c.result.chunk_id for c in first} == {"a", "b", "c"}
-    # cross-encoder logits pass through a sigmoid to [0, 1] and descend with rank
     assert all(c.rerank_score is not None and 0.0 <= c.rerank_score <= 1.0 for c in first)
     scores = [c.rerank_score for c in first if c.rerank_score is not None]
     assert len(scores) == 3

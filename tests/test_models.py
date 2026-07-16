@@ -19,9 +19,6 @@ from scripts.models.transcript import (
 )
 
 
-# --- TranscriptWord ---
-
-
 def test_transcript_word_construction() -> None:
     word = TranscriptWord(start=0.0, end=1.5, word="hello", score=0.98)
     assert word.word == "hello"
@@ -38,9 +35,6 @@ def test_transcript_word_missing_required_fields() -> None:
         TranscriptWord(start=0.0, end=1.0)  # type: ignore[call-arg]
 
 
-# --- TranscriptSegment ---
-
-
 def test_transcript_segment_construction() -> None:
     seg = TranscriptSegment(start=0.0, end=5.0, text="Hello world")
     assert seg.text == "Hello world"
@@ -53,9 +47,6 @@ def test_transcript_segment_with_words() -> None:
     seg = TranscriptSegment(start=0.0, end=1.0, text="hello", words=[word], language="en")
     assert len(seg.words) == 1
     assert seg.language == "en"
-
-
-# --- TranscriptDocument ---
 
 
 def test_transcript_document_construction() -> None:
@@ -72,9 +63,6 @@ def test_transcript_document_round_trip() -> None:
     restored = TranscriptDocument.model_validate(data)
     assert restored.language == "en"
     assert len(restored.segments) == 1
-
-
-# --- DualLanguageWord ---
 
 
 def test_dual_language_word_construction() -> None:
@@ -94,9 +82,6 @@ def test_dual_language_word_score_comparison() -> None:
     assert hi.score > en.score
 
 
-# --- RosterEntry ---
-
-
 def test_roster_entry_construction() -> None:
     entry = RosterEntry(name="Ansh Jain", roll_no="2022", email="ajain@example.com")
     assert entry.roll_no == "2022"
@@ -110,9 +95,6 @@ def test_roster_entry_leading_zero_roll_no() -> None:
 def test_roster_entry_missing_email() -> None:
     with pytest.raises(ValidationError):
         RosterEntry(name="Alice", roll_no="1234")  # type: ignore[call-arg]
-
-
-# --- AttendanceRecord ---
 
 
 def test_attendance_record_construction() -> None:
@@ -137,9 +119,6 @@ def test_attendance_record_tags() -> None:
     assert "short_duration" in rec.tags
 
 
-# --- AudioFileIdentity ---
-
-
 def test_audio_file_identity_construction() -> None:
     af = AudioFileIdentity(filename="audio_Ansh_202212345.m4a", roll_no_4digit="2022")
     assert af.roll_no_4digit == "2022"
@@ -151,9 +130,6 @@ def test_audio_file_identity_all_none() -> None:
     assert af.extracted_number is None
     assert af.roll_no_4digit is None
     assert af.display_name is None
-
-
-# --- StudentIdentity ---
 
 
 def test_student_identity_from_roster() -> None:
@@ -170,9 +146,6 @@ def test_student_identity_from_audio_file() -> None:
 def test_student_identity_invalid_source() -> None:
     with pytest.raises(ValidationError):
         StudentIdentity(name="X", source="unknown")  # type: ignore[arg-type]
-
-
-# --- MatchResult ---
 
 
 def test_match_result_roll_no_match() -> None:
@@ -197,9 +170,6 @@ def test_match_result_invalid_method() -> None:
         MatchResult(audio_file="x.m4a", method="exact", confidence=1.0)  # type: ignore[arg-type]
 
 
-# --- PipelineConfig ---
-
-
 def test_pipeline_config_construction(tmp_path: pytest.TempPathFactory) -> None:
     config = PipelineConfig(input_path=tmp_path, output_dir=tmp_path)  # type: ignore[arg-type]
     assert config.teacher_names == []
@@ -216,9 +186,6 @@ def test_pipeline_config_full(tmp_path: pytest.TempPathFactory) -> None:
     )
     assert config.single_language == "en"
     assert config.teacher_names == ["Dr. Smith"]
-
-
-# --- ClassSession ---
 
 
 def test_class_session_construction(tmp_path: pytest.TempPathFactory) -> None:

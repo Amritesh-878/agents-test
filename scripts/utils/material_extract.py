@@ -1,9 +1,3 @@
-"""Pure text extractors for class materials (.pptx / .pdf / .docx / .txt / .md).
-
-Deterministic file parsing only — no network, no GPU. Each extractor returns
-``(source_filename, block_text)`` pairs; blocks that fail the shared quality
-gate (empty slides, boilerplate) are dropped before they reach embedding.
-"""
 
 from __future__ import annotations
 
@@ -33,7 +27,6 @@ def _finalize_blocks(path: Path, raw_blocks: Iterable[str]) -> list[MaterialBloc
 
 
 def extract_pptx(path: Path) -> list[MaterialBlock]:
-    """One block per slide: all shape text plus the slide's speaker notes."""
     from pptx import Presentation
     from pptx.exc import PackageNotFoundError
 
@@ -52,7 +45,6 @@ def extract_pptx(path: Path) -> list[MaterialBlock]:
 
 
 def extract_pdf(path: Path) -> list[MaterialBlock]:
-    """One block per page."""
     from pypdf import PdfReader
     from pypdf.errors import PyPdfError
 
@@ -65,9 +57,6 @@ def extract_pdf(path: Path) -> list[MaterialBlock]:
 
 
 def extract_docx(path: Path) -> list[MaterialBlock]:
-    """Consecutive non-empty paragraphs form one block (split on blank paragraphs),
-    so short bullet lines stay grouped with their section instead of being dropped
-    one-by-one by the quality gate."""
     from docx import Document
     from docx.opc.exceptions import PackageNotFoundError
 
@@ -102,7 +91,6 @@ def extract_docx(path: Path) -> list[MaterialBlock]:
 
 
 def extract_txt(path: Path) -> list[MaterialBlock]:
-    """Plain text / markdown: blocks are paragraphs separated by blank lines."""
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError as exc:
@@ -134,7 +122,6 @@ def extract_material_file(path: Path) -> list[MaterialBlock]:
 
 
 def extract_materials_dir(materials_dir: Path) -> list[MaterialBlock]:
-    """Extract every supported file in the folder (non-recursive), sorted by name."""
     if not materials_dir.is_dir():
         raise MaterialExtractError(f"Materials folder not found: {materials_dir}")
     paths = sorted(

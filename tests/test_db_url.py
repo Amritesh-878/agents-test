@@ -10,7 +10,6 @@ from scripts.utils.db_url import resolve_db_url
 
 @pytest.fixture(autouse=True)
 def _no_dotenv(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Isolate from any real .env on disk so env assertions are deterministic.
     monkeypatch.setattr(db_url_mod, "load_dotenv", lambda *a, **k: False)
 
 

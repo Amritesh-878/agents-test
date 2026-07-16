@@ -94,7 +94,7 @@ class DriveFileResult(BaseModel):
     drive_file_id: str
     name: str
     class_name: str
-    status: str  # "processed" | "skipped_duplicate" | "failed"
+    status: str
     error: str | None = None
 
 

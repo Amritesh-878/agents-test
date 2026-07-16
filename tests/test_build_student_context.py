@@ -60,9 +60,6 @@ def cseg(
     )
 
 
-# --- Helpers ---
-
-
 def make_transcript(
     segments: list[tuple[float, float, str, list[str]]] | None = None,
     duration: float = 3600.0,
@@ -112,18 +109,12 @@ def make_roster(name: str = "Anshi Kumar", roll_no: str = "2301") -> RosterEntry
     return RosterEntry(name=name, roll_no=roll_no, email=f"{roll_no}@example.com")
 
 
-# --- merged_seg_to_context ---
-
-
 def test_merged_seg_to_context() -> None:
     seg = MergedSegment(start=0.0, end=5.0, text="hello", speakers=["Alice"], source="per_student")
     ctx_seg = merged_seg_to_context(seg)
     assert ctx_seg.text == "hello"
     assert ctx_seg.speakers == ["Alice"]
     assert ctx_seg.start == 0.0
-
-
-# --- full_transcript_text ---
 
 
 def test_full_transcript_text() -> None:
@@ -138,24 +129,19 @@ def test_full_transcript_text_empty() -> None:
     assert full_transcript_text(transcript) == ""
 
 
-# --- build_present_context ---
-
-
 def test_build_present_full_attendance() -> None:
     transcript = make_transcript(
         [(0, 10, "hello", ["Anshi"]), (10, 20, "world", ["Anshi"])], duration=20.0
     )
     entry = make_entry(matched_name="Anshi", matched_roll_no="2301")
     student = make_roster()
-    att = {"2301": AttendanceRecord(name="Anshi", roll_no="2301", duration_minutes=0.34)}  # ~20s
+    att = {"2301": AttendanceRecord(name="Anshi", roll_no="2301", duration_minutes=0.34)}
     ctx = build_present_context(student, entry, transcript, att, ["recursion"])
     assert ctx.status == "present"
     assert len(ctx.missed_segments) == 0
 
 
 def test_build_present_early_leave() -> None:
-    # Student attended first 15s of a 30s class (left early), so segment at t=20-30 is missed.
-    # With duration-only attendance, window_end = duration_minutes * 60 = 15s.
     transcript = make_transcript(
         [(0, 10, "attended", ["Anshi"]), (20, 30, "missed_this", ["Other"])], duration=30.0
     )
@@ -179,10 +165,6 @@ def test_build_present_spoken_segments() -> None:
 
 
 def test_build_present_spoken_excludes_non_primary_overlap() -> None:
-    # An overlapping cluster lists EVERY overlapping speaker in `speakers`, but the
-    # segment TEXT is only the primary (speakers[0], longest overlap) speaker's words.
-    # A student who merely overlaps (non-primary) must NOT be credited with the primary's
-    # words — that was the peer-content co-mingling bug (eval Finding B).
     transcript = make_transcript(
         [
             (0, 5, "anshi is primary here", ["Anshi", "Bob"]),
@@ -194,8 +176,8 @@ def test_build_present_spoken_excludes_non_primary_overlap() -> None:
     student = make_roster()
     ctx = build_present_context(student, entry, transcript, {}, [])
     spoken_texts = [s.text for s in ctx.spoken_segments]
-    assert spoken_texts == ["anshi is primary here"]  # only the segment Anshi leads
-    assert "bob is primary here" not in spoken_texts  # peer-led overlap excluded
+    assert spoken_texts == ["anshi is primary here"]
+    assert "bob is primary here" not in spoken_texts
 
 
 def test_build_present_no_speech() -> None:
@@ -217,7 +199,7 @@ def test_build_present_no_attendance_flags_missed_unknown() -> None:
     student = make_roster()
     ctx = build_present_context(student, entry, transcript, {}, [])
     assert MISSED_UNKNOWN_TAG in ctx.tags
-    assert len(ctx.missed_segments) == 0  # still empty, but now explicitly flagged
+    assert len(ctx.missed_segments) == 0
 
 
 def test_build_present_with_attendance_has_no_missed_unknown_flag() -> None:
@@ -229,9 +211,6 @@ def test_build_present_with_attendance_has_no_missed_unknown_flag() -> None:
     att = {"2301": AttendanceRecord(name="Anshi", roll_no="2301", duration_minutes=0.34)}
     ctx = build_present_context(student, entry, transcript, att, [])
     assert MISSED_UNKNOWN_TAG not in ctx.tags
-
-
-# --- build_absent_summary ---
 
 
 def test_build_absent_summary() -> None:
@@ -252,12 +231,7 @@ def test_absent_summary_no_segments() -> None:
     assert not hasattr(summary, "spoken_segments")
 
 
-# --- build_context_document ---
-
-
 def test_unmatched_entries_are_not_embedded() -> None:
-    # An unmatched M4A (no usable roll) must NOT become a present student, because its
-    # student_id would be the raw filename — unusable for login and noise in the demo.
     transcript = make_transcript([(0, 5, "hello", ["UNKNOWN"])], duration=10.0)
     unmatched = IdentityMapEntry(
         audio_file="audioUnknown_99991234.m4a",
@@ -319,9 +293,6 @@ def test_context_document_round_trip() -> None:
     assert restored.class_name == doc.class_name
 
 
-# --- chat attribution + isolation ---
-
-
 def _chat_roster() -> list[RosterEntry]:
     return [
         RosterEntry(name="Anshi Kumar", roll_no="2301", email=""),
@@ -341,9 +312,7 @@ def test_attribute_chat_routes_to_each_sender_only() -> None:
 
     assert [s.text for s in chat_by_roll["2301"]] == ["anshi typed this"]
     assert [s.text for s in chat_by_roll["2302"]] == ["bhagya typed this"]
-    # Teacher / unknown senders are not attributed to anyone.
     assert "teacher msg dropped" not in {s.text for segs in chat_by_roll.values() for s in segs}
-    # Isolation: Anshi's chat is never in Bhagyashree's bucket.
     assert "anshi typed this" not in {s.text for s in chat_by_roll["2302"]}
 
 
@@ -363,10 +332,9 @@ def test_present_student_gets_own_chat_segment() -> None:
 
 
 def test_chat_only_student_becomes_present_not_absent() -> None:
-    # A roster student with NO audio but who typed in chat must get a bot (the whole point).
     transcript = make_transcript([(0, 5, "teacher talk", ["Dr Smith"])], duration=10.0)
     roster = [make_roster("Bhavna Rao", "2350")]
-    imap = IdentityMap(teacher_name="Dr Smith")  # no audio entries at all
+    imap = IdentityMap(teacher_name="Dr Smith")
     teacher_doc = make_teacher_doc([(0, 10, "today we cover supply and demand")])
     messages = [
         ChatMessage(time_str="00:00:04", timestamp_seconds=4.0, sender="Bhavna_2350", text="is supply upward sloping?")
@@ -379,7 +347,6 @@ def test_chat_only_student_becomes_present_not_absent() -> None:
     assert ctx.status == "present"
     assert "chat_only_no_audio" in ctx.tags
     assert [s.text for s in ctx.chat_segments] == ["is supply upward sloping?"]
-    # They still get the teacher's class context (what was taught).
     assert any("supply and demand" in s.text for s in ctx.present_segments)
     assert ctx.spoken_segments == []
 
@@ -530,12 +497,11 @@ def test_student_without_chat_stays_absent() -> None:
 
 
 def test_skip_absent_summaries_drops_only_pure_absent_students() -> None:
-    # Roster: one audio student, one chat-only student, one pure-absent student.
     transcript = make_transcript([(0, 5, "spoken by anshi", ["Anshi"])], duration=10.0)
     roster = [
-        make_roster("Anshi Kumar", "2301"),  # has audio -> present
-        make_roster("Bhavna Rao", "2350"),  # chat only -> present
-        make_roster("Silent Sam", "2360"),  # no audio, no chat -> pure absent
+        make_roster("Anshi Kumar", "2301"),
+        make_roster("Bhavna Rao", "2350"),
+        make_roster("Silent Sam", "2360"),
     ]
     entry = make_entry(matched_name="Anshi", matched_roll_no="2301")
     imap = IdentityMap(teacher_name="Dr Smith", entries=[entry])
@@ -546,15 +512,11 @@ def test_skip_absent_summaries_drops_only_pure_absent_students() -> None:
         transcript, imap, roster, [], ["topic"], None, messages, skip_absent_summaries=True
     )
 
-    # Pure-absent student is suppressed; present + chat-only students are unaffected.
     assert doc.absent_students == {}
-    assert "2301" in doc.present_students  # audio student
-    assert "2350" in doc.present_students  # chat-only student (not dropped)
+    assert "2301" in doc.present_students
+    assert "2350" in doc.present_students
     assert "chat_only_no_audio" in doc.present_students["2350"].tags
-    assert "2360" not in doc.present_students  # pure-absent, not promoted anywhere
-
-
-# --- teacher_segments_from_transcript ---
+    assert "2360" not in doc.present_students
 
 
 def test_teacher_segments_from_transcript_maps_and_attributes() -> None:
@@ -573,9 +535,6 @@ def test_teacher_segments_from_transcript_skips_blank() -> None:
     assert segs[0].text == "real content here"
 
 
-# --- class_context_text ---
-
-
 def test_class_context_text_prefers_teacher() -> None:
     transcript = make_transcript([(0, 10, "noisy mixed mp4 text", ["UNKNOWN"])], duration=10.0)
     teacher_doc = make_teacher_doc([(0, 10, "clean teacher words")])
@@ -590,11 +549,7 @@ def test_class_context_text_falls_back_to_merged() -> None:
     assert "merged timeline text" in text
 
 
-# --- build_present_context: teacher M4A as primary class-context source ---
-
-
 def test_build_present_teacher_plus_own_only() -> None:
-    # Merged timeline mixes the student's own speech, a peer, and noisy session fallback.
     transcript = make_transcript(
         [
             (0, 5, "anshi own answer", ["Anshi"]),
@@ -606,26 +561,22 @@ def test_build_present_teacher_plus_own_only() -> None:
     entry = make_entry(matched_name="Anshi", matched_roll_no="2301")
     student = make_roster()
     teacher_segs = [cseg(0, 30, "teacher explains the topic")]
-    att = {"2301": AttendanceRecord(name="Anshi", roll_no="2301", duration_minutes=0.5)}  # 30s
+    att = {"2301": AttendanceRecord(name="Anshi", roll_no="2301", duration_minutes=0.5)}
     ctx = build_present_context(student, entry, transcript, att, [], teacher_segs)
 
     present_texts = [s.text for s in ctx.present_segments]
     assert "teacher explains the topic" in present_texts
-    assert "anshi own answer" in present_texts  # student's own contribution kept
-    assert "peer bob speaks" not in present_texts  # peer excluded
-    assert "noisy mp4 fallback" not in present_texts  # session fallback excluded
-    # spoken is unaffected — still derived from the merged timeline by primary speaker
+    assert "anshi own answer" in present_texts
+    assert "peer bob speaks" not in present_texts
+    assert "noisy mp4 fallback" not in present_texts
     assert [s.text for s in ctx.spoken_segments] == ["anshi own answer"]
 
 
 def test_build_present_teacher_segments_past_window_land_in_missed() -> None:
-    # Teacher track runs PAST class_duration/window_end (offset-0 shared-clock edge).
-    # Late teacher segments must land in `missed` without crashing.
     transcript = make_transcript([(0, 5, "anshi own answer", ["Anshi"])], duration=20.0)
     entry = make_entry(matched_name="Anshi", matched_roll_no="2301")
     student = make_roster()
     teacher_segs = [cseg(0, 10, "during class"), cseg(25, 35, "after the session ended")]
-    # No attendance -> window_end = class_duration = 20s.
     ctx = build_present_context(student, entry, transcript, {}, [], teacher_segs)
 
     present_texts = [s.text for s in ctx.present_segments]
@@ -635,7 +586,6 @@ def test_build_present_teacher_segments_past_window_land_in_missed() -> None:
 
 
 def test_build_present_fallback_parity_without_teacher() -> None:
-    # teacher_segments=None -> identical to pre-teacher behavior (full merged timeline).
     transcript = make_transcript(
         [(0, 5, "anshi own answer", ["Anshi"]), (5, 10, "peer bob speaks", ["Bob"])],
         duration=20.0,
@@ -645,13 +595,7 @@ def test_build_present_fallback_parity_without_teacher() -> None:
     ctx = build_present_context(student, entry, transcript, {}, [], None)
     present_texts = [s.text for s in ctx.present_segments]
     assert "anshi own answer" in present_texts
-    assert "peer bob speaks" in present_texts  # peer present in fallback mode
-
-
-# --- build_unmatched_context with teacher segments ---
-
-
-# --- build_context_document: teacher-primary end-to-end ---
+    assert "peer bob speaks" in present_texts
 
 
 def test_build_context_document_teacher_primary() -> None:
@@ -690,10 +634,7 @@ def test_build_context_document_no_teacher_doc_is_fallback() -> None:
     imap = IdentityMap(teacher_name="Dr Smith", entries=[entry])
     doc = build_context_document(transcript, imap, roster, [], [], None)
     present_texts = [s.text for s in doc.present_students["2301"].present_segments]
-    assert "peer bob speaks" in present_texts  # full merged timeline when no teacher M4A
-
-
-# --- dedup helpers ---
+    assert "peer bob speaks" in present_texts
 
 
 def test_dedup_exact_keeps_first_of_interleaved_repeats() -> None:
@@ -774,9 +715,6 @@ def test_attendance_only_merged_fallback_collapses_consecutive() -> None:
     doc = build_context_document(transcript, imap, roster, attendance, [], None)
     ctx = doc.present_students["2401"]
     assert [s.text for s in ctx.present_segments] == ["loop", "distinct", "loop"]
-
-
-# --- name-only attendance resolution (build_context_document) ---
 
 
 def test_roll_less_attendance_name_resolves_to_presence() -> None:
