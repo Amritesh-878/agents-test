@@ -27,6 +27,25 @@ from scripts.utils.class_date import CLASS_DATE_RE
 _SESSION_SUFFIX_RE = re.compile(r"_s(\d+)$", re.IGNORECASE)
 _SUBJECT_TOKEN_RE = re.compile(r"^[A-Za-z]+\.\d+$")
 _AY_TOKEN_RE = re.compile(r"^AY\d{4}-\d{2}$", re.IGNORECASE)
+_AY_SPLIT_RE = re.compile(r"_\s*AY\d{2,4}-\d{2}", re.IGNORECASE)
+
+
+def section_of_class(class_name: str) -> str:
+    head = _AY_SPLIT_RE.split(class_name)[0]
+    section = " ".join(head.replace("_", " ").split())
+    return section or class_name
+
+
+def students_by_section(
+    pairs: Sequence[tuple[str, str, str]],
+) -> dict[str, list[tuple[str, str]]]:
+    grouped: dict[str, dict[str, str]] = {}
+    for student_id, student_name, class_name in pairs:
+        grouped.setdefault(section_of_class(class_name), {})[student_id] = student_name
+    return {
+        section: sorted(students.items(), key=lambda item: (item[1].lower(), item[0]))
+        for section, students in sorted(grouped.items())
+    }
 
 
 def session_display_label(class_name: str) -> str:

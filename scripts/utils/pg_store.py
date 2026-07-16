@@ -71,6 +71,12 @@ WHERE student_id = %s
 ORDER BY class_name
 """
 
+_LIST_STUDENT_CLASS_PAIRS_SQL = """
+SELECT DISTINCT student_id, student_name, class_name
+FROM embeddings
+ORDER BY student_name, student_id, class_name
+"""
+
 _COUNT_CHUNKS_SQL = "SELECT COUNT(*) FROM embeddings"
 
 
@@ -285,6 +291,16 @@ class PgVectorStore:
             cur.execute(_LIST_STUDENTS_SQL)
             rows = cur.fetchall()
         return [(str(sid), str(name)) for sid, name in rows]
+
+    def list_student_class_pairs(self) -> list[tuple[str, str, str]]:
+        with self._conn.cursor() as cur:
+            cur.execute(_LIST_STUDENT_CLASS_PAIRS_SQL)
+            rows = cur.fetchall()
+        return [
+            (str(sid), str(name), str(cname))
+            for sid, name, cname in rows
+            if cname
+        ]
 
     def list_student_classes(self, student_id: str) -> list[str]:
         """Return the distinct ``class_name`` (session) values for one student, ordered.

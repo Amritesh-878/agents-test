@@ -6,7 +6,13 @@ from typing import Any, Sequence
 from pathlib import Path
 
 from scripts.chat import ChatArgs, ChatService, PromptMessage, RetrievalBackend
-from scripts.demo_backend import answer_for_student, student_summary, top_score
+from scripts.demo_backend import (
+    answer_for_student,
+    section_of_class,
+    student_summary,
+    students_by_section,
+    top_score,
+)
 from scripts.embed_and_store import DEFAULT_EMBEDDING_MODEL
 from scripts.models.pipeline import SearchResult
 from scripts.retrieval import QueryEmbedder, RetrievalResult, RetrievedChunk
@@ -155,6 +161,50 @@ def test_top_score_picks_maximum() -> None:
 
 def test_top_score_none_when_no_scores() -> None:
     assert top_score(make_result([])) is None
+
+
+def test_section_of_class_english() -> None:
+    assert section_of_class("English.03_AY26-27_Sherlock Intro_1 Jul") == "English.03"
+
+
+def test_section_of_class_economics_four_digit_year() -> None:
+    assert (
+        section_of_class("Economics.02_AY2025-26_ Supply Function_16 April")
+        == "Economics.02"
+    )
+
+
+def test_section_of_class_math_with_section_letter() -> None:
+    assert (
+        section_of_class("Math.01_A _AY2025-26_Linear Equation Scaffolding_31 Mar")
+        == "Math.01 A"
+    )
+
+
+def test_section_of_class_falls_back_to_raw_name() -> None:
+    assert section_of_class("weird name") == "weird name"
+
+
+def test_students_by_section_groups_and_sorts_by_name() -> None:
+    pairs = [
+        ("2302", "Bhagyashree", "English.04_AY26-27_Austen letter 2_7 Jul"),
+        ("2302", "Bhagyashree", "Economics.02_AY2025-26_ Supply Function_16 April"),
+        ("2301", "anshi", "English.04_AY26-27_Austen letter 2_7 Jul"),
+        ("2408", "Saniya Gaur", "English.03_AY26-27_Sherlock Intro_1 Jul"),
+    ]
+    grouped = students_by_section(pairs)
+    assert list(grouped.keys()) == ["Economics.02", "English.03", "English.04"]
+    assert grouped["English.04"] == [("2301", "anshi"), ("2302", "Bhagyashree")]
+    assert grouped["Economics.02"] == [("2302", "Bhagyashree")]
+
+
+def test_students_by_section_dedups_repeated_pairs() -> None:
+    pairs = [
+        ("2301", "anshi", "English.04_AY26-27_Austen letter 2_7 Jul"),
+        ("2301", "anshi", "English.04_AY26-27_Cornell Notetaking_29 Jun"),
+    ]
+    grouped = students_by_section(pairs)
+    assert grouped == {"English.04": [("2301", "anshi")]}
 
 
 # --- answer_for_student ---

@@ -337,6 +337,36 @@ def test_list_students_empty_returns_empty_list() -> None:
     assert store.list_students() == []
 
 
+def test_list_student_class_pairs_returns_triples() -> None:
+    store, mock_conn = make_store()
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = [
+        ("2301", "anshi", "English.04_AY26-27_Cornell Notetaking_29 Jun"),
+        ("2302", "Bhagyashree", "Economics.02_AY2025-26_ Supply Function_16 April"),
+    ]
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    pairs = store.list_student_class_pairs()
+
+    assert pairs == [
+        ("2301", "anshi", "English.04_AY26-27_Cornell Notetaking_29 Jun"),
+        ("2302", "Bhagyashree", "Economics.02_AY2025-26_ Supply Function_16 April"),
+    ]
+    sql = mock_cursor.execute.call_args.args[0]
+    assert "DISTINCT" in sql and "class_name" in sql
+
+
+def test_list_student_class_pairs_skips_null_class() -> None:
+    store, mock_conn = make_store()
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = [("2301", "anshi", None)]
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    assert store.list_student_class_pairs() == []
+
+
 # --- list_student_classes ---
 
 
