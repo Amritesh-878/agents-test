@@ -1,203 +1,451 @@
 {
-  "description": "Golden QA set for RAG evaluation, grounded in the CURRENT pgvector store after the 2026-06-07 medium-model re-embed. student_id values are the roll numbers used as the store key. Cases were verified end-to-end (retrieval + Groq) against the live DB. Mix of self-referential (own spoken/chat, tight top_k), wrong-subject refusal, GENERAL class-content questions (non-self-referential, unfiltered so full class context is retrievable), and — added for TASK-021 — CONCEPT/'related' questions that ground on the authoritative 'material' chunks from TASK-019/020. NOTE ON THE CONCEPT CASES: any case with expected_chunk_types=['material'] stays RED until the owner ingests that class's materials (scripts.ingest_materials) into the live store, then GREEN; its required_concept_groups are relationship-level and grounded in determinants already verified in class_context — the owner must reconcile the concept groups + evidence_quotes to the real ingested slide/notes text before relying on the case, without loosening the prompt/top_k just to force a pass.",
-  "generated_from": [
-    "pgvector store after medium re-embed (docs/TRANSCRIPTION_COMPARISON_RESULTS.md)",
-    "scripts/run_pipeline.py --skip-transcribe --model medium with rosters C1 (Economics) / C3 (Math)",
-    "general-question expected concepts derived from live retrieved class_context (2026-07-03), not invented",
-    "concept cases (TASK-021) target the 'material' chunks from scripts.ingest_materials; owner reconciles material-grounded expectations against the ingested slide/notes text"
-  ],
-  "cases": [
-    {
-      "case_id": "saisha-self-referential-chat",
-      "student_id": "2521",
-      "student_name": "Saisha Shashikant Kadam",
-      "question": "What did I say or ask during class?",
-      "expected_answer_mode": "grounded_answer",
-      "chunk_types": ["spoken", "chat"],
-      "expected_chunk_types": ["chat"],
-      "required_concept_groups": [
-        ["20/11", "25", "20"]
-      ],
-      "evidence_quotes": [
-        "First I was getting 25 but now I am getting 20/11",
-        "Nisha , do we have to send our answers ?"
-      ],
-      "notes": "Self-referential phrasing scopes retrieval to the student's own spoken+chat chunks. Saisha mostly typed in chat; this confirms quiet-but-typing students still surface their own contributions."
-    },
-    {
-      "case_id": "saisha-wrong-subject-refusal",
-      "student_id": "2521",
-      "student_name": "Saisha Shashikant Kadam",
-      "question": "What did I say about the Balance of Payments?",
-      "expected_answer_mode": "insufficient_evidence",
-      "notes": "Balance of Payments is an Economics topic; Saisha is in Math. The bot must decline rather than borrow another class's content. Validates safe refusal + per-student isolation. (No trust-ack required: a clean wrong-subject refusal has no low-confidence flags to cite.)"
-    },
-    {
-      "case_id": "bhagyashree-intercept",
-      "student_id": "2302",
-      "student_name": "Bhagyashree",
-      "question": "What did I say about the intercept in the supply function?",
-      "expected_answer_mode": "grounded_answer",
-      "chunk_types": ["spoken", "chat"],
-      "expected_chunk_types": ["spoken"],
-      "required_concept_groups": [
-        ["intercept"],
-        ["negative"]
-      ],
-      "evidence_quotes": [
-        "Yeah, the intercept is it should be negative."
-      ],
-      "notes": "Bhagyashree's own spoken contribution on the supply-function intercept (medium transcript). Exercises a rich-content student's spoken chunks."
-    },
-    {
-      "case_id": "bhagyashree-negative-quantity",
-      "student_id": "2302",
-      "student_name": "Bhagyashree",
-      "question": "What did I say about quantity supplied being negative at low prices?",
-      "expected_answer_mode": "grounded_answer",
-      "chunk_types": ["spoken", "chat"],
-      "expected_chunk_types": ["spoken"],
-      "required_concept_groups": [
-        ["negative"]
-      ],
-      "evidence_quotes": [
-        "Quantity supply is negative 12"
-      ],
-      "notes": "Confirms the medium transcript captured Bhagyashree's worked example of the supply schedule at low prices."
-    },
-    {
-      "case_id": "swarnima-self-referential-worked-out",
-      "student_id": "2527",
-      "student_name": "Swarnima Avinash Shinde",
-      "question": "What numbers did I work out in class?",
-      "expected_answer_mode": "grounded_answer",
-      "chunk_types": ["spoken", "chat"],
-      "expected_chunk_types": ["chat"],
-      "required_concept_groups": [
-        ["12", "18"]
-      ],
-      "evidence_quotes": [
-        "Initial Number of girls- 12 new no. of girls- 18"
-      ],
-      "notes": "Natural contribution phrasing ('what numbers did I work out') beyond the canonical 'what did I say'. Exercises the broadened self-referential matcher: Swarnima only typed in chat, so this must scope to spoken+chat and surface her numbers (12 -> 18)."
-    },
-    {
-      "case_id": "saisha-general-what-covered",
-      "student_id": "2521",
-      "student_name": "Saisha Shashikant Kadam",
-      "question": "What did we cover in class today?",
-      "expected_answer_mode": "grounded_answer",
-      "required_concept_groups": [
-        ["worksheet", "problem", "problems"],
-        ["linear equation", "linear equations", "ratio", "time and work"]
-      ],
-      "evidence_quotes": [
-        "I am not going to solve all the 25 problems on the worksheet",
-        "one or two problems on time and work also which would help you to figure out the linear equation coverage"
-      ],
-      "notes": "GENERAL 'what did we cover' phrasing (uses 'we', not self-referential), so it stays unfiltered and widens to top_k=8. Grounded in Saisha's Math class_context (worksheet + linear-equation/time-and-work problems). Concepts taken from the live retrieved class_context, not invented."
-    },
-    {
-      "case_id": "saisha-general-teacher-instruction",
-      "student_id": "2521",
-      "student_name": "Saisha Shashikant Kadam",
-      "question": "What did the teacher ask us to do in class?",
-      "expected_answer_mode": "grounded_answer",
-      "required_concept_groups": [
-        ["solve", "answer", "answers"],
-        ["ratio", "worksheet", "equation", "warm"]
-      ],
-      "evidence_quotes": [
-        "your three minutes to go okay so what you need to do is based you base your logic here you correct your logic",
-        "i'm giving you ample time to solve seven minutes is enough time then when I say post the answer then only you post"
-      ],
-      "notes": "GENERAL 'what did the teacher ask us to do' instruction phrasing ('the teacher', 'us' -> not self-referential), widens to top_k=8. Grounded in the teacher's class_context instructions (solve the worksheet problems, post answers when told). Concepts from live retrieved class_context."
-    },
-    {
-      "case_id": "bhagyashree-general-determinants",
-      "student_id": "2302",
-      "student_name": "Bhagyashree",
-      "question": "What determinants of supply did the class talk about?",
-      "expected_answer_mode": "grounded_answer",
-      "required_concept_groups": [
-        ["tax", "taxes"],
-        ["technology"],
-        ["price of related goods", "related goods", "substitute", "complement"]
-      ],
-      "evidence_quotes": [
-        "taxes, then technology, price of related goods, it can be substitute goods"
-      ],
-      "notes": "GENERAL topic question about class content ('the class' -> not self-referential), widens to top_k=8. Grounded in Bhagyashree's Economics class_context on the determinants of supply (taxes, technology, price of related goods / substitutes / complements). Concepts from live retrieved class_context."
-    },
-    {
-      "case_id": "bhagyashree-concept-determinants-supply-link",
-      "student_id": "2302",
-      "student_name": "Bhagyashree",
-      "question": "How are the determinants of supply connected to the supply function?",
-      "expected_answer_mode": "grounded_answer",
-      "expected_chunk_types": ["material"],
-      "required_concept_groups": [
-        ["determinant", "determinants"],
-        ["supply function", "supply curve", "supply schedule", "supply equation"],
-        ["shift", "shifts", "change", "changes", "affect", "affects", "move", "moves"]
-      ],
-      "evidence_quotes": [
-        "DRAFT - reconcile against the ingested material chunk text after running scripts.ingest_materials: the class slides/notes list the determinants of supply (e.g. taxes, technology, price of related goods) and show how each shifts the supply function / curve."
-      ],
-      "source_artifacts": [
-        "materials/<Bhagyashree Economics class>/*.pptx|pdf|docx (ingested via scripts.ingest_materials as chunk_type=material)"
-      ],
-      "notes": "THE concept case Nisha broke on in the 2026-07 eval: a 'related' question the noisy transcript alone could not answer, now expected to be answered from the class's authoritative material (TASK-019 ingestion + TASK-020 materials-aware prompt). expected_chunk_types=['material'] makes this a hard regression guard: it stays RED until the owner ingests this class's materials into the live store, then GREEN. required_concept_groups are deliberately relationship-level (a determinant shifts/affects the supply function) and grounded in the determinants already verified in class_context (see bhagyashree-general-determinants), not invented slide text; the owner should tighten the concept groups + evidence_quotes to the real ingested material after the live run, without loosening prompt/top_k to force a pass. A correct answer must ATTRIBUTE the material ('the class material / slides say...') per TASK-020."
-    },
-    {
-      "case_id": "bhagyashree-concept-not-in-source-refusal",
-      "student_id": "2302",
-      "student_name": "Bhagyashree",
-      "question": "How is GDP calculated, and what are the components of national income?",
-      "expected_answer_mode": "insufficient_evidence",
-      "notes": "No-world-knowledge guard for TASK-020: GDP / national income is a real economics concept the model KNOWS from general training but that these supply classes and their materials never covered. The bot must decline ('not enough evidence') rather than fall back to world knowledge, even after materials are ingested. Mirrors the EVAL.md Chatbot-1 Q6 trap. No trust-ack required: a clean not-in-any-source refusal has no low-confidence flags to cite."
-    },
-    {
-      "case_id": "bhagyashree-exact-term-complementary-goods",
-      "student_id": "2302",
-      "student_name": "Bhagyashree",
-      "question": "What did the class say about complementary goods?",
-      "expected_answer_mode": "grounded_answer",
-      "required_concept_groups": [
-        ["complementary", "complement", "related goods"]
-      ],
-      "evidence_quotes": [
-        "substitute goods, or like, what is the other name, the other one, complementary goods"
-      ],
-      "notes": "Exact-term case (TASK-026, for TASK-027 BM25): 'complementary goods' is a rare, distinctive token a single dense vector can under-rank against generic 'determinants of supply' phrasing; the lexical arm should surface it. Reuses the verified determinants class_context quote (see bhagyashree-general-determinants) — real indexed text, not invented. Unfiltered so the exact token must be found across all chunk types."
-    },
-    {
-      "case_id": "bhagyashree-exact-term-negative-twelve",
-      "student_id": "2302",
-      "student_name": "Bhagyashree",
-      "question": "Where did the supply schedule work out to negative 12?",
-      "expected_answer_mode": "grounded_answer",
-      "required_concept_groups": [
-        ["negative 12", "negative twelve", "12"]
-      ],
-      "evidence_quotes": [
-        "Quantity supply is negative 12"
-      ],
-      "notes": "Exact-term/number case (TASK-026, for TASK-027 BM25): the exact token 'negative 12' is a strong lexical signal a dense embedder can blur into nearby numbers. Reuses Bhagyashree's verified spoken worked-example quote (see bhagyashree-negative-quantity) — real indexed text. Left unfiltered (not scoped to spoken) so retrieval must locate the exact term across all types."
-    },
-    {
-      "case_id": "saisha-typo-worksheet-count",
-      "student_id": "2521",
-      "student_name": "Saisha Shashikant Kadam",
-      "question": "How many problems were on the workseet the teacher gave?",
-      "expected_answer_mode": "grounded_answer",
-      "required_concept_groups": [
-        ["25", "worksheet", "problems"]
-      ],
-      "evidence_quotes": [
-        "I am not going to solve all the 25 problems on the worksheet"
-      ],
-      "notes": "Typo case (TASK-026, for TASK-027 pg_trgm): 'workseet' misspells 'worksheet'. Dense embeddings may absorb the typo; an exact FTS lexical arm needs trigram fuzziness to still match. Reuses Saisha's verified class_context quote (see saisha-general-what-covered) — real indexed text; the typo is only in the question, so the quote still resolves against the store."
-    }
-  ]
+ "description": "Golden QA set for RAG evaluation, grounded in the CURRENT pgvector store after the 2026-06-07 medium-model re-embed. student_id values are the roll numbers used as the store key. Cases were verified end-to-end (retrieval + Groq) against the live DB. Mix of self-referential (own spoken/chat, tight top_k), wrong-subject refusal, GENERAL class-content questions (non-self-referential, unfiltered so full class context is retrievable), and — added for TASK-021 — CONCEPT/'related' questions that ground on the authoritative 'material' chunks from TASK-019/020. NOTE ON THE CONCEPT CASES: any case with expected_chunk_types=['material'] stays RED until the owner ingests that class's materials (scripts.ingest_materials) into the live store, then GREEN; its required_concept_groups are relationship-level and grounded in determinants already verified in class_context — the owner must reconcile the concept groups + evidence_quotes to the real ingested slide/notes text before relying on the case, without loosening the prompt/top_k just to force a pass. EXTENDED 2026-07-16: +7 English cases (5 concept incl. material-grounded, 2 refusals incl. the Macbeth near-miss trap) drafted from the post-English-embed 4,494-row store; every evidence_quote verbatim-verified against stored chunk text at draft time; owner-approved.",
+ "generated_from": [
+  "pgvector store after medium re-embed (docs/TRANSCRIPTION_COMPARISON_RESULTS.md)",
+  "scripts/run_pipeline.py --skip-transcribe --model medium with rosters C1 (Economics) / C3 (Math)",
+  "general-question expected concepts derived from live retrieved class_context (2026-07-03), not invented",
+  "concept cases (TASK-021) target the 'material' chunks from scripts.ingest_materials; owner reconciles material-grounded expectations against the ingested slide/notes text"
+ ],
+ "cases": [
+  {
+   "case_id": "saisha-self-referential-chat",
+   "student_id": "2521",
+   "student_name": "Saisha Shashikant Kadam",
+   "question": "What did I say or ask during class?",
+   "expected_answer_mode": "grounded_answer",
+   "chunk_types": [
+    "spoken",
+    "chat"
+   ],
+   "expected_chunk_types": [
+    "chat"
+   ],
+   "required_concept_groups": [
+    [
+     "20/11",
+     "25",
+     "20"
+    ]
+   ],
+   "evidence_quotes": [
+    "First I was getting 25 but now I am getting 20/11",
+    "Nisha , do we have to send our answers ?"
+   ],
+   "notes": "Self-referential phrasing scopes retrieval to the student's own spoken+chat chunks. Saisha mostly typed in chat; this confirms quiet-but-typing students still surface their own contributions."
+  },
+  {
+   "case_id": "saisha-wrong-subject-refusal",
+   "student_id": "2521",
+   "student_name": "Saisha Shashikant Kadam",
+   "question": "What did I say about the Balance of Payments?",
+   "expected_answer_mode": "insufficient_evidence",
+   "notes": "Balance of Payments is an Economics topic; Saisha is in Math. The bot must decline rather than borrow another class's content. Validates safe refusal + per-student isolation. (No trust-ack required: a clean wrong-subject refusal has no low-confidence flags to cite.)"
+  },
+  {
+   "case_id": "bhagyashree-intercept",
+   "student_id": "2302",
+   "student_name": "Bhagyashree",
+   "question": "What did I say about the intercept in the supply function?",
+   "expected_answer_mode": "grounded_answer",
+   "chunk_types": [
+    "spoken",
+    "chat"
+   ],
+   "expected_chunk_types": [
+    "spoken"
+   ],
+   "required_concept_groups": [
+    [
+     "intercept"
+    ],
+    [
+     "negative"
+    ]
+   ],
+   "evidence_quotes": [
+    "Yeah, the intercept is it should be negative."
+   ],
+   "notes": "Bhagyashree's own spoken contribution on the supply-function intercept (medium transcript). Exercises a rich-content student's spoken chunks."
+  },
+  {
+   "case_id": "bhagyashree-negative-quantity",
+   "student_id": "2302",
+   "student_name": "Bhagyashree",
+   "question": "What did I say about quantity supplied being negative at low prices?",
+   "expected_answer_mode": "grounded_answer",
+   "chunk_types": [
+    "spoken",
+    "chat"
+   ],
+   "expected_chunk_types": [
+    "spoken"
+   ],
+   "required_concept_groups": [
+    [
+     "negative"
+    ]
+   ],
+   "evidence_quotes": [
+    "Quantity supply is negative 12"
+   ],
+   "notes": "Confirms the medium transcript captured Bhagyashree's worked example of the supply schedule at low prices."
+  },
+  {
+   "case_id": "swarnima-self-referential-worked-out",
+   "student_id": "2527",
+   "student_name": "Swarnima Avinash Shinde",
+   "question": "What numbers did I work out in class?",
+   "expected_answer_mode": "grounded_answer",
+   "chunk_types": [
+    "spoken",
+    "chat"
+   ],
+   "expected_chunk_types": [
+    "chat"
+   ],
+   "required_concept_groups": [
+    [
+     "12",
+     "18"
+    ]
+   ],
+   "evidence_quotes": [
+    "Initial Number of girls- 12 new no. of girls- 18"
+   ],
+   "notes": "Natural contribution phrasing ('what numbers did I work out') beyond the canonical 'what did I say'. Exercises the broadened self-referential matcher: Swarnima only typed in chat, so this must scope to spoken+chat and surface her numbers (12 -> 18)."
+  },
+  {
+   "case_id": "saisha-general-what-covered",
+   "student_id": "2521",
+   "student_name": "Saisha Shashikant Kadam",
+   "question": "What did we cover in class today?",
+   "expected_answer_mode": "grounded_answer",
+   "required_concept_groups": [
+    [
+     "worksheet",
+     "problem",
+     "problems"
+    ],
+    [
+     "linear equation",
+     "linear equations",
+     "ratio",
+     "time and work"
+    ]
+   ],
+   "evidence_quotes": [
+    "I am not going to solve all the 25 problems on the worksheet",
+    "one or two problems on time and work also which would help you to figure out the linear equation coverage"
+   ],
+   "notes": "GENERAL 'what did we cover' phrasing (uses 'we', not self-referential), so it stays unfiltered and widens to top_k=8. Grounded in Saisha's Math class_context (worksheet + linear-equation/time-and-work problems). Concepts taken from the live retrieved class_context, not invented."
+  },
+  {
+   "case_id": "saisha-general-teacher-instruction",
+   "student_id": "2521",
+   "student_name": "Saisha Shashikant Kadam",
+   "question": "What did the teacher ask us to do in class?",
+   "expected_answer_mode": "grounded_answer",
+   "required_concept_groups": [
+    [
+     "solve",
+     "answer",
+     "answers"
+    ],
+    [
+     "ratio",
+     "worksheet",
+     "equation",
+     "warm"
+    ]
+   ],
+   "evidence_quotes": [
+    "your three minutes to go okay so what you need to do is based you base your logic here you correct your logic",
+    "i'm giving you ample time to solve seven minutes is enough time then when I say post the answer then only you post"
+   ],
+   "notes": "GENERAL 'what did the teacher ask us to do' instruction phrasing ('the teacher', 'us' -> not self-referential), widens to top_k=8. Grounded in the teacher's class_context instructions (solve the worksheet problems, post answers when told). Concepts from live retrieved class_context."
+  },
+  {
+   "case_id": "bhagyashree-general-determinants",
+   "student_id": "2302",
+   "student_name": "Bhagyashree",
+   "question": "What determinants of supply did the class talk about?",
+   "expected_answer_mode": "grounded_answer",
+   "required_concept_groups": [
+    [
+     "tax",
+     "taxes"
+    ],
+    [
+     "technology"
+    ],
+    [
+     "price of related goods",
+     "related goods",
+     "substitute",
+     "complement"
+    ]
+   ],
+   "evidence_quotes": [
+    "taxes, then technology, price of related goods, it can be substitute goods"
+   ],
+   "notes": "GENERAL topic question about class content ('the class' -> not self-referential), widens to top_k=8. Grounded in Bhagyashree's Economics class_context on the determinants of supply (taxes, technology, price of related goods / substitutes / complements). Concepts from live retrieved class_context."
+  },
+  {
+   "case_id": "bhagyashree-concept-determinants-supply-link",
+   "student_id": "2302",
+   "student_name": "Bhagyashree",
+   "question": "How are the determinants of supply connected to the supply function?",
+   "expected_answer_mode": "grounded_answer",
+   "expected_chunk_types": [
+    "material"
+   ],
+   "required_concept_groups": [
+    [
+     "determinant",
+     "determinants"
+    ],
+    [
+     "supply function",
+     "supply curve",
+     "supply schedule",
+     "supply equation"
+    ],
+    [
+     "shift",
+     "shifts",
+     "change",
+     "changes",
+     "affect",
+     "affects",
+     "move",
+     "moves"
+    ]
+   ],
+   "evidence_quotes": [
+    "DRAFT - reconcile against the ingested material chunk text after running scripts.ingest_materials: the class slides/notes list the determinants of supply (e.g. taxes, technology, price of related goods) and show how each shifts the supply function / curve."
+   ],
+   "source_artifacts": [
+    "materials/<Bhagyashree Economics class>/*.pptx|pdf|docx (ingested via scripts.ingest_materials as chunk_type=material)"
+   ],
+   "notes": "THE concept case Nisha broke on in the 2026-07 eval: a 'related' question the noisy transcript alone could not answer, now expected to be answered from the class's authoritative material (TASK-019 ingestion + TASK-020 materials-aware prompt). expected_chunk_types=['material'] makes this a hard regression guard: it stays RED until the owner ingests this class's materials into the live store, then GREEN. required_concept_groups are deliberately relationship-level (a determinant shifts/affects the supply function) and grounded in the determinants already verified in class_context (see bhagyashree-general-determinants), not invented slide text; the owner should tighten the concept groups + evidence_quotes to the real ingested material after the live run, without loosening prompt/top_k to force a pass. A correct answer must ATTRIBUTE the material ('the class material / slides say...') per TASK-020."
+  },
+  {
+   "case_id": "bhagyashree-concept-not-in-source-refusal",
+   "student_id": "2302",
+   "student_name": "Bhagyashree",
+   "question": "How is GDP calculated, and what are the components of national income?",
+   "expected_answer_mode": "insufficient_evidence",
+   "notes": "No-world-knowledge guard for TASK-020: GDP / national income is a real economics concept the model KNOWS from general training but that these supply classes and their materials never covered. The bot must decline ('not enough evidence') rather than fall back to world knowledge, even after materials are ingested. Mirrors the EVAL.md Chatbot-1 Q6 trap. No trust-ack required: a clean not-in-any-source refusal has no low-confidence flags to cite."
+  },
+  {
+   "case_id": "bhagyashree-exact-term-complementary-goods",
+   "student_id": "2302",
+   "student_name": "Bhagyashree",
+   "question": "What did the class say about complementary goods?",
+   "expected_answer_mode": "grounded_answer",
+   "required_concept_groups": [
+    [
+     "complementary",
+     "complement",
+     "related goods"
+    ]
+   ],
+   "evidence_quotes": [
+    "substitute goods, or like, what is the other name, the other one, complementary goods"
+   ],
+   "notes": "Exact-term case (TASK-026, for TASK-027 BM25): 'complementary goods' is a rare, distinctive token a single dense vector can under-rank against generic 'determinants of supply' phrasing; the lexical arm should surface it. Reuses the verified determinants class_context quote (see bhagyashree-general-determinants) — real indexed text, not invented. Unfiltered so the exact token must be found across all chunk types."
+  },
+  {
+   "case_id": "bhagyashree-exact-term-negative-twelve",
+   "student_id": "2302",
+   "student_name": "Bhagyashree",
+   "question": "Where did the supply schedule work out to negative 12?",
+   "expected_answer_mode": "grounded_answer",
+   "required_concept_groups": [
+    [
+     "negative 12",
+     "negative twelve",
+     "12"
+    ]
+   ],
+   "evidence_quotes": [
+    "Quantity supply is negative 12"
+   ],
+   "notes": "Exact-term/number case (TASK-026, for TASK-027 BM25): the exact token 'negative 12' is a strong lexical signal a dense embedder can blur into nearby numbers. Reuses Bhagyashree's verified spoken worked-example quote (see bhagyashree-negative-quantity) — real indexed text. Left unfiltered (not scoped to spoken) so retrieval must locate the exact term across all types."
+  },
+  {
+   "case_id": "saisha-typo-worksheet-count",
+   "student_id": "2521",
+   "student_name": "Saisha Shashikant Kadam",
+   "question": "How many problems were on the workseet the teacher gave?",
+   "expected_answer_mode": "grounded_answer",
+   "required_concept_groups": [
+    [
+     "25",
+     "worksheet",
+     "problems"
+    ]
+   ],
+   "evidence_quotes": [
+    "I am not going to solve all the 25 problems on the worksheet"
+   ],
+   "notes": "Typo case (TASK-026, for TASK-027 pg_trgm): 'workseet' misspells 'worksheet'. Dense embeddings may absorb the typo; an exact FTS lexical arm needs trigram fuzziness to still match. Reuses Saisha's verified class_context quote (see saisha-general-what-covered) — real indexed text; the typo is only in the question, so the quote still resolves against the store."
+  },
+  {
+   "case_id": "sanjita-concept-prediction-steps",
+   "student_id": "2409",
+   "student_name": "Sanjita Mahto",
+   "question": "What are the steps for writing a thoughtful prediction about a story?",
+   "expected_answer_mode": "grounded_answer",
+   "expected_chunk_types": [
+    "material"
+   ],
+   "required_concept_groups": [
+    [
+     "prediction",
+     "predictions",
+     "predict"
+    ],
+    [
+     "tentative"
+    ],
+    [
+     "think",
+     "perhaps",
+     "could"
+    ]
+   ],
+   "evidence_quotes": [
+    "State your prediction. Use tentative language such as ‘think, perhaps, could’.",
+    "Step one is state your prediction"
+   ],
+   "notes": "English concept case: the prediction-writing scaffold taught 2 Jul, grounded in the slide deck (material) with the teacher's spoken step-one line as a secondary anchor. Verified live 2026-07-16 (medium/high tier, grounded)."
+  },
+  {
+   "case_id": "anshi-concept-cornell-cue-column",
+   "student_id": "2301",
+   "student_name": "anshi",
+   "question": "What goes in the cue column of Cornell notes?",
+   "expected_answer_mode": "grounded_answer",
+   "expected_chunk_types": [
+    "class_context"
+   ],
+   "required_concept_groups": [
+    [
+     "cue",
+     "cues"
+    ],
+    [
+     "question",
+     "questions"
+    ]
+   ],
+   "evidence_quotes": [
+    "the cues column is where today you will just put down questions that you have"
+   ],
+   "notes": "English concept case anchored in the teacher's own dictation (class_context) - the Cornell template docx text does not carry the word 'Cornell', so material is not the expected type here. Verified live 2026-07-16 for all three English.04 students."
+  },
+  {
+   "case_id": "monika-concept-fpa",
+   "student_id": "2303",
+   "student_name": "Monika",
+   "question": "What do form, purpose and audience mean when we analyse a non-fiction text?",
+   "expected_answer_mode": "grounded_answer",
+   "expected_chunk_types": [
+    "material"
+   ],
+   "required_concept_groups": [
+    [
+     "form"
+    ],
+    [
+     "purpose"
+    ],
+    [
+     "audience",
+     "audiences"
+    ]
+   ],
+   "evidence_quotes": [
+    "You can use the title and context to identify the form, purpose and audience of a text.",
+    "the people or group that the text is written for"
+   ],
+   "notes": "English concept case: FPA definitions from the Non-fiction FPA slides (material) plus the teacher's audience definition (class_context). Verified live 2026-07-16."
+  },
+  {
+   "case_id": "tasmiya-concept-quote-analysis",
+   "student_id": "2411",
+   "student_name": "Tasmiya Shaikh",
+   "question": "What do we need to do when analysing a quote?",
+   "expected_answer_mode": "grounded_answer",
+   "expected_chunk_types": [
+    "material"
+   ],
+   "required_concept_groups": [
+    [
+     "quote",
+     "quotes"
+    ],
+    [
+     "topic sentence"
+    ],
+    [
+     "interesting words",
+     "key words",
+     "phrases"
+    ]
+   ],
+   "evidence_quotes": [
+    "What do you need to do when analysing your quote?",
+    "Define key words Provide topic sentence Unpack interesting words or phrases"
+   ],
+   "notes": "English concept case: the quote-analysis checklist slide from 8 Jul (material). Verified live 2026-07-16 (high tier)."
+  },
+  {
+   "case_id": "saniya-concept-helen-stoner",
+   "student_id": "2408",
+   "student_name": "Saniya Gaur",
+   "question": "Who is Helen Stoner and why is she so frightened?",
+   "expected_answer_mode": "grounded_answer",
+   "expected_chunk_types": [
+    "material"
+   ],
+   "required_concept_groups": [
+    [
+     "Helen",
+     "Stoner"
+    ],
+    [
+     "frightened",
+     "fear",
+     "terror",
+     "scared"
+    ],
+    [
+     "hunted animal"
+    ]
+   ],
+   "evidence_quotes": [
+    "her face all drawn and grey, with restless frightened eyes, like those of some hunted animal",
+    "the Roylotts of Stoke Moran"
+   ],
+   "notes": "English concept case: character question grounded in the Speckled Band reading text (material). Avoids PDF-extraction-mangled spans (spaced letters). Verified live 2026-07-16."
+  },
+  {
+   "case_id": "aarti-wrong-subject-refusal",
+   "student_id": "2402",
+   "student_name": "Aarti",
+   "question": "What are the determinants of supply?",
+   "expected_answer_mode": "insufficient_evidence",
+   "notes": "Economics topic; Aarti is English-only (C2 cohort). Validates safe refusal + isolation on the new cohort. Verified live 2026-07-16 (low tier, deterministic refusal)."
+  },
+  {
+   "case_id": "anshi-adjacent-subject-refusal",
+   "student_id": "2301",
+   "student_name": "anshi",
+   "question": "What did we learn about Shakespeare's Macbeth?",
+   "expected_answer_mode": "insufficient_evidence",
+   "notes": "Literature-adjacent trap: anshi HAS English data but Macbeth was never taught. Measured 2026-07-16: rerank 0.000 but dense 0.613 - the closest near-miss trap in the corpus. This case guards the router against any future dense-score rescue regressions."
+  }
+ ]
 }
