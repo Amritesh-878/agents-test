@@ -39,3 +39,5 @@ scratch/
 
 # Transient loop / scheduled-task lock files
 .claude/*.lock
+
+*.dump
