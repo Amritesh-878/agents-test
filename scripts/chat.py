@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import argparse
-import getpass
 import json
 import logging
 import os
 import re
 import sys
-import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Literal, Protocol, Sequence
@@ -15,7 +13,6 @@ from typing import Any, Callable, Literal, Protocol, Sequence
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
-from scripts.auth import AuthError, AuthService
 from scripts.embed_and_store import DEFAULT_EMBEDDING_MODEL
 from scripts.retrieval import (
     QueryEmbedder,
@@ -40,11 +37,8 @@ SOURCES_COMMANDS = {"sources"}
 
 class ChatArgs(BaseModel):
     db_url: str
-    # student_id / student_name are NOT taken from the CLI; they are populated only
-    # after a successful login against the credentials CSV (see run_login / main).
     student_id: str = ""
     student_name: str = ""
-    credentials_path: Path = Path("data/credentials.csv")
     chunk_types: list[ChunkType] = Field(default_factory=list)
     # Optional per-session scope: when set, retrieval is restricted to this class_name
     # (one session) instead of all of the student's sessions. None = all sessions.
@@ -113,12 +107,6 @@ def parse_args(argv: Sequence[str] | None = None) -> ChatArgs:
         dest="db_url",
         help="PostgreSQL connection URL. Falls back to DATABASE_URL env var.",
     )
-    parser.add_argument(
-        "--credentials",
-        default="data/credentials.csv",
-        dest="credentials_path",
-        help="Path to the login credentials CSV (student_id,password).",
-    )
     parser.add_argument("--question", default=None)
     parser.add_argument("--top-k", type=int, default=5, dest="top_k")
     parser.add_argument(
@@ -143,7 +131,6 @@ def parse_args(argv: Sequence[str] | None = None) -> ChatArgs:
     namespace = parser.parse_args(argv)
     return ChatArgs(
         db_url=resolve_db_url(namespace.db_url),
-        credentials_path=Path(namespace.credentials_path),
         chunk_types=list(namespace.chunk_types or []),
         class_name=namespace.class_name,
         embedding_model=namespace.embedding_model,
@@ -156,8 +143,6 @@ def parse_args(argv: Sequence[str] | None = None) -> ChatArgs:
 
 
 def validate_inputs(args: ChatArgs) -> None:
-    # student_id / student_name are not validated here: they are not CLI inputs,
-    # they are established by a successful login (run_login) before use.
     if not args.db_url.strip():
         raise ValueError(
             "Database URL is required. Pass --db-url or set DATABASE_URL in .env."
@@ -199,35 +184,14 @@ def load_groq_api_key() -> str:
     raise ChatError("GROQ_API_KEY is missing. Add it to .env before starting the chatbot.")
 
 
-def prompt_password(prompt: str) -> str:
-    return getpass.getpass(prompt)
-
-
-def run_login(
-    auth: AuthService,
-    *,
-    id_provider: Callable[[str], str],
-    password_provider: Callable[[str], str],
-    output_fn: Callable[[str], None] = print,
-    sleep_fn: Callable[[float], None] = time.sleep,
-) -> str:
-    """Prompt for student id + password, looping until authentication succeeds.
-
-    Returns the authenticated ``student_id`` — the only way the queried id is
-    established (it is never taken from the CLI). A clean EOF/Ctrl-C raises
-    ``ChatError`` so the caller exits without a traceback. Each failed attempt
-    backs off ~1s so the loop isn't an unthrottled password-guessing oracle.
-    """
-    while True:
-        try:
-            student_id = id_provider("Student id: ").strip()
-            password = password_provider("Password: ")
-        except (EOFError, KeyboardInterrupt) as exc:
-            raise ChatError("Login aborted.") from exc
-        if student_id and auth.authenticate(student_id, password):
-            return student_id
-        output_fn("Login failed. Check your student id and password.")
-        sleep_fn(1.0)
+def prompt_student_id(id_provider: Callable[[str], str] = input) -> str:
+    try:
+        student_id = id_provider("Student id: ").strip()
+    except (EOFError, KeyboardInterrupt) as exc:
+        raise ChatError("Chat aborted.") from exc
+    if not student_id:
+        raise ChatError("Student id must not be empty.")
+    return student_id
 
 
 def resolve_display_name(store: Any, student_id: str) -> str:
@@ -847,12 +811,9 @@ def main(argv: Sequence[str] | None = None) -> None:
 
         args = parse_args(argv)
         validate_inputs(args)
-        auth = AuthService.from_csv(args.credentials_path)
         store = connect_pg_store(args.db_url)
         try:
-            student_id = run_login(
-                auth, id_provider=input, password_provider=prompt_password
-            )
+            student_id = prompt_student_id()
             student_name = resolve_display_name(store, student_id)
             args = args.model_copy(
                 update={"student_id": student_id, "student_name": student_name}
@@ -865,7 +826,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             chat_service.run()
         finally:
             store.close()
-    except (AuthError, ChatError, RetrievalError, ValueError, OSError) as error:
+    except (ChatError, RetrievalError, ValueError, OSError) as error:
         print(f"Chat failed: {error}", file=sys.stderr)
         raise SystemExit(1) from error
 

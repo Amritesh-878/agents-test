@@ -5,7 +5,6 @@ from typing import Sequence
 
 import pytest
 
-from scripts.auth import AuthService, CredentialRecord, hash_password
 from scripts.chat import (
     ChatArgs,
     ChatError,
@@ -14,23 +13,10 @@ from scripts.chat import (
     RetrievalBackend,
     normalize_answer_text,
     parse_args,
+    prompt_student_id,
     resolve_display_name,
-    run_login,
 )
 from scripts.retrieval import RetrievalResult
-
-
-def make_auth(student_id: str, password: str) -> AuthService:
-    return AuthService(
-        {
-            student_id: CredentialRecord(
-                username=student_id,
-                role="student",
-                scope=student_id,
-                password_hash=hash_password(password, iterations=1),
-            )
-        }
-    )
 
 
 def make_args(tmp_path: Path) -> ChatArgs:
@@ -59,7 +45,7 @@ def test_session_record_has_no_db_url_field() -> None:
     assert "db_url" not in ChatSessionRecord.model_fields
 
 
-# --- #3/#4 access half: no CLI path to set the queried student_id ---
+# --- #3/#4 access half: the queried student_id comes from the prompt, not the CLI ---
 
 
 def test_parse_args_rejects_student_id_flag() -> None:
@@ -88,14 +74,8 @@ class _RecordingBackend:
         )
 
 
-def test_logged_in_retrieval_is_scoped_to_authed_id(tmp_path: Path) -> None:
-    auth = make_auth("2302", "alpha")
-    student_id = run_login(
-        auth,
-        id_provider=lambda _: "2302",
-        password_provider=lambda _: "alpha",
-        sleep_fn=lambda _: None,
-    )
+def test_retrieval_is_scoped_to_the_prompted_id(tmp_path: Path) -> None:
+    student_id = prompt_student_id(lambda _: "2302")
     assert student_id == "2302"
 
     args = make_args(tmp_path).model_copy(update={"student_id": student_id})
@@ -103,43 +83,57 @@ def test_logged_in_retrieval_is_scoped_to_authed_id(tmp_path: Path) -> None:
     service = ChatService(args, retrieval_backend=backend)
     service.ask_question("what did I miss?")
 
-    # The only id ever queried is the authenticated one — there is no input that
-    # could redirect retrieval to another student.
     assert backend.seen_student_id == "2302"
 
 
-# --- run_login behavior ---
+# --- prompt_student_id behavior ---
 
 
-def test_run_login_loops_until_correct_with_backoff() -> None:
-    auth = make_auth("2302", "alpha")
-    passwords = iter(["wrong", "alpha"])
-    sleeps: list[float] = []
-
-    student_id = run_login(
-        auth,
-        id_provider=lambda _: "2302",
-        password_provider=lambda _: next(passwords),
-        output_fn=lambda _: None,
-        sleep_fn=sleeps.append,
-    )
-
-    assert student_id == "2302"
-    assert sleeps == [1.0]  # one backoff after the single failed attempt
+def test_prompt_student_id_strips_whitespace() -> None:
+    assert prompt_student_id(lambda _: "  2302  ") == "2302"
 
 
-def test_run_login_aborts_cleanly_on_eof() -> None:
-    auth = make_auth("2302", "alpha")
+def test_prompt_student_id_asks_once() -> None:
+    prompts: list[str] = []
 
+    def record(prompt: str) -> str:
+        prompts.append(prompt)
+        return "2302"
+
+    assert prompt_student_id(record) == "2302"
+    assert prompts == ["Student id: "]
+
+
+def test_prompt_student_id_never_asks_for_a_password() -> None:
+    prompts: list[str] = []
+
+    def record(prompt: str) -> str:
+        prompts.append(prompt)
+        return "2302"
+
+    prompt_student_id(record)
+    assert not any("password" in p.casefold() for p in prompts)
+
+
+def test_prompt_student_id_rejects_an_empty_id() -> None:
+    with pytest.raises(ChatError, match="must not be empty"):
+        prompt_student_id(lambda _: "   ")
+
+
+def test_prompt_student_id_aborts_cleanly_on_eof() -> None:
     def raise_eof(_: str) -> str:
         raise EOFError
 
     with pytest.raises(ChatError, match="aborted"):
-        run_login(
-            auth,
-            id_provider=lambda _: "2302",
-            password_provider=raise_eof,
-        )
+        prompt_student_id(raise_eof)
+
+
+def test_prompt_student_id_aborts_cleanly_on_interrupt() -> None:
+    def raise_interrupt(_: str) -> str:
+        raise KeyboardInterrupt
+
+    with pytest.raises(ChatError, match="aborted"):
+        prompt_student_id(raise_interrupt)
 
 
 # --- resolve_display_name ---
