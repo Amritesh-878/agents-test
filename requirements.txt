@@ -2,6 +2,7 @@
 # python -m pip install torch==2.1.0+cu118 torchaudio==2.1.0+cu118 --index-url https://download.pytorch.org/whl/cu118
 
 huggingface-hub==0.22.2
+fastapi==0.111.0
 google-api-python-client==2.137.0
 google-auth==2.32.0
 groq==0.9.0
@@ -23,6 +24,7 @@ scikit-learn==1.8.0
 sentence-transformers==2.7.0
 streamlit==1.36.0
 transformers==4.41.2
+uvicorn==0.47.0
 ctranslate2==3.24.0
 faster-whisper==0.10.1
 whisperx==3.1.1
