@@ -18,8 +18,6 @@ from scripts.auth import (
 
 HEADER = "email,sections\n"
 
-ADMIN_EMAILS = frozenset({"ratnanjali@islorg.com"})
-
 TEACHER_SECTIONS = {
     "arista@islorg.com": ["English.03", "English.04"],
     "nisha@islorg.com": ["Economics.02"],
@@ -35,7 +33,6 @@ def resolve(email: str, lms_role: str) -> Principal | None:
     return principal_from_identity(
         email,
         lms_role,
-        admin_emails=ADMIN_EMAILS,
         teacher_sections=dict(TEACHER_SECTIONS),
     )
 
@@ -69,17 +66,8 @@ def test_extract_roll(email: str, expected: str | None) -> None:
 # --- principal_from_identity ---
 
 
-def test_admin_email_resolves_to_unrestricted_admin() -> None:
-    principal = resolve("ratnanjali@islorg.com", "admin")
-    assert principal == Principal(username="ratnanjali@islorg.com", role="admin")
-    assert allowed_student_ids(principal, pairs_fixture()) is None
-
-
-def test_admin_email_wins_over_the_lms_role() -> None:
-    for lms_role in ("student", "teacher", "observer", "whatever"):
-        principal = resolve("ratnanjali@islorg.com", lms_role)
-        assert principal is not None
-        assert principal.role == "admin"
+def test_admin_lms_role_is_denied() -> None:
+    assert resolve("ratnanjali@islorg.com", "admin") is None
 
 
 def test_mapped_teacher_gets_their_sections() -> None:
@@ -100,7 +88,7 @@ def test_unknown_teacher_is_denied_with_a_warning(caplog: pytest.LogCaptureFixtu
 def test_teacher_principal_does_not_alias_the_sections_mapping() -> None:
     sections = {"arista@islorg.com": ["English.03"]}
     principal = principal_from_identity(
-        "arista@islorg.com", "teacher", admin_emails=frozenset(), teacher_sections=sections
+        "arista@islorg.com", "teacher", teacher_sections=sections
     )
     assert principal is not None
     principal.sections.append("Economics.02")
@@ -147,27 +135,11 @@ def test_emails_are_case_and_whitespace_insensitive() -> None:
     assert teacher is not None
     assert teacher.sections == ["English.03", "English.04"]
 
-    admin = resolve("Ratnanjali@Islorg.Com", "student")
-    assert admin is not None
-    assert admin.role == "admin"
 
-
-def test_admin_emails_are_matched_case_insensitively() -> None:
-    principal = principal_from_identity(
-        "owner@islorg.com",
-        "student",
-        admin_emails=frozenset({"OWNER@islorg.com"}),
-        teacher_sections={},
-    )
-    assert principal is not None
-    assert principal.role == "admin"
-
-
-def test_no_admins_and_no_teachers_configured_still_resolves_students() -> None:
+def test_no_teachers_configured_still_resolves_students() -> None:
     principal = principal_from_identity(
         "bhagyashree_2302@islorg.com",
         "student",
-        admin_emails=frozenset(),
         teacher_sections={},
     )
     assert principal is not None
@@ -268,7 +240,6 @@ def test_loaded_teacher_sections_feed_principal_from_identity(tmp_path: Path) ->
     principal = principal_from_identity(
         "arista@islorg.com",
         "teacher",
-        admin_emails=frozenset(),
         teacher_sections=load_teacher_sections(path),
     )
     assert principal is not None
@@ -305,11 +276,6 @@ def teacher(sections: list[str]) -> Principal:
     return Principal(username="t@islorg.com", role="teacher", sections=sections)
 
 
-def test_allowed_student_ids_admin_is_unrestricted() -> None:
-    principal = Principal(username="o@islorg.com", role="admin")
-    assert allowed_student_ids(principal, pairs_fixture()) is None
-
-
 def test_allowed_student_ids_student_is_self_only() -> None:
     principal = Principal(username="b_2402@islorg.com", role="student", student_id="2402")
     assert allowed_student_ids(principal, pairs_fixture()) == {"2402"}
@@ -333,7 +299,6 @@ def test_allowed_student_ids_economics_teacher_sees_only_economics_section() -> 
 def test_dual_subject_student_is_visible_to_both_teachers() -> None:
     english = allowed_student_ids(teacher(["English.04"]), pairs_fixture())
     economics = allowed_student_ids(teacher(["Economics.02"]), pairs_fixture())
-    assert english is not None and economics is not None
     assert "2405" in english and "2405" in economics
     assert english & economics == {"2405"}
 
@@ -348,12 +313,6 @@ def test_allowed_student_ids_unknown_section_is_empty() -> None:
 
 def test_allowed_student_ids_teacher_with_no_pairs_is_empty() -> None:
     assert allowed_student_ids(teacher(["English.03"]), []) == set()
-
-
-def test_can_access_student_admin_can_access_anyone() -> None:
-    principal = Principal(username="o@islorg.com", role="admin")
-    assert can_access_student(principal, "2401", pairs_fixture()) is True
-    assert can_access_student(principal, "unknown-id", pairs_fixture()) is True
 
 
 def test_can_access_student_student_self_only() -> None:
@@ -371,12 +330,10 @@ def test_can_access_student_teacher_is_section_scoped() -> None:
 def test_identity_to_authorization_end_to_end() -> None:
     student = resolve("bhagyashree_2302@islorg.com", "student")
     arista = resolve("arista@islorg.com", "teacher")
-    admin = resolve("ratnanjali@islorg.com", "admin")
-    assert student is not None and arista is not None and admin is not None
+    assert student is not None and arista is not None
 
     pairs = pairs_fixture()
     assert can_access_student(student, "2302", pairs) is True
     assert can_access_student(student, "2402", pairs) is False
     assert can_access_student(arista, "2402", pairs) is True
     assert can_access_student(arista, "2401", pairs) is False
-    assert can_access_student(admin, "2401", pairs) is True

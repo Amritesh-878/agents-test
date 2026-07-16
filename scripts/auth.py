@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
-Role = Literal["admin", "teacher", "student"]
+Role = Literal["teacher", "student"]
 
 ROLL_EMAIL_RE = re.compile(r"_(\d{4})@")
 
@@ -87,15 +87,12 @@ def principal_from_identity(
     email: str,
     lms_role: str,
     *,
-    admin_emails: frozenset[str],
     teacher_sections: dict[str, list[str]],
 ) -> Principal | None:
     normalized = normalize_email(email)
     if not normalized:
         logger.warning("Identity has an empty email; access denied.")
         return None
-    if normalized in {normalize_email(a) for a in admin_emails}:
-        return Principal(username=normalized, role="admin")
     if lms_role == "teacher":
         sections = teacher_sections.get(normalized)
         if not sections:
@@ -122,9 +119,7 @@ def principal_from_identity(
 
 def allowed_student_ids(
     principal: Principal, pairs: Sequence[tuple[str, str, str]]
-) -> set[str] | None:
-    if principal.role == "admin":
-        return None
+) -> set[str]:
     if principal.role == "student":
         return {principal.student_id} if principal.student_id else set()
     from scripts.demo_backend import students_by_section  # deferred: demo_backend -> chat -> auth cycle
@@ -139,5 +134,4 @@ def allowed_student_ids(
 def can_access_student(
     principal: Principal, student_id: str, pairs: Sequence[tuple[str, str, str]]
 ) -> bool:
-    allowed = allowed_student_ids(principal, pairs)
-    return True if allowed is None else student_id in allowed
+    return student_id in allowed_student_ids(principal, pairs)
