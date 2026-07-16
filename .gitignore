@@ -25,6 +25,11 @@ participants_*.csv
 data/*Badge Tracker*.csv
 data/C1.csv
 data/subjectMap.csv
+data/Student Info/
+data/Overall Attendance/
+
+# Teacher corpus drops (videos + class materials — large/sensitive, ingested not tracked)
+data/English/
 
 # Orchestrator temp file
 orchestrator-temp.md
