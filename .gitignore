@@ -41,3 +41,4 @@ scratch/
 .claude/*.lock
 
 *.dump
+data/teacher_sections.csv

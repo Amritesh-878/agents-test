@@ -20,6 +20,13 @@ Browser ── Firebase ──> Django LMS ──[X-Service-Token]──> FastAP
 
 ## LMS Integration Guide
 
+### Deployment package (obtain privately from the operator — never in this repo)
+
+1. `adira_store.dump` — the evaluated store (restore per Setup step 3)
+2. `teacher_sections.csv` — teacher→sections config (place at `data/teacher_sections.csv`)
+3. The `CHATBOT_SERVICE_TOKEN` value (same value goes into Django settings)
+4. A `GROQ_API_KEY` (or create one at console.groq.com)
+
 ### The contract in one paragraph
 
 The LMS verifies the Firebase ID token and is the **only** caller of this service. Every
@@ -67,7 +74,15 @@ $env:TEACHER_SECTIONS_CSV  = "data\teacher_sections.csv"
 ```
 
 Startup **fails loudly** if `CHATBOT_SERVICE_TOKEN` is empty — a blank secret never means
-"open".
+"open". First start downloads the embedding and reranker models from HuggingFace
+(~200 MB, no token needed) — one-time, needs internet.
+
+Smoke test:
+
+```powershell
+curl http://localhost:8000/healthz
+curl -X POST http://localhost:8000/ask -H "Content-Type: application/json" -H "X-Service-Token: <secret>" -d '{"email":"bhagyashree_2302@islorg.com","lms_role":"student","question":"What did we cover in class?"}'
+```
 
 **Environment variables** (all read from `.env` / process env):
 
@@ -245,8 +260,11 @@ python -m pip install torch==2.1.0+cu118 torchaudio==2.1.0+cu118 --index-url htt
 python -m pip install -r requirements.txt
 ```
 
-**2. Configure `.env`** (copy `.env.example`): `DATABASE_URL`, `GROQ_API_KEY`, `HF_TOKEN`
-(+ the service/Drive variables from the table above as needed).
+Serving-only machines (no transcription) don't need CUDA — replace the torch line with
+`python -m pip install torch torchaudio` (CPU wheels).
+
+**2. Configure `.env`** — copy `.env.example` to `.env` and fill it; the file documents
+which variables belong to serving, pipeline, and Drive sync.
 
 **3. Create the database:**
 
@@ -269,9 +287,9 @@ python -m scripts.migrate_db --db-url "postgresql://postgres:<password>@localhos
 
 **4. Validate the environment:** `python -m scripts.validate_env --skip-pgvector`
 
-Prerequisites: Python 3.11 · CUDA-capable GPU for transcription (4 GB VRAM is enough for
-the `small` Whisper model; embedding/serving also runs on CPU) · ffmpeg on PATH ·
-PostgreSQL 17 + pgvector.
+Prerequisites: Python 3.11 · PostgreSQL 17 with the pgvector extension installed
+(https://github.com/pgvector/pgvector) · for transcription only: a CUDA GPU (4 GB VRAM
+fits the `small` Whisper model) and ffmpeg on PATH.
 
 ---
 

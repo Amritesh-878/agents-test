@@ -1,14 +1,4 @@
 email,sections
-#,"Copy this file to data/teacher_sections.csv and keep that live copy UNTRACKED (do not commit it)."
-#,"Identity comes from the LMS: it verifies the Google/Firebase sign-in and hands us an already-verified"
-#,"(email, role). There are no passwords here and none anywhere else in this repo."
-#,"This file answers the one question the LMS role cannot: WHICH sections a teacher may see."
-#,"A teacher email with no row here is DENIED (never guessed). Add the row, then they get access."
-#,"sections = ;-separated labels exactly as scripts.demo_backend.section_of_class emits them,"
-#,"e.g. English.03;English.04 — a label typo silently yields an empty cohort, so copy them exactly."
-#,"Students need no row: their roll is read from the email localpart (<name>_<roll>@islorg.com)."
-#,"Admins need no row either: they are configured as admin emails by the future API task."
-#,"Uncomment and correct the rows below — the owner must confirm each real address."
+#,copy to data/teacher_sections.csv (untracked) and uncomment; sections are ;-separated labels e.g. English.03;English.04
 #arista@islorg.com,English.03;English.04
-#<teacher-two>@islorg.com,Economics.02
-#<teacher-three>@islorg.com,Math.01 A
+#nisha@islorg.com,Economics.02
