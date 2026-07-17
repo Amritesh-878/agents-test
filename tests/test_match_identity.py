@@ -234,6 +234,40 @@ def test_name_fallback_matches_roll_less_student(tmp_path: Path) -> None:
     assert identity_map.entries[0].match_method == "fuzzy_name"
 
 
+def test_concatenated_lowercase_name_recovers_wrong_roll(tmp_path: Path) -> None:
+    audio = make_audio(tmp_path, "audioB_munideepthi_26101735891041.m4a", "B_munideepthi", "2610")
+    manifest = make_manifest(tmp_path, [audio])
+    roster = [
+        RosterEntry(name="Konka Muni Deepthi", roll_no="2612", email=""),
+        RosterEntry(name="Mori Dhruva Jagadishbhai", roll_no="2616", email=""),
+        RosterEntry(name="Ananya Sharma", roll_no="2605", email=""),
+    ]
+
+    identity_map = match_files(manifest, roster, [], ["Ankit Gupta"])
+
+    assert len(identity_map.entries) == 1
+    assert identity_map.entries[0].matched_roll_no == "2612"
+    assert identity_map.entries[0].match_method == "fuzzy_name"
+
+
+def test_concatenated_match_does_not_steal_real_roll_owner(tmp_path: Path) -> None:
+    audios = [
+        make_audio(tmp_path, "audioB_Dhruva_261661735891041.m4a", "B_Dhruva", "2616"),
+        make_audio(tmp_path, "audioA_Lakshmipriya_261631170632.m4a", "A_Lakshmipriya", "2616"),
+    ]
+    manifest = make_manifest(tmp_path, audios)
+    roster = [
+        RosterEntry(name="Mori Dhruva Jagadishbhai", roll_no="2616", email=""),
+        RosterEntry(name="Lakshmipriya R", roll_no="2613", email=""),
+    ]
+
+    identity_map = match_files(manifest, roster, [], ["Ankit Gupta"])
+
+    matched = {e.matched_name: e.matched_roll_no for e in identity_map.entries}
+    assert matched["Mori Dhruva Jagadishbhai"] == "2616"
+    assert matched["Lakshmipriya R"] == "2613"
+
+
 def test_name_fallback_ambiguous_is_left_unmatched(tmp_path: Path) -> None:
     audio = make_audio(tmp_path, "audioA_Disha_no_roll.m4a", "A_Disha", None)
     manifest = make_manifest(tmp_path, [audio])

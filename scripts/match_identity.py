@@ -210,13 +210,32 @@ def _token_eq(a: str, b: str) -> bool:
     return a == b or SequenceMatcher(None, a, b).ratio() >= _NAME_TOKEN_EQ_RATIO
 
 
+def _matches_concatenated(file_token: str, roster_tokens: list[str]) -> bool:
+    if len(file_token) < 5:
+        return False
+    for i in range(len(roster_tokens)):
+        acc = ""
+        for j in range(i, len(roster_tokens)):
+            acc += roster_tokens[j]
+            if len(acc) > len(file_token):
+                break
+            if j > i and acc == file_token:
+                return True
+    return False
+
+
 def _name_score(file_tokens: list[str], roster_name: str) -> float:
     if not file_tokens:
         return 0.0
     roster_tokens = _normalize_plain_tokens(roster_name)
     if not roster_tokens:
         return 0.0
-    matched = sum(1 for ft in file_tokens if any(_token_eq(ft, rt) for rt in roster_tokens))
+    matched = sum(
+        1
+        for ft in file_tokens
+        if any(_token_eq(ft, rt) for rt in roster_tokens)
+        or _matches_concatenated(ft, roster_tokens)
+    )
     return matched / len(file_tokens)
 
 
