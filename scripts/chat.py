@@ -6,7 +6,7 @@ import logging
 import os
 import re
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Literal, Protocol, Sequence
 
@@ -154,11 +154,11 @@ def validate_inputs(args: ChatArgs) -> None:
 
 
 def utc_now() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 def iso_timestamp(value: datetime) -> str:
-    return value.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def slugify(value: str) -> str:
@@ -167,7 +167,7 @@ def slugify(value: str) -> str:
 
 
 def build_session_id(student_id: str, timestamp: datetime) -> str:
-    return f"{timestamp.astimezone(UTC).strftime('%Y%m%dT%H%M%SZ')}-{slugify(student_id)}"
+    return f"{timestamp.astimezone(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{slugify(student_id)}"
 
 
 def build_session_path(save_session_dir: Path, session_id: str) -> Path:
