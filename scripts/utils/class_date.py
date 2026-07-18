@@ -23,7 +23,7 @@ CLASS_DATE_RE = re.compile(
     re.IGNORECASE,
 )
 
-_ACADEMIC_YEAR_RE = re.compile(r"AY(\d{2}|\d{4})-\d{2}", re.IGNORECASE)
+_ACADEMIC_YEAR_RE = re.compile(r"AY\s*(\d{2}|\d{4})-\d{2}", re.IGNORECASE)
 
 _FILENAME_DATE_RE = re.compile(r"(\d{4})_(\d{2})_(\d{2})$")
 

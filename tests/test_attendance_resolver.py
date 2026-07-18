@@ -23,6 +23,10 @@ def test_parse_class_date_derives_year_from_academic_year() -> None:
     assert parse_class_date("Economics.02_AY2025-26_ Supply Function_16 April") == date(2026, 4, 16)
     assert parse_class_date("Math.01_A _AY2025-26_Scaffolding_31 Mar") == date(2026, 3, 31)
     assert parse_class_date("English.04_AY26-27_Cornell Notetaking_29 Jun") == date(2026, 6, 29)
+    assert (
+        parse_class_date("Science.01_A_AY 2026-27_speed vs velocity_08 July")
+        == date(2026, 7, 8)
+    )
 
 
 def test_parse_class_date_requires_both_day_and_academic_year() -> None:

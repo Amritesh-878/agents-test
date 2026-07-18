@@ -26,8 +26,8 @@ OVERVIEW_TOP_K = 12
 
 _SESSION_SUFFIX_RE = re.compile(r"_s(\d+)$", re.IGNORECASE)
 _SUBJECT_TOKEN_RE = re.compile(r"^[A-Za-z]+\.\d+$")
-_AY_TOKEN_RE = re.compile(r"^AY\d{4}-\d{2}$", re.IGNORECASE)
-_AY_SPLIT_RE = re.compile(r"_\s*AY\d{2,4}-\d{2}", re.IGNORECASE)
+_AY_TOKEN_RE = re.compile(r"^AY\s*\d{2,4}-\d{2}$", re.IGNORECASE)
+_AY_SPLIT_RE = re.compile(r"_\s*AY\s*\d{2,4}-\d{2}", re.IGNORECASE)
 
 
 def section_of_class(class_name: str) -> str:

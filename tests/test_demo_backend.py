@@ -175,6 +175,17 @@ def test_section_of_class_math_with_section_letter() -> None:
     )
 
 
+def test_section_of_class_science_spaced_academic_year() -> None:
+    assert (
+        section_of_class("Science.01_A_AY 2026-27_speed vs velocity_08 July")
+        == "Science.01 A"
+    )
+    assert (
+        section_of_class("Science.01_AY 2026-27_Weekly objective_13 July")
+        == "Science.01"
+    )
+
+
 def test_section_of_class_falls_back_to_raw_name() -> None:
     assert section_of_class("weird name") == "weird name"
 
